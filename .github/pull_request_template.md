@@ -14,6 +14,7 @@ Briefly describe the purpose of this PR and the problem it solves.
 
 ## Related issues
 
+<!-- Replace X with the issue number, or remove this line if not applicable -->
 Closes #X
 
 ## Checklist
