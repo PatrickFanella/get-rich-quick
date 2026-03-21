@@ -40,6 +40,9 @@ func NewPipeline(
 	if config.RiskDebateRounds == 0 {
 		config.RiskDebateRounds = 3
 	}
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &Pipeline{
 		nodes:             make(map[Phase][]Node),
 		pipelineRunRepo:   pipelineRunRepo,
@@ -52,6 +55,9 @@ func NewPipeline(
 
 // RegisterNode adds a node to the phase group determined by node.Phase().
 func (p *Pipeline) RegisterNode(node Node) {
+	if p.nodes == nil {
+		p.nodes = make(map[Phase][]Node)
+	}
 	phase := node.Phase()
 	p.nodes[phase] = append(p.nodes[phase], node)
 }
