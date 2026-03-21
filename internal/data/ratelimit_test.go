@@ -68,7 +68,7 @@ func TestRateLimiterWaitBlocksUntilTokenAvailable(t *testing.T) {
 
 func TestRateLimiterWaitHonorsContextCancellation(t *testing.T) {
 	const waitTimeout = 150 * time.Millisecond
-	const cancellationMargin = 250 * time.Millisecond
+	const cancellationMargin = 100 * time.Millisecond
 
 	limiter := data.NewRateLimiter(1, 500*time.Millisecond)
 	if !limiter.TryAcquire() {
