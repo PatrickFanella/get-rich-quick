@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"sync"
+
 	"github.com/google/uuid"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
@@ -47,6 +49,18 @@ type PipelineState struct {
 	// Errors holds internal errors encountered during pipeline execution.
 	// It is intentionally excluded from JSON output via `json:"-"`.
 	Errors []error `json:"-"`
+	// mu protects concurrent writes to AnalystReports during the analysis phase.
+	mu sync.Mutex
+}
+
+// SetAnalystReport stores the analyst report for the given role in a thread-safe manner.
+func (s *PipelineState) SetAnalystReport(role AgentRole, report string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.AnalystReports == nil {
+		s.AnalystReports = make(map[AgentRole]string)
+	}
+	s.AnalystReports[role] = report
 }
 
 // DebateRound stores the contributions made during a single debate round.
