@@ -104,7 +104,11 @@ func (c *Client) Get(ctx context.Context, requestPath string, params url.Values)
 		)
 		return nil, fmt.Errorf("polygon: do request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			c.logger.Warn("polygon: failed to close response body", slog.Any("error", closeErr))
+		}
+	}()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
