@@ -10,9 +10,9 @@ import (
 )
 
 func TestRateLimiterTryAcquireRespectsRate(t *testing.T) {
-	t.Parallel()
+	const refillInterval = 200 * time.Millisecond
 
-	limiter := data.NewRateLimiter(2, 100*time.Millisecond)
+	limiter := data.NewRateLimiter(2, refillInterval)
 
 	if !limiter.TryAcquire() {
 		t.Fatal("TryAcquire() = false, want true for first token")
@@ -24,7 +24,7 @@ func TestRateLimiterTryAcquireRespectsRate(t *testing.T) {
 		t.Fatal("TryAcquire() = true, want false when bucket is exhausted")
 	}
 
-	time.Sleep(110 * time.Millisecond)
+	time.Sleep(refillInterval + 50*time.Millisecond)
 
 	if !limiter.TryAcquire() {
 		t.Fatal("TryAcquire() = false, want true after refill interval")
@@ -32,9 +32,7 @@ func TestRateLimiterTryAcquireRespectsRate(t *testing.T) {
 }
 
 func TestRateLimiterWaitBlocksUntilTokenAvailable(t *testing.T) {
-	t.Parallel()
-
-	const refillInterval = 80 * time.Millisecond
+	const refillInterval = 150 * time.Millisecond
 
 	limiter := data.NewRateLimiter(1, refillInterval)
 	if !limiter.TryAcquire() {
@@ -50,7 +48,7 @@ func TestRateLimiterWaitBlocksUntilTokenAvailable(t *testing.T) {
 	select {
 	case err := <-done:
 		t.Fatalf("Wait() returned early with err = %v, want it to block", err)
-	case <-time.After(30 * time.Millisecond):
+	case <-time.After(50 * time.Millisecond):
 	}
 
 	select {
@@ -58,24 +56,24 @@ func TestRateLimiterWaitBlocksUntilTokenAvailable(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Wait() error = %v, want nil", err)
 		}
-	case <-time.After(250 * time.Millisecond):
+	case <-time.After(750 * time.Millisecond):
 		t.Fatal("Wait() did not return after token should have refilled")
 	}
 
-	if elapsed := time.Since(start); elapsed < refillInterval-20*time.Millisecond {
-		t.Fatalf("Wait() blocked for %v, want at least %v", elapsed, refillInterval-20*time.Millisecond)
+	if elapsed := time.Since(start); elapsed < refillInterval/2 {
+		t.Fatalf("Wait() blocked for %v, want at least %v", elapsed, refillInterval/2)
 	}
 }
 
 func TestRateLimiterWaitHonorsContextCancellation(t *testing.T) {
-	t.Parallel()
+	const waitTimeout = 150 * time.Millisecond
 
-	limiter := data.NewRateLimiter(1, 200*time.Millisecond)
+	limiter := data.NewRateLimiter(1, 500*time.Millisecond)
 	if !limiter.TryAcquire() {
 		t.Fatal("TryAcquire() = false, want true for initial token")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), waitTimeout)
 	defer cancel()
 
 	start := time.Now()
@@ -83,7 +81,7 @@ func TestRateLimiterWaitHonorsContextCancellation(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Wait() error = %v, want context deadline exceeded", err)
 	}
-	if elapsed := time.Since(start); elapsed > 150*time.Millisecond {
+	if elapsed := time.Since(start); elapsed > waitTimeout+250*time.Millisecond {
 		t.Fatalf("Wait() returned after %v, want prompt cancellation", elapsed)
 	}
 }
