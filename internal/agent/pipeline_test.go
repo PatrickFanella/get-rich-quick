@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -595,7 +596,7 @@ func TestExecuteTradingPhase_NoTraderNode(t *testing.T) {
 	}
 
 	wantSubstr := "trading phase requires a trader node"
-	if got := err.Error(); !contains(got, wantSubstr) {
+	if got := err.Error(); !strings.Contains(got, wantSubstr) {
 		t.Errorf("error = %q, want substring %q", got, wantSubstr)
 	}
 }
@@ -684,18 +685,4 @@ func TestExecuteTradingPhase_ContextCancellation(t *testing.T) {
 	if count != 0 {
 		t.Errorf("got %d events, want 0", count)
 	}
-}
-
-// contains reports whether s contains substr (simple helper avoiding strings import).
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && searchSubstr(s, substr)
-}
-
-func searchSubstr(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
