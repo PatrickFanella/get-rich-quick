@@ -21,7 +21,7 @@ jobs:
           sparse-checkout: .github
 
       - name: Update tracker checklist
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const closedNumber = context.payload.issue.number;
@@ -72,7 +72,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Auto-close linked issues
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const body = context.payload.pull_request.body || '';
