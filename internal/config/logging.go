@@ -99,6 +99,6 @@ func (sw *statusWriter) WriteHeader(code int) {
 	if !sw.wroteHeader {
 		sw.status = code
 		sw.wroteHeader = true
+		sw.ResponseWriter.WriteHeader(code)
 	}
-	sw.ResponseWriter.WriteHeader(code)
 }
