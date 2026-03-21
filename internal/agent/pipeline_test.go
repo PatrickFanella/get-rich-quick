@@ -14,11 +14,13 @@ import (
 // mockAnalystNode is a test double for a PhaseAnalysis Node.
 type mockAnalystNode struct {
 	name    string
+	role    AgentRole
 	execute func(ctx context.Context, state *PipelineState) error
 }
 
-func (m *mockAnalystNode) Name() string  { return m.name }
-func (m *mockAnalystNode) Phase() Phase  { return PhaseAnalysis }
+func (m *mockAnalystNode) Name() string    { return m.name }
+func (m *mockAnalystNode) Role() AgentRole { return m.role }
+func (m *mockAnalystNode) Phase() Phase    { return PhaseAnalysis }
 func (m *mockAnalystNode) Execute(ctx context.Context, state *PipelineState) error {
 	return m.execute(ctx, state)
 }
@@ -36,7 +38,8 @@ func TestExecuteAnalysisPhase(t *testing.T) {
 
 	// Node 1: succeeds immediately, writes its report.
 	node1 := &mockAnalystNode{
-		name: string(AgentRoleMarketAnalyst),
+		name: "market_analyst",
+		role: AgentRoleMarketAnalyst,
 		execute: func(_ context.Context, state *PipelineState) error {
 			state.SetAnalystReport(AgentRoleMarketAnalyst, "bullish trend")
 			return nil
@@ -45,7 +48,8 @@ func TestExecuteAnalysisPhase(t *testing.T) {
 
 	// Node 2: succeeds immediately, writes its report.
 	node2 := &mockAnalystNode{
-		name: string(AgentRoleBullResearcher),
+		name: "bull_researcher",
+		role: AgentRoleBullResearcher,
 		execute: func(_ context.Context, state *PipelineState) error {
 			state.SetAnalystReport(AgentRoleBullResearcher, "strong momentum")
 			return nil
@@ -54,7 +58,8 @@ func TestExecuteAnalysisPhase(t *testing.T) {
 
 	// Node 3: slow – blocks indefinitely until its context is cancelled by the timeout.
 	node3 := &mockAnalystNode{
-		name: string(AgentRoleBearResearcher),
+		name: "bear_researcher",
+		role: AgentRoleBearResearcher,
 		execute: func(ctx context.Context, _ *PipelineState) error {
 			select {
 			case <-ctx.Done():
@@ -68,7 +73,8 @@ func TestExecuteAnalysisPhase(t *testing.T) {
 
 	// Node 4: fails immediately with a non-context error.
 	node4 := &mockAnalystNode{
-		name: string(AgentRoleRiskManager),
+		name: "risk_manager",
+		role: AgentRoleRiskManager,
 		execute: func(_ context.Context, _ *PipelineState) error {
 			return errors.New("simulated analyst failure")
 		},
@@ -78,11 +84,16 @@ func TestExecuteAnalysisPhase(t *testing.T) {
 	events := make(chan PipelineEvent, 10)
 
 	pipeline := NewPipeline(
-		[]Node{node1, node2, node3, node4},
+		PipelineConfig{PhaseTimeout: phaseTimeout},
+		nil, // pipelineRunRepo not required for this unit test
+		nil, // agentDecisionRepo not required for this unit test
 		events,
-		phaseTimeout,
 		slog.Default(),
 	)
+	pipeline.RegisterNode(node1)
+	pipeline.RegisterNode(node2)
+	pipeline.RegisterNode(node3)
+	pipeline.RegisterNode(node4)
 
 	state := &PipelineState{
 		PipelineRunID: runID,

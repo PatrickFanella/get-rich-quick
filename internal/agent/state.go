@@ -50,7 +50,8 @@ type PipelineState struct {
 	// It is intentionally excluded from JSON output via `json:"-"`.
 	Errors []error `json:"-"`
 	// mu protects concurrent writes to AnalystReports during the analysis phase.
-	mu sync.Mutex
+	// It is a pointer so that copying PipelineState does not copy a sync.Mutex by value.
+	mu *sync.Mutex
 }
 
 // SetAnalystReport stores the analyst report for the given role in a thread-safe manner.
