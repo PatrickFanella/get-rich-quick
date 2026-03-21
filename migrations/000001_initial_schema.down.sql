@@ -1,5 +1,12 @@
 -- 000001_initial_schema.down.sql
--- Rollback: drop all tables, indexes, partitions, and enum types.
+-- Rollback: drop all tables, indexes, partitions, triggers, functions, and enum types.
+
+-- ============================================================================
+-- DROP TRIGGERS AND FUNCTIONS
+-- ============================================================================
+
+DROP TRIGGER IF EXISTS trg_agent_memories_tsv ON agent_memories;
+DROP FUNCTION IF EXISTS agent_memories_tsv_trigger();
 
 -- ============================================================================
 -- DROP TABLES (order matters due to dependencies)

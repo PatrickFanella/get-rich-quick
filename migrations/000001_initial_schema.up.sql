@@ -105,7 +105,7 @@ CREATE TABLE orders (
     ticker          TEXT         NOT NULL,
     side            trade_side   NOT NULL,
     order_type      order_type   NOT NULL,
-    quantity         NUMERIC(20, 8) NOT NULL,
+    quantity        NUMERIC(20, 8) NOT NULL,
     limit_price     NUMERIC(20, 8),
     stop_price      NUMERIC(20, 8),
     filled_quantity NUMERIC(20, 8) NOT NULL DEFAULT 0,
@@ -159,6 +159,18 @@ CREATE TABLE agent_memories (
     relevance_score  NUMERIC(5, 4),
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Trigger to auto-populate agent_memories.situation_tsv from situation text
+CREATE OR REPLACE FUNCTION agent_memories_tsv_trigger() RETURNS trigger AS $$
+BEGIN
+    NEW.situation_tsv := to_tsvector('english', NEW.situation);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_agent_memories_tsv
+    BEFORE INSERT OR UPDATE OF situation ON agent_memories
+    FOR EACH ROW EXECUTE FUNCTION agent_memories_tsv_trigger();
 
 -- market_data_cache: cached market data from providers
 CREATE TABLE market_data_cache (
