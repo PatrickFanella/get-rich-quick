@@ -80,7 +80,7 @@ func (p *Provider) GetOHLCV(ctx context.Context, ticker string, timeframe data.T
 		"limit":    []string{strconv.Itoa(polygonMaxPageSize)},
 	}
 
-	bars := make([]domain.OHLCV, 0)
+	bars := make([]domain.OHLCV, 0, 128)
 	for {
 		body, err := p.client.Get(ctx, requestPath, params)
 		if err != nil {
@@ -111,10 +111,6 @@ func (p *Provider) GetOHLCV(ctx context.Context, ticker string, timeframe data.T
 		if err != nil {
 			return nil, err
 		}
-	}
-
-	if len(bars) == 0 {
-		return []domain.OHLCV{}, nil
 	}
 
 	return bars, nil

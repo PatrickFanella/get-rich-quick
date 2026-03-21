@@ -17,6 +17,8 @@ import (
 func TestProviderGetOHLCV(t *testing.T) {
 	t.Parallel()
 
+	const expectedRequestCount = 2
+
 	type requestDetails struct {
 		path   string
 		query  url.Values
@@ -25,10 +27,10 @@ func TestProviderGetOHLCV(t *testing.T) {
 
 	from := time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, time.January, 3, 0, 0, 0, 0, time.UTC)
-	firstBarTime := time.Date(2024, time.January, 1, 14, 30, 0, 0, time.UTC)
-	secondBarTime := time.Date(2024, time.January, 2, 14, 30, 0, 0, time.UTC)
+	expectedFirstBarTimestamp := time.Date(2024, time.January, 1, 14, 30, 0, 0, time.UTC)
+	expectedSecondBarTimestamp := time.Date(2024, time.January, 2, 14, 30, 0, 0, time.UTC)
 
-	requests := make(chan requestDetails, 2)
+	requests := make(chan requestDetails, expectedRequestCount)
 	var serverURL string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests <- requestDetails{
@@ -70,7 +72,7 @@ func TestProviderGetOHLCV(t *testing.T) {
 
 	want := []domain.OHLCV{
 		{
-			Timestamp: firstBarTime,
+			Timestamp: expectedFirstBarTimestamp,
 			Open:      100.5,
 			High:      110.25,
 			Low:       99.5,
@@ -78,7 +80,7 @@ func TestProviderGetOHLCV(t *testing.T) {
 			Volume:    1234,
 		},
 		{
-			Timestamp: secondBarTime,
+			Timestamp: expectedSecondBarTimestamp,
 			Open:      106,
 			High:      112,
 			Low:       104.5,
@@ -91,7 +93,7 @@ func TestProviderGetOHLCV(t *testing.T) {
 	}
 
 	var captured []requestDetails
-	for range 2 {
+	for range expectedRequestCount {
 		select {
 		case request := <-requests:
 			captured = append(captured, request)
