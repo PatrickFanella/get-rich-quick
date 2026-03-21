@@ -33,6 +33,7 @@ func TestRateLimiterTryAcquireRespectsRate(t *testing.T) {
 
 func TestRateLimiterWaitBlocksUntilTokenAvailable(t *testing.T) {
 	const refillInterval = 150 * time.Millisecond
+	const minimumBlock = refillInterval - 40*time.Millisecond
 
 	limiter := data.NewRateLimiter(1, refillInterval)
 	if !limiter.TryAcquire() {
@@ -60,8 +61,8 @@ func TestRateLimiterWaitBlocksUntilTokenAvailable(t *testing.T) {
 		t.Fatal("Wait() did not return after token should have refilled")
 	}
 
-	if elapsed := time.Since(start); elapsed < refillInterval/2 {
-		t.Fatalf("Wait() blocked for %v, want at least %v", elapsed, refillInterval/2)
+	if elapsed := time.Since(start); elapsed < minimumBlock {
+		t.Fatalf("Wait() blocked for %v, want at least %v", elapsed, minimumBlock)
 	}
 }
 
