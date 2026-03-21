@@ -90,13 +90,28 @@ jobs:
               ];
               if (skipNames.includes(checkRun.name)) continue;
 
-              // Check if there are outstanding review comments that haven't
-              // been addressed yet. If so, wait — Copilot should fix review
-              // comments first (which may also fix the CI failure).
+              // ── Gate: wait for review before acting on CI failures ──
+              //
+              // Flow:
+              // 1. No review yet?           → WAIT for auto-review.
+              // 2. Review has comments, not yet sent to Copilot? → WAIT for review handler.
+              // 3. Review comments sent, not yet addressed?      → WAIT for Copilot push.
+              // 4. Review comments addressed but CI still fails? → ASK Copilot to fix CI.
+              // 5. Review clean (no inline comments)?            → ASK Copilot to fix CI.
+
               const reviews = await github.rest.pulls.listReviews({
                 ...context.repo,
                 pull_number: prRef.number,
               });
+
+              // Gate 1: No review submitted yet — wait for auto-review
+              if (reviews.data.length === 0) {
+                core.info(
+                  `CI failure on PR #${prRef.number} but no review has been ` +
+                  `submitted yet. Waiting for Copilot auto-review.`
+                );
+                continue;
+              }
 
               const reviewComments = await github.rest.pulls.listReviewComments({
                 ...context.repo,
@@ -104,7 +119,6 @@ jobs:
                 per_page: 100,
               });
 
-              // Check if we've already asked Copilot to address review comments
               const prComments = await github.rest.issues.listComments({
                 ...context.repo,
                 issue_number: prRef.number,
