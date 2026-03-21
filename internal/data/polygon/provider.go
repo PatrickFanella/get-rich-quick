@@ -52,6 +52,9 @@ func (p *Provider) GetOHLCV(ctx context.Context, ticker string, timeframe data.T
 	if p == nil {
 		return nil, errors.New("polygon: provider is nil")
 	}
+	if p.client == nil {
+		return nil, errors.New("polygon: client is nil")
+	}
 
 	ticker = strings.TrimSpace(ticker)
 	if ticker == "" {
@@ -74,11 +77,12 @@ func (p *Provider) GetOHLCV(ctx context.Context, ticker string, timeframe data.T
 		from.UTC().UnixMilli(),
 		to.UTC().UnixMilli(),
 	)
-	params := url.Values{
+	baseParams := url.Values{
 		"adjusted": []string{"true"},
 		"sort":     []string{"asc"},
 		"limit":    []string{strconv.Itoa(polygonMaxPageSize)},
 	}
+	params := cloneQueryValues(baseParams)
 
 	bars := make([]domain.OHLCV, 0, 128)
 	for {
@@ -107,7 +111,7 @@ func (p *Provider) GetOHLCV(ctx context.Context, ticker string, timeframe data.T
 			break
 		}
 
-		requestPath, params, err = nextPageRequest(response.NextURL)
+		requestPath, params, err = nextPageRequest(response.NextURL, baseParams)
 		if err != nil {
 			return nil, err
 		}
@@ -148,14 +152,28 @@ func mapTimeframe(timeframe data.Timeframe) (timeframeMapping, error) {
 	}
 }
 
-func nextPageRequest(nextURL string) (string, url.Values, error) {
+func nextPageRequest(nextURL string, baseParams url.Values) (string, url.Values, error) {
 	parsedURL, err := url.Parse(strings.TrimSpace(nextURL))
 	if err != nil {
 		return "", nil, fmt.Errorf("polygon: parse next url: %w", err)
 	}
 
-	params := parsedURL.Query()
+	params := cloneQueryValues(baseParams)
+	for key, values := range parsedURL.Query() {
+		params.Del(key)
+		for _, value := range values {
+			params.Add(key, value)
+		}
+	}
 	params.Del("apiKey")
 
 	return parsedURL.Path, params, nil
+}
+
+func cloneQueryValues(values url.Values) url.Values {
+	cloned := make(url.Values, len(values))
+	for key, entries := range values {
+		cloned[key] = append([]string(nil), entries...)
+	}
+	return cloned
 }

@@ -140,6 +140,15 @@ func TestProviderGetOHLCV(t *testing.T) {
 	if secondRequest.query.Get("cursor") != "page-2" {
 		t.Fatalf("second request cursor = %q, want page-2", secondRequest.query.Get("cursor"))
 	}
+	if secondRequest.query.Get("adjusted") != "true" {
+		t.Fatalf("second request adjusted = %q, want true", secondRequest.query.Get("adjusted"))
+	}
+	if secondRequest.query.Get("sort") != "asc" {
+		t.Fatalf("second request sort = %q, want asc", secondRequest.query.Get("sort"))
+	}
+	if secondRequest.query.Get("limit") != "50000" {
+		t.Fatalf("second request limit = %q, want 50000", secondRequest.query.Get("limit"))
+	}
 	if secondRequest.query.Get("apiKey") != "test-key" {
 		t.Fatalf("second request apiKey = %q, want test-key", secondRequest.query.Get("apiKey"))
 	}
@@ -216,5 +225,25 @@ func TestProviderGetOHLCVEmptyResults(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("GetOHLCV() len = %d, want 0", len(got))
+	}
+}
+
+func TestProviderGetOHLCVReturnsErrorForNilClient(t *testing.T) {
+	t.Parallel()
+
+	provider := NewProvider(nil)
+
+	_, err := provider.GetOHLCV(
+		context.Background(),
+		"AAPL",
+		data.Timeframe1d,
+		time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2024, time.January, 2, 0, 0, 0, 0, time.UTC),
+	)
+	if err == nil {
+		t.Fatal("GetOHLCV() error = nil, want non-nil")
+	}
+	if err.Error() != "polygon: client is nil" {
+		t.Fatalf("GetOHLCV() error = %q, want %q", err.Error(), "polygon: client is nil")
 	}
 }
