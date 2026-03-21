@@ -181,6 +181,23 @@ func TestProviderChainGetSocialSentimentNoProviders(t *testing.T) {
 	}
 }
 
+func TestProviderChainNilLoggerDoesNotPanic(t *testing.T) {
+	// Passing nil logger must not panic when a provider fails and the chain logs.
+	chain := data.NewProviderChain(
+		nil,
+		&stubProvider{ohlcvErr: errProviderFailed},
+		&stubProvider{ohlcv: []domain.OHLCV{{Open: 1}}},
+	)
+
+	got, err := chain.GetOHLCV(context.Background(), "AAPL", data.Timeframe1d, time.Now(), time.Now())
+	if err != nil {
+		t.Fatalf("GetOHLCV() with nil logger error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("GetOHLCV() with nil logger len = %d, want 1", len(got))
+	}
+}
+
 func TestTimeframeString(t *testing.T) {
 	tests := []struct {
 		tf   data.Timeframe

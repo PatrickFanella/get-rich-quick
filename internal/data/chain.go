@@ -20,8 +20,11 @@ type ProviderChain struct {
 }
 
 // NewProviderChain constructs a ProviderChain from an ordered list of providers.
-// Providers are tried in the order they are given.
+// Providers are tried in the order they are given. If logger is nil, slog.Default() is used.
 func NewProviderChain(logger *slog.Logger, providers ...DataProvider) *ProviderChain {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &ProviderChain{
 		providers: providers,
 		logger:    logger,
