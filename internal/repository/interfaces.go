@@ -27,6 +27,13 @@ type PipelineRunFilter struct {
 	StartedBefore *time.Time
 }
 
+// PipelineRunStatusUpdate defines the fields that may change when updating run status.
+type PipelineRunStatusUpdate struct {
+	Status       domain.PipelineStatus
+	CompletedAt  *time.Time
+	ErrorMessage string
+}
+
 // AgentDecisionFilter defines supported filters when retrieving agent decisions.
 type AgentDecisionFilter struct {
 	AgentRole   domain.AgentRole
@@ -111,7 +118,7 @@ type PipelineRunRepository interface {
 	Create(ctx context.Context, run *domain.PipelineRun) error
 	Get(ctx context.Context, id uuid.UUID) (*domain.PipelineRun, error)
 	List(ctx context.Context, filter PipelineRunFilter, limit, offset int) ([]domain.PipelineRun, error)
-	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.PipelineStatus, completedAt *time.Time, errorMessage string) error
+	UpdateStatus(ctx context.Context, id uuid.UUID, update PipelineRunStatusUpdate) error
 }
 
 // AgentDecisionRepository provides access to agent decisions created during a run.
@@ -152,6 +159,7 @@ type TradeRepository interface {
 // MemoryRepository provides storage and retrieval for agent memories.
 type MemoryRepository interface {
 	Create(ctx context.Context, memory *domain.AgentMemory) error
+	// Search performs full-text search over stored memories using the provided query and filters.
 	Search(ctx context.Context, query string, filter MemorySearchFilter, limit, offset int) ([]domain.AgentMemory, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 }
@@ -159,6 +167,7 @@ type MemoryRepository interface {
 // MarketDataCacheRepository provides access to cached market data.
 type MarketDataCacheRepository interface {
 	Get(ctx context.Context, key MarketDataCacheKey) (*domain.MarketData, error)
+	// Set stores a cache entry using the expiry already carried on domain.MarketData.ExpiresAt.
 	Set(ctx context.Context, data *domain.MarketData) error
 	Expire(ctx context.Context, filter MarketDataCacheExpireFilter) error
 }
