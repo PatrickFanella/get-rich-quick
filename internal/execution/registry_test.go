@@ -36,7 +36,7 @@ func TestRegistryRegisterAndResolve(t *testing.T) {
 	stockBroker := stubBroker{}
 	cryptoBroker := stubBroker{}
 
-	if err := registry.Register(" Stock ", stockBroker); err != nil {
+	if err := registry.Register(domain.MarketTypeStock, stockBroker); err != nil {
 		t.Fatalf("Register(stock) error = %v", err)
 	}
 	if err := registry.Register(domain.MarketTypeCrypto, cryptoBroker); err != nil {
