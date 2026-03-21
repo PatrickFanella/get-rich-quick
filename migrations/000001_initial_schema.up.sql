@@ -2,11 +2,18 @@
 -- Initial database schema for get-rich-quick trading agent platform.
 
 -- ============================================================================
+-- EXTENSIONS
+-- ============================================================================
+
+-- Ensures gen_random_uuid() is available on PostgreSQL < 13.
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- ============================================================================
 -- ENUM TYPES
+-- Values must stay aligned with Go domain constants in internal/domain/.
 -- ============================================================================
 
 CREATE TYPE pipeline_status AS ENUM (
-    'pending',
     'running',
     'completed',
     'failed',
@@ -19,8 +26,7 @@ CREATE TYPE order_status AS ENUM (
     'partial',
     'filled',
     'cancelled',
-    'rejected',
-    'expired'
+    'rejected'
 );
 
 CREATE TYPE trade_side AS ENUM (
@@ -38,9 +44,12 @@ CREATE TYPE order_type AS ENUM (
 CREATE TYPE market_type AS ENUM (
     'stock',
     'crypto',
-    'forex',
-    'options',
-    'futures'
+    'polymarket'
+);
+
+CREATE TYPE position_side AS ENUM (
+    'long',
+    'short'
 );
 
 -- ============================================================================
@@ -62,30 +71,34 @@ CREATE TABLE strategies (
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- pipeline_runs: individual pipeline execution records, partitioned by month
+-- pipeline_runs: individual pipeline execution records, partitioned by month.
+-- Note: Because the PK includes the partition key (trade_date), other tables
+-- store only pipeline_run_id without a formal FK. Referential integrity for
+-- pipeline_run_id is enforced at the application layer.
 CREATE TABLE pipeline_runs (
     id              UUID            NOT NULL DEFAULT gen_random_uuid(),
     strategy_id     UUID            NOT NULL,
     ticker          TEXT            NOT NULL,
     trade_date      DATE            NOT NULL,
-    status          pipeline_status NOT NULL DEFAULT 'pending',
-    signal          TEXT,
-    started_at      TIMESTAMPTZ,
+    status          pipeline_status NOT NULL DEFAULT 'running',
+    signal          TEXT            NOT NULL DEFAULT '',
+    started_at      TIMESTAMPTZ     NOT NULL,
     completed_at    TIMESTAMPTZ,
-    error_message   TEXT,
+    error_message   TEXT            NOT NULL DEFAULT '',
     config_snapshot JSONB,
     PRIMARY KEY (id, trade_date)
 ) PARTITION BY RANGE (trade_date);
 
--- agent_decisions: LLM agent decision logs, partitioned by date
+-- agent_decisions: LLM agent decision logs, partitioned by date.
+-- Same FK caveat as pipeline_runs: pipeline_run_id has no formal FK.
 CREATE TABLE agent_decisions (
     id                UUID        NOT NULL DEFAULT gen_random_uuid(),
     pipeline_run_id   UUID        NOT NULL,
     agent_role        TEXT        NOT NULL,
     phase             TEXT        NOT NULL,
-    round_number      INT         NOT NULL DEFAULT 1,
+    round_number      INT,
     input_summary     TEXT,
-    output_text       TEXT,
+    output_text       TEXT        NOT NULL,
     output_structured JSONB,
     llm_provider      TEXT,
     llm_model         TEXT,
@@ -98,31 +111,31 @@ CREATE TABLE agent_decisions (
 
 -- orders: broker order records
 CREATE TABLE orders (
-    id              UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
-    strategy_id     UUID         NOT NULL,
-    pipeline_run_id UUID,
-    external_id     TEXT,
-    ticker          TEXT         NOT NULL,
-    side            trade_side   NOT NULL,
-    order_type      order_type   NOT NULL,
-    quantity        NUMERIC(20, 8) NOT NULL,
-    limit_price     NUMERIC(20, 8),
-    stop_price      NUMERIC(20, 8),
-    filled_quantity NUMERIC(20, 8) NOT NULL DEFAULT 0,
+    id               UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    strategy_id      UUID         REFERENCES strategies (id),
+    pipeline_run_id  UUID,
+    external_id      TEXT,
+    ticker           TEXT         NOT NULL,
+    side             trade_side   NOT NULL,
+    order_type       order_type   NOT NULL,
+    quantity         NUMERIC(20, 8) NOT NULL,
+    limit_price      NUMERIC(20, 8),
+    stop_price       NUMERIC(20, 8),
+    filled_quantity  NUMERIC(20, 8) NOT NULL DEFAULT 0,
     filled_avg_price NUMERIC(20, 8),
-    status          order_status NOT NULL DEFAULT 'pending',
-    broker          TEXT,
-    submitted_at    TIMESTAMPTZ,
-    filled_at       TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    status           order_status NOT NULL DEFAULT 'pending',
+    broker           TEXT,
+    submitted_at     TIMESTAMPTZ,
+    filled_at        TIMESTAMPTZ,
+    created_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
 -- positions: current and historical position tracking
 CREATE TABLE positions (
     id              UUID           PRIMARY KEY DEFAULT gen_random_uuid(),
-    strategy_id     UUID           NOT NULL,
+    strategy_id     UUID           REFERENCES strategies (id),
     ticker          TEXT           NOT NULL,
-    side            trade_side     NOT NULL,
+    side            position_side  NOT NULL,
     quantity        NUMERIC(20, 8) NOT NULL,
     avg_entry       NUMERIC(20, 8) NOT NULL,
     current_price   NUMERIC(20, 8),
@@ -137,14 +150,15 @@ CREATE TABLE positions (
 -- trades: individual fill/execution records
 CREATE TABLE trades (
     id          UUID           PRIMARY KEY DEFAULT gen_random_uuid(),
-    order_id    UUID           NOT NULL,
-    position_id UUID,
+    order_id    UUID           REFERENCES orders (id),
+    position_id UUID           REFERENCES positions (id),
     ticker      TEXT           NOT NULL,
     side        trade_side     NOT NULL,
     quantity    NUMERIC(20, 8) NOT NULL,
     price       NUMERIC(20, 8) NOT NULL,
     fee         NUMERIC(20, 8) NOT NULL DEFAULT 0,
-    executed_at TIMESTAMPTZ    NOT NULL DEFAULT NOW()
+    executed_at TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
+    created_at  TIMESTAMPTZ    NOT NULL DEFAULT NOW()
 );
 
 -- agent_memories: semantic memory store for agents
@@ -153,7 +167,7 @@ CREATE TABLE agent_memories (
     agent_role       TEXT        NOT NULL,
     situation        TEXT        NOT NULL,
     situation_tsv    TSVECTOR,
-    recommendation   TEXT,
+    recommendation   TEXT        NOT NULL DEFAULT '',
     outcome          TEXT,
     pipeline_run_id  UUID,
     relevance_score  NUMERIC(5, 4),
@@ -199,11 +213,31 @@ CREATE TABLE audit_log (
 ) PARTITION BY RANGE (created_at);
 
 -- ============================================================================
--- DEFAULT PARTITIONS (catch-all for data outside explicitly created ranges)
+-- PARTITIONS
+-- Default partitions catch rows outside explicitly created ranges.
+-- Initial quarterly partitions are provided for the current period; add more
+-- via follow-up migrations or an automated partition-management job.
 -- ============================================================================
 
+-- pipeline_runs: monthly partitions
+CREATE TABLE pipeline_runs_2026_q1 PARTITION OF pipeline_runs
+    FOR VALUES FROM ('2026-01-01') TO ('2026-04-01');
+CREATE TABLE pipeline_runs_2026_q2 PARTITION OF pipeline_runs
+    FOR VALUES FROM ('2026-04-01') TO ('2026-07-01');
 CREATE TABLE pipeline_runs_default PARTITION OF pipeline_runs DEFAULT;
+
+-- agent_decisions: quarterly partitions
+CREATE TABLE agent_decisions_2026_q1 PARTITION OF agent_decisions
+    FOR VALUES FROM ('2026-01-01') TO ('2026-04-01');
+CREATE TABLE agent_decisions_2026_q2 PARTITION OF agent_decisions
+    FOR VALUES FROM ('2026-04-01') TO ('2026-07-01');
 CREATE TABLE agent_decisions_default PARTITION OF agent_decisions DEFAULT;
+
+-- audit_log: quarterly partitions
+CREATE TABLE audit_log_2026_q1 PARTITION OF audit_log
+    FOR VALUES FROM ('2026-01-01') TO ('2026-04-01');
+CREATE TABLE audit_log_2026_q2 PARTITION OF audit_log
+    FOR VALUES FROM ('2026-04-01') TO ('2026-07-01');
 CREATE TABLE audit_log_default PARTITION OF audit_log DEFAULT;
 
 -- ============================================================================
