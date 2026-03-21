@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -208,7 +209,7 @@ func TestPositionRepoIntegration_CreateGetUpdateDelete(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected Get() after Delete to return an error")
 	}
-	if !strings.Contains(err.Error(), ErrNotFound.Error()) {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound after Delete, got %v", err)
 	}
 }
@@ -226,7 +227,7 @@ func TestPositionRepoIntegration_GetNotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected Get() with unknown ID to return an error")
 	}
-	if !strings.Contains(err.Error(), ErrNotFound.Error()) {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
@@ -250,7 +251,7 @@ func TestPositionRepoIntegration_UpdateNotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected Update() with unknown ID to return an error")
 	}
-	if !strings.Contains(err.Error(), ErrNotFound.Error()) {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
@@ -268,7 +269,7 @@ func TestPositionRepoIntegration_DeleteNotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected Delete() with unknown ID to return an error")
 	}
-	if !strings.Contains(err.Error(), ErrNotFound.Error()) {
+	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
