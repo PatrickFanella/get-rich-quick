@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	// DefaultBaseURL is the default Ollama server address.
-	DefaultBaseURL = "http://localhost:11434"
+	// DefaultBaseURL is the default Ollama server address including the /v1 path
+	// prefix required by Ollama's OpenAI-compatible chat completions endpoint.
+	DefaultBaseURL = "http://localhost:11434/v1"
 
 	// ModelLlama3 is the default Llama 3 model served by Ollama.
 	ModelLlama3 = "llama3.2"

@@ -21,8 +21,8 @@ func TestCompleteUsesConfiguredModelAndTracksUsage(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("request method = %s, want %s", r.Method, http.MethodPost)
 		}
-		if r.URL.Path != "/chat/completions" {
-			t.Fatalf("request path = %s, want /chat/completions", r.URL.Path)
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("request path = %s, want /v1/chat/completions", r.URL.Path)
 		}
 
 		var requestBody map[string]any
@@ -51,7 +51,7 @@ func TestCompleteUsesConfiguredModelAndTracksUsage(t *testing.T) {
 	defer server.Close()
 
 	provider, err := ollamaprovider.NewProvider(ollamaprovider.Config{
-		BaseURL: server.URL,
+		BaseURL: server.URL + "/v1",
 		Model:   ollamaprovider.ModelLlama3,
 	})
 	if err != nil {
@@ -117,15 +117,57 @@ func TestCompleteUsesConfiguredModelAndTracksUsage(t *testing.T) {
 func TestCompleteUsesDefaultBaseURL(t *testing.T) {
 	t.Parallel()
 
-	// When no BaseURL is configured, NewProvider should use DefaultBaseURL without error.
+	// Verify that DefaultBaseURL includes the /v1 path required by Ollama's
+	// OpenAI-compatible endpoint, and that a provider configured with it routes
+	// requests to /v1/chat/completions.
+	pathChannel := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pathChannel <- r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"chatcmpl-def",
+			"object":"chat.completion",
+			"created":1730000003,
+			"model":"llama3.2",
+			"choices":[
+				{
+					"index":0,
+					"finish_reason":"stop",
+					"logprobs":null,
+					"message":{"role":"assistant","content":"ok","refusal":""}
+				}
+			],
+			"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+		}`))
+	}))
+	defer server.Close()
+
+	// Substitute the test server host while preserving the /v1 path from
+	// DefaultBaseURL to confirm the constant carries the correct path prefix.
+	if !strings.HasSuffix(ollamaprovider.DefaultBaseURL, "/v1") {
+		t.Fatalf("DefaultBaseURL = %q, must end with /v1 for Ollama's OpenAI-compatible endpoint", ollamaprovider.DefaultBaseURL)
+	}
+	baseURL := server.URL + "/v1"
+
 	provider, err := ollamaprovider.NewProvider(ollamaprovider.Config{
-		Model: ollamaprovider.ModelLlama3,
+		BaseURL: baseURL,
+		Model:   ollamaprovider.ModelLlama3,
 	})
 	if err != nil {
-		t.Fatalf("NewProvider() with empty BaseURL error = %v", err)
+		t.Fatalf("NewProvider() error = %v", err)
 	}
-	if provider == nil {
-		t.Fatal("NewProvider() returned nil provider")
+
+	_, err = provider.Complete(context.Background(), llm.CompletionRequest{
+		Messages: []llm.Message{
+			{Role: "user", Content: "hello"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+
+	if path := <-pathChannel; path != "/v1/chat/completions" {
+		t.Fatalf("request path = %s, want /v1/chat/completions", path)
 	}
 }
 
