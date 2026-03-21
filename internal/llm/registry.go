@@ -49,7 +49,15 @@ func (r *Registry) Register(name string, provider Provider, models map[ModelTier
 
 	copiedModels := make(map[ModelTier]string, len(models))
 	for tier, model := range models {
-		copiedModels[tier] = strings.TrimSpace(model)
+		trimmedModel := strings.TrimSpace(model)
+		if trimmedModel == "" {
+			return fmt.Errorf("llm model name is required for tier %s", tier)
+		}
+
+		copiedModels[tier] = trimmedModel
+	}
+	if len(copiedModels) == 0 {
+		return errors.New("llm models are required")
 	}
 
 	r.mu.Lock()

@@ -2,7 +2,9 @@ package llm_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/llm"
@@ -109,5 +111,76 @@ func TestRegistryGetReturnsCopyOfModels(t *testing.T) {
 	}
 	if model != "gemini-2.5-flash" {
 		t.Errorf("Resolve() model after mutation = %q, want %q", model, "gemini-2.5-flash")
+	}
+}
+
+func TestRegistryRegisterRejectsBlankOrMissingModels(t *testing.T) {
+	tests := []struct {
+		name   string
+		models map[llm.ModelTier]string
+		want   string
+	}{
+		{
+			name:   "missing models",
+			models: nil,
+			want:   "llm models are required",
+		},
+		{
+			name: "blank model",
+			models: map[llm.ModelTier]string{
+				llm.ModelTierQuickThink: "   ",
+			},
+			want: "llm model name is required for tier quick_think",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			registry := llm.NewRegistry()
+
+			err := registry.Register("openai", stubProvider{}, tc.models)
+			if err == nil {
+				t.Fatal("Register() error = nil, want non-nil")
+			}
+			if err.Error() != tc.want {
+				t.Fatalf("Register() error = %q, want %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+func TestCompletionRequestJSONOmitsResponseFormatWhenUnset(t *testing.T) {
+	payload, err := json.Marshal(llm.CompletionRequest{
+		Model: "gpt-5-mini",
+		Messages: []llm.Message{
+			{Role: "user", Content: "hello"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	if strings.Contains(string(payload), "response_format") {
+		t.Fatalf("json payload = %s, want response_format omitted", payload)
+	}
+}
+
+func TestCompletionResponseJSONUsesLatencyMS(t *testing.T) {
+	payload, err := json.Marshal(llm.CompletionResponse{
+		Content:   "done",
+		Usage:     llm.CompletionUsage{PromptTokens: 10, CompletionTokens: 5},
+		Model:     "gpt-5-mini",
+		LatencyMS: 1234,
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	serialized := string(payload)
+	if !strings.Contains(serialized, `"latency_ms":1234`) {
+		t.Fatalf("json payload = %s, want latency_ms field", payload)
+	}
+	if strings.Contains(serialized, `"latency":`) {
+		t.Fatalf("json payload = %s, want latency field omitted", payload)
 	}
 }

@@ -1,9 +1,6 @@
 package llm
 
-import (
-	"encoding/json"
-	"time"
-)
+import "encoding/json"
 
 // ModelTier identifies the level of reasoning required for a request.
 type ModelTier string
@@ -47,11 +44,11 @@ type ResponseFormat struct {
 
 // CompletionRequest captures the provider-agnostic input required for a chat completion.
 type CompletionRequest struct {
-	Model          string         `json:"model,omitempty"`
-	Messages       []Message      `json:"messages"`
-	Temperature    float64        `json:"temperature,omitempty"`
-	MaxTokens      int            `json:"max_tokens,omitempty"`
-	ResponseFormat ResponseFormat `json:"response_format,omitempty"`
+	Model          string          `json:"model,omitempty"`
+	Messages       []Message       `json:"messages"`
+	Temperature    float64         `json:"temperature,omitempty"`
+	MaxTokens      int             `json:"max_tokens,omitempty"`
+	ResponseFormat *ResponseFormat `json:"response_format,omitempty"`
 }
 
 // CompletionUsage tracks token counts returned by the provider.
@@ -62,8 +59,8 @@ type CompletionUsage struct {
 
 // CompletionResponse captures the provider-agnostic result of a chat completion.
 type CompletionResponse struct {
-	Content string          `json:"content"`
-	Usage   CompletionUsage `json:"usage"`
-	Model   string          `json:"model,omitempty"`
-	Latency time.Duration   `json:"latency"`
+	Content   string          `json:"content"`
+	Usage     CompletionUsage `json:"usage"`
+	Model     string          `json:"model,omitempty"`
+	LatencyMS int             `json:"latency_ms,omitempty"`
 }
