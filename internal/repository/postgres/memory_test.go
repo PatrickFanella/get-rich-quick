@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -138,6 +139,20 @@ func TestBuildSearchQuery_FTS_AllFilters(t *testing.T) {
 	assertContains(t, query, "ORDER BY rank DESC, created_at DESC")
 }
 
+func TestBuildSearchQuery_WhitespaceOnlyQuery(t *testing.T) {
+	query, args := buildSearchQuery("   ", repository.MemorySearchFilter{}, 10, 0)
+
+	// Whitespace-only query should behave like an empty query: no FTS.
+	if len(args) != 2 {
+		t.Fatalf("expected 2 args (limit, offset), got %d", len(args))
+	}
+
+	assertNotContains(t, query, "situation_tsv")
+	assertNotContains(t, query, "rank")
+	assertContains(t, query, "ORDER BY created_at DESC")
+	assertContains(t, query, "LIMIT $1 OFFSET $2")
+}
+
 // ---------------------------------------------------------------------------
 // Unit test – nilIfEmpty
 // ---------------------------------------------------------------------------
@@ -206,8 +221,10 @@ func TestMemoryRepoIntegration_CreateAndSearch(t *testing.T) {
 	if results[0].ID != m1.ID {
 		t.Errorf("expected first result to be m1 (ID=%s), got ID=%s", m1.ID, results[0].ID)
 	}
-	if results[0].RelevanceScore == nil || *results[0].RelevanceScore <= 0 {
-		t.Error("expected positive relevance score for FTS result")
+	// m1 was created without a stored relevance_score; RelevanceScore
+	// reflects the stored column, not the ts_rank used for ordering.
+	if results[0].RelevanceScore != nil {
+		t.Errorf("expected nil RelevanceScore (no stored value), got %v", *results[0].RelevanceScore)
 	}
 
 	// Verify full round-trip on m1.
@@ -297,6 +314,22 @@ func TestMemoryRepoIntegration_Delete(t *testing.T) {
 	}
 	if len(results) != 0 {
 		t.Errorf("expected 0 results after delete, got %d", len(results))
+	}
+}
+
+func TestMemoryRepoIntegration_DeleteUnknownID(t *testing.T) {
+	ctx := context.Background()
+	pool, cleanup := newMemoryIntegrationPool(t, ctx)
+	defer cleanup()
+
+	repo := NewMemoryRepo(pool)
+
+	err := repo.Delete(ctx, uuid.New())
+	if err == nil {
+		t.Fatal("expected error when deleting unknown ID, got nil")
+	}
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 
@@ -471,10 +504,11 @@ func TestMemoryRepoIntegration_FTSRelevanceRanking(t *testing.T) {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
 
-	// Both results should have a positive relevance score.
+	// Both memories were created without a stored relevance_score, so
+	// RelevanceScore should be nil (ts_rank is used only for ordering).
 	for i, r := range results {
-		if r.RelevanceScore == nil || *r.RelevanceScore <= 0 {
-			t.Errorf("result[%d]: expected positive relevance score, got %v", i, r.RelevanceScore)
+		if r.RelevanceScore != nil {
+			t.Errorf("result[%d]: expected nil RelevanceScore (no stored value), got %v", i, *r.RelevanceScore)
 		}
 	}
 

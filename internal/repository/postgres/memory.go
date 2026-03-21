@@ -56,7 +56,8 @@ func (r *MemoryRepo) Create(ctx context.Context, memory *domain.AgentMemory) err
 // by ts_rank against the situation_tsv column. An empty query returns all
 // memories matching the filter, ordered by created_at DESC.
 func (r *MemoryRepo) Search(ctx context.Context, query string, filter repository.MemorySearchFilter, limit, offset int) ([]domain.AgentMemory, error) {
-	sqlQuery, args := buildSearchQuery(query, filter, limit, offset)
+	trimmedQuery := strings.TrimSpace(query)
+	sqlQuery, args := buildSearchQuery(trimmedQuery, filter, limit, offset)
 
 	rows, err := r.pool.Query(ctx, sqlQuery, args...)
 	if err != nil {
@@ -66,7 +67,7 @@ func (r *MemoryRepo) Search(ctx context.Context, query string, filter repository
 
 	var memories []domain.AgentMemory
 	for rows.Next() {
-		m, err := scanAgentMemory(rows, query != "")
+		m, err := scanAgentMemory(rows, trimmedQuery != "")
 		if err != nil {
 			return nil, fmt.Errorf("postgres: search agent memories scan: %w", err)
 		}
@@ -80,11 +81,15 @@ func (r *MemoryRepo) Search(ctx context.Context, query string, filter repository
 	return memories, nil
 }
 
-// Delete removes an agent memory by its ID.
+// Delete removes an agent memory by its ID. It returns ErrNotFound when no row
+// matches.
 func (r *MemoryRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.pool.Exec(ctx, `DELETE FROM agent_memories WHERE id = $1`, id)
+	tag, err := r.pool.Exec(ctx, `DELETE FROM agent_memories WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("postgres: delete agent memory: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("postgres: delete agent memory %s: %w", id, ErrNotFound)
 	}
 	return nil
 }
@@ -94,8 +99,8 @@ func (r *MemoryRepo) Delete(ctx context.Context, id uuid.UUID) error {
 // ---------------------------------------------------------------------------
 
 // scanAgentMemory scans a single row into an AgentMemory. When withRank is
-// true, an extra ts_rank float64 column is expected and mapped onto
-// RelevanceScore.
+// true, an extra ts_rank float64 column is expected and consumed (used only
+// for ordering). RelevanceScore always reflects the stored column value.
 func scanAgentMemory(sc scanner, withRank bool) (*domain.AgentMemory, error) {
 	var (
 		m              domain.AgentMemory
@@ -106,7 +111,7 @@ func scanAgentMemory(sc scanner, withRank bool) (*domain.AgentMemory, error) {
 
 	var err error
 	if withRank {
-		var rank float64
+		var rank float64 // consumed for ordering; not mapped onto the domain struct
 		err = sc.Scan(
 			&m.ID,
 			&m.AgentRole,
@@ -118,9 +123,6 @@ func scanAgentMemory(sc scanner, withRank bool) (*domain.AgentMemory, error) {
 			&m.CreatedAt,
 			&rank,
 		)
-		if err == nil {
-			m.RelevanceScore = &rank
-		}
 	} else {
 		err = sc.Scan(
 			&m.ID,
@@ -132,9 +134,6 @@ func scanAgentMemory(sc scanner, withRank bool) (*domain.AgentMemory, error) {
 			&relevanceScore,
 			&m.CreatedAt,
 		)
-		if err == nil && relevanceScore != nil {
-			m.RelevanceScore = relevanceScore
-		}
 	}
 
 	if err != nil {
@@ -145,6 +144,9 @@ func scanAgentMemory(sc scanner, withRank bool) (*domain.AgentMemory, error) {
 		m.Outcome = *outcome
 	}
 	m.PipelineRunID = pipelineRunID
+	if relevanceScore != nil {
+		m.RelevanceScore = relevanceScore
+	}
 
 	return &m, nil
 }
@@ -165,7 +167,7 @@ func buildSearchQuery(query string, filter repository.MemorySearchFilter, limit,
 		return fmt.Sprintf("$%d", argIdx)
 	}
 
-	hasFTS := query != ""
+	hasFTS := strings.TrimSpace(query) != ""
 
 	// Full-text search condition.
 	var rankExpr string
