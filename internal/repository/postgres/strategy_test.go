@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
@@ -146,10 +147,13 @@ func TestBoolPtr(t *testing.T) {
 	}
 }
 
+// boolPtr is a helper that returns a pointer to a bool value.
+func boolPtr(b bool) *bool { return &b }
+
 // assertContains fails if substr is not found in s.
 func assertContains(t *testing.T, s, substr string) {
 	t.Helper()
-	if !contains(s, substr) {
+	if !strings.Contains(s, substr) {
 		t.Errorf("expected query to contain %q, got:\n%s", substr, s)
 	}
 }
@@ -157,20 +161,7 @@ func assertContains(t *testing.T, s, substr string) {
 // assertNotContains fails if substr is found in s.
 func assertNotContains(t *testing.T, s, substr string) {
 	t.Helper()
-	if contains(s, substr) {
+	if strings.Contains(s, substr) {
 		t.Errorf("expected query NOT to contain %q, got:\n%s", substr, s)
 	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && searchString(s, substr)
-}
-
-func searchString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

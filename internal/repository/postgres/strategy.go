@@ -281,6 +281,3 @@ func marshalConfig(cfg json.RawMessage) ([]byte, error) {
 
 	return cfg, nil
 }
-
-// boolPtr is a helper that returns a pointer to a bool value.
-func boolPtr(b bool) *bool { return &b }
