@@ -147,3 +147,20 @@ func TestClientGetReturnsServerError(t *testing.T) {
 		t.Fatalf("Get() error = %q, want server message", err.Error())
 	}
 }
+
+func TestClientSetTimeoutIgnoresNonPositiveValues(t *testing.T) {
+	t.Parallel()
+
+	client := NewClient("test-key", discardLogger())
+	initialTimeout := client.httpClient.Timeout
+
+	client.SetTimeout(0)
+	if client.httpClient.Timeout != initialTimeout {
+		t.Fatalf("timeout after zero value = %s, want %s", client.httpClient.Timeout, initialTimeout)
+	}
+
+	client.SetTimeout(-1 * time.Second)
+	if client.httpClient.Timeout != initialTimeout {
+		t.Fatalf("timeout after negative value = %s, want %s", client.httpClient.Timeout, initialTimeout)
+	}
+}

@@ -55,8 +55,15 @@ func NewClient(apiKey string, logger *slog.Logger) *Client {
 
 // SetTimeout updates the timeout used by the underlying HTTP client.
 func (c *Client) SetTimeout(timeout time.Duration) {
-	if c == nil || timeout <= 0 {
+	if c == nil {
 		return
+	}
+	if timeout <= 0 {
+		c.logger.Warn("polygon: ignoring invalid timeout", slog.String("timeout", timeout.String()))
+		return
+	}
+	if c.httpClient == nil {
+		c.httpClient = &http.Client{}
 	}
 
 	c.httpClient.Timeout = timeout
@@ -179,8 +186,9 @@ func (c *Client) buildURL(requestPath string, params url.Values) (string, error)
 }
 
 func joinPath(basePath, requestPath string) string {
-	cleanPath := "/" + strings.TrimLeft(strings.TrimSpace(requestPath), "/")
-	if strings.TrimSpace(requestPath) == "" {
+	trimmedPath := strings.TrimSpace(requestPath)
+	cleanPath := "/" + strings.TrimLeft(trimmedPath, "/")
+	if trimmedPath == "" {
 		cleanPath = "/"
 	}
 
