@@ -392,3 +392,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 TradingAgents/
+
+# Go build output
+/bin/
+/tradingagent
