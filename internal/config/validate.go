@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -64,6 +65,29 @@ func Validate(cfg Config) error {
 		errs = append(errs, "RISK_CIRCUIT_BREAKER_COOLDOWN must be greater than 0")
 	}
 
+	// Cross-field: live trading requires at least one fully configured broker.
+	if cfg.Features.EnableLiveTrading {
+		hasAlpaca := strings.TrimSpace(cfg.Brokers.Alpaca.APIKey) != "" &&
+			strings.TrimSpace(cfg.Brokers.Alpaca.APISecret) != ""
+		hasBinance := strings.TrimSpace(cfg.Brokers.Binance.APIKey) != "" &&
+			strings.TrimSpace(cfg.Brokers.Binance.APISecret) != ""
+		if !hasAlpaca && !hasBinance {
+			errs = append(errs, "ENABLE_LIVE_TRADING requires at least one broker (Alpaca or Binance) to be fully configured")
+		}
+	}
+
+	// Cross-field: selected default LLM provider must have its API key set.
+	if msg := validateSelectedProvider(cfg.LLM); msg != "" {
+		errs = append(errs, msg)
+	}
+
+	// Database URL must be parseable.
+	if cfg.Database.URL != "" {
+		if _, err := url.Parse(cfg.Database.URL); err != nil {
+			errs = append(errs, fmt.Sprintf("DATABASE_URL is not a valid URL: %v", err))
+		}
+	}
+
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid configuration: %s", strings.Join(errs, "; "))
 	}
@@ -78,6 +102,38 @@ func hasLLMProvider(providers LLMProviderConfigs) bool {
 		strings.TrimSpace(providers.OpenRouter.APIKey) != "" ||
 		strings.TrimSpace(providers.XAI.APIKey) != "" ||
 		strings.TrimSpace(providers.Ollama.BaseURL) != ""
+}
+
+func validateSelectedProvider(llmCfg LLMConfig) string {
+	provider := strings.TrimSpace(strings.ToLower(llmCfg.DefaultProvider))
+	if provider == "" {
+		return ""
+	}
+	switch provider {
+	case "openai":
+		if strings.TrimSpace(llmCfg.Providers.OpenAI.APIKey) == "" {
+			return "LLM_DEFAULT_PROVIDER is openai but OPENAI_API_KEY is not set"
+		}
+	case "anthropic":
+		if strings.TrimSpace(llmCfg.Providers.Anthropic.APIKey) == "" {
+			return "LLM_DEFAULT_PROVIDER is anthropic but ANTHROPIC_API_KEY is not set"
+		}
+	case "google":
+		if strings.TrimSpace(llmCfg.Providers.Google.APIKey) == "" {
+			return "LLM_DEFAULT_PROVIDER is google but GOOGLE_API_KEY is not set"
+		}
+	case "openrouter":
+		if strings.TrimSpace(llmCfg.Providers.OpenRouter.APIKey) == "" {
+			return "LLM_DEFAULT_PROVIDER is openrouter but OPENROUTER_API_KEY is not set"
+		}
+	case "xai":
+		if strings.TrimSpace(llmCfg.Providers.XAI.APIKey) == "" {
+			return "LLM_DEFAULT_PROVIDER is xai but XAI_API_KEY is not set"
+		}
+	case "ollama":
+		// Ollama doesn't require an API key.
+	}
+	return ""
 }
 
 func validateBrokerCredentials(errs *[]string, keyName, keyValue, secretName, secretValue string) {

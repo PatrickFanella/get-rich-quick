@@ -101,13 +101,6 @@ func (p *Pipeline) nodeByRole(phase Phase, role AgentRole) Node {
 // emitted after each completed round. After all rounds the InvestJudge node
 // runs to produce the investment plan.
 func (p *Pipeline) executeResearchDebatePhase(ctx context.Context, state *PipelineState) error {
-	phaseCtx := ctx
-	if p.config.PhaseTimeout > 0 {
-		var cancel context.CancelFunc
-		phaseCtx, cancel = context.WithTimeout(ctx, p.config.PhaseTimeout)
-		defer cancel()
-	}
-
 	bullNode := p.nodeByRole(PhaseResearchDebate, AgentRoleBullResearcher)
 	bearNode := p.nodeByRole(PhaseResearchDebate, AgentRoleBearResearcher)
 	judgeNode := p.nodeByRole(PhaseResearchDebate, AgentRoleInvestJudge)
@@ -123,89 +116,15 @@ func (p *Pipeline) executeResearchDebatePhase(ctx context.Context, state *Pipeli
 		return fmt.Errorf("agent/pipeline: research debate phase requires a %s node", AgentRoleInvestJudge)
 	}
 
-	rounds := p.config.ResearchDebateRounds
-	if rounds < 1 {
-		p.logger.Warn("agent/pipeline: invalid ResearchDebateRounds; clamping to 1",
-			slog.Int("configured_rounds", p.config.ResearchDebateRounds),
-		)
-		rounds = 1
-	}
-
-	for i := 1; i <= rounds; i++ {
-		// Check for context cancellation before starting the round.
-		if err := phaseCtx.Err(); err != nil {
-			return err
-		}
-
-		// Prepare the round structure so nodes can write contributions.
-		state.ResearchDebate.Rounds = append(state.ResearchDebate.Rounds, DebateRound{
-			Number:        i,
-			Contributions: make(map[AgentRole]string),
-		})
-
-		// Execute bull researcher.
-		if err := bullNode.Execute(phaseCtx, state); err != nil {
-			return err
-		}
-		roundNumber := i
-		output, llmResponse, err := p.decisionPayload(state, bullNode, &roundNumber)
-		if err != nil {
-			return err
-		}
-		if err := p.persistDecision(phaseCtx, state.PipelineRunID, bullNode, &roundNumber, output, llmResponse); err != nil {
-			return err
-		}
-
-		// Execute bear researcher.
-		if err := bearNode.Execute(phaseCtx, state); err != nil {
-			return err
-		}
-		output, llmResponse, err = p.decisionPayload(state, bearNode, &roundNumber)
-		if err != nil {
-			return err
-		}
-		if err := p.persistDecision(phaseCtx, state.PipelineRunID, bearNode, &roundNumber, output, llmResponse); err != nil {
-			return err
-		}
-
-		// Emit DebateRoundCompleted event.
-		if p.events != nil {
-			event := PipelineEvent{
-				Type:          DebateRoundCompleted,
-				PipelineRunID: state.PipelineRunID,
-				StrategyID:    state.StrategyID,
-				Ticker:        state.Ticker,
-				Phase:         PhaseResearchDebate,
-				Round:         i,
-				OccurredAt:    time.Now().UTC(),
-			}
-			select {
-			case p.events <- event:
-			case <-phaseCtx.Done():
-				p.logger.Debug("agent/pipeline: DebateRoundCompleted event dropped; phase context cancelled",
-					slog.Int("round", i),
-				)
-			default:
-				p.logger.Debug("agent/pipeline: DebateRoundCompleted event dropped; events channel full",
-					slog.Int("round", i),
-				)
-			}
-		}
-	}
-
-	// Execute the InvestJudge (Research Manager).
-	if err := judgeNode.Execute(phaseCtx, state); err != nil {
-		return err
-	}
-	output, llmResponse, err := p.decisionPayload(state, judgeNode, nil)
-	if err != nil {
-		return err
-	}
-	if err := p.persistDecision(phaseCtx, state.PipelineRunID, judgeNode, nil, output, llmResponse); err != nil {
-		return err
-	}
-
-	return nil
+	return NewDebateExecutor(p, DebateConfig{
+		Phase:    PhaseResearchDebate,
+		Rounds:   p.config.ResearchDebateRounds,
+		Debaters: []Node{bullNode, bearNode},
+		Judge:    judgeNode,
+		AppendRound: func(state *PipelineState, round DebateRound) {
+			state.ResearchDebate.Rounds = append(state.ResearchDebate.Rounds, round)
+		},
+	}).Execute(ctx, state)
 }
 
 // executeAnalysisPhase runs all registered PhaseAnalysis nodes concurrently using
@@ -343,13 +262,6 @@ func (p *Pipeline) executeTradingPhase(ctx context.Context, state *PipelineState
 // after each completed round. After all rounds the RiskManager node runs to
 // produce the final risk signal.
 func (p *Pipeline) executeRiskDebatePhase(ctx context.Context, state *PipelineState) error {
-	phaseCtx := ctx
-	if p.config.PhaseTimeout > 0 {
-		var cancel context.CancelFunc
-		phaseCtx, cancel = context.WithTimeout(ctx, p.config.PhaseTimeout)
-		defer cancel()
-	}
-
 	aggressiveNode := p.nodeByRole(PhaseRiskDebate, AgentRoleAggressiveAnalyst)
 	conservativeNode := p.nodeByRole(PhaseRiskDebate, AgentRoleConservativeAnalyst)
 	neutralNode := p.nodeByRole(PhaseRiskDebate, AgentRoleNeutralAnalyst)
@@ -369,101 +281,15 @@ func (p *Pipeline) executeRiskDebatePhase(ctx context.Context, state *PipelineSt
 		return fmt.Errorf("agent/pipeline: risk debate phase requires a %s node", AgentRoleRiskManager)
 	}
 
-	rounds := p.config.RiskDebateRounds
-	if rounds < 1 {
-		p.logger.Warn("agent/pipeline: invalid RiskDebateRounds; clamping to 1",
-			slog.Int("configured_rounds", p.config.RiskDebateRounds),
-		)
-		rounds = 1
-	}
-
-	for i := 1; i <= rounds; i++ {
-		// Check for context cancellation before starting the round.
-		if err := phaseCtx.Err(); err != nil {
-			return err
-		}
-
-		// Prepare the round structure so nodes can write contributions.
-		state.RiskDebate.Rounds = append(state.RiskDebate.Rounds, DebateRound{
-			Number:        i,
-			Contributions: make(map[AgentRole]string),
-		})
-
-		// Execute aggressive analyst.
-		if err := aggressiveNode.Execute(phaseCtx, state); err != nil {
-			return err
-		}
-		roundNumber := i
-		output, llmResponse, err := p.decisionPayload(state, aggressiveNode, &roundNumber)
-		if err != nil {
-			return err
-		}
-		if err := p.persistDecision(phaseCtx, state.PipelineRunID, aggressiveNode, &roundNumber, output, llmResponse); err != nil {
-			return err
-		}
-
-		// Execute conservative analyst.
-		if err := conservativeNode.Execute(phaseCtx, state); err != nil {
-			return err
-		}
-		output, llmResponse, err = p.decisionPayload(state, conservativeNode, &roundNumber)
-		if err != nil {
-			return err
-		}
-		if err := p.persistDecision(phaseCtx, state.PipelineRunID, conservativeNode, &roundNumber, output, llmResponse); err != nil {
-			return err
-		}
-
-		// Execute neutral analyst.
-		if err := neutralNode.Execute(phaseCtx, state); err != nil {
-			return err
-		}
-		output, llmResponse, err = p.decisionPayload(state, neutralNode, &roundNumber)
-		if err != nil {
-			return err
-		}
-		if err := p.persistDecision(phaseCtx, state.PipelineRunID, neutralNode, &roundNumber, output, llmResponse); err != nil {
-			return err
-		}
-
-		// Emit DebateRoundCompleted event.
-		if p.events != nil {
-			event := PipelineEvent{
-				Type:          DebateRoundCompleted,
-				PipelineRunID: state.PipelineRunID,
-				StrategyID:    state.StrategyID,
-				Ticker:        state.Ticker,
-				Phase:         PhaseRiskDebate,
-				Round:         i,
-				OccurredAt:    time.Now().UTC(),
-			}
-			select {
-			case p.events <- event:
-			case <-phaseCtx.Done():
-				p.logger.Debug("agent/pipeline: DebateRoundCompleted event dropped; phase context cancelled",
-					slog.Int("round", i),
-				)
-			default:
-				p.logger.Debug("agent/pipeline: DebateRoundCompleted event dropped; events channel full",
-					slog.Int("round", i),
-				)
-			}
-		}
-	}
-
-	// Execute the RiskManager to produce the final risk signal.
-	if err := riskManagerNode.Execute(phaseCtx, state); err != nil {
-		return err
-	}
-	output, llmResponse, err := p.decisionPayload(state, riskManagerNode, nil)
-	if err != nil {
-		return err
-	}
-	if err := p.persistDecision(phaseCtx, state.PipelineRunID, riskManagerNode, nil, output, llmResponse); err != nil {
-		return err
-	}
-
-	return nil
+	return NewDebateExecutor(p, DebateConfig{
+		Phase:    PhaseRiskDebate,
+		Rounds:   p.config.RiskDebateRounds,
+		Debaters: []Node{aggressiveNode, conservativeNode, neutralNode},
+		Judge:    riskManagerNode,
+		AppendRound: func(state *PipelineState, round DebateRound) {
+			state.RiskDebate.Rounds = append(state.RiskDebate.Rounds, round)
+		},
+	}).Execute(ctx, state)
 }
 
 // Execute runs the full pipeline for the given strategy and ticker. It creates

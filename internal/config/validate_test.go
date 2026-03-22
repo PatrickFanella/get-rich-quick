@@ -154,6 +154,57 @@ func TestValidateAllowsOllamaWithoutAPIKey(t *testing.T) {
 	}
 }
 
+func TestValidateLiveTradingRequiresBroker(t *testing.T) {
+	cfg := validConfig()
+	cfg.Features.EnableLiveTrading = true
+	cfg.Brokers.Alpaca.APIKey = ""
+	cfg.Brokers.Alpaca.APISecret = ""
+	cfg.Brokers.Binance.APIKey = ""
+	cfg.Brokers.Binance.APISecret = ""
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "ENABLE_LIVE_TRADING requires") {
+		t.Fatalf("Validate() error = %q, want ENABLE_LIVE_TRADING message", err)
+	}
+}
+
+func TestValidateLiveTradingAllowedWithAlpaca(t *testing.T) {
+	cfg := validConfig()
+	cfg.Features.EnableLiveTrading = true
+	cfg.Brokers.Alpaca.APIKey = "key"
+	cfg.Brokers.Alpaca.APISecret = "secret"
+
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("Validate() error = %v, want nil", err)
+	}
+}
+
+func TestValidateDefaultProviderMustHaveKey(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.DefaultProvider = "anthropic"
+	cfg.LLM.Providers.Anthropic.APIKey = ""
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "LLM_DEFAULT_PROVIDER is anthropic but ANTHROPIC_API_KEY is not set") {
+		t.Fatalf("Validate() error = %q, want provider key message", err)
+	}
+}
+
+func TestValidateDefaultProviderOllamaNoKey(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.DefaultProvider = "ollama"
+
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("Validate() error = %v, want nil (Ollama needs no key)", err)
+	}
+}
+
 func validConfig() Config {
 	return Config{
 		Environment: "test",
