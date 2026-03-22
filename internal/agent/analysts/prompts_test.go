@@ -343,6 +343,11 @@ func TestSocialAnalystSystemPromptContainsRequiredSections(t *testing.T) {
 	}
 	for _, keyword := range required {
 		if !strings.Contains(SocialAnalystSystemPrompt, keyword) {
+			t.Errorf("SocialAnalystSystemPrompt missing required keyword %q", keyword)
+		}
+	}
+}
+
 // News analyst prompt tests
 // ---------------------------------------------------------------------------
 
@@ -399,6 +404,14 @@ func TestFormatSocialAnalystUserPromptWithData(t *testing.T) {
 		"87300",
 		"2025-03-20",
 		"Provide your structured social sentiment analysis report.",
+	}
+	for _, check := range checks {
+		if !strings.Contains(result, check) {
+			t.Errorf("FormatSocialAnalystUserPrompt() missing expected content %q", check)
+		}
+	}
+}
+
 func TestFormatNewsAnalystUserPromptWithData(t *testing.T) {
 	articles := []data.NewsArticle{
 		{
@@ -476,6 +489,12 @@ func TestFormatSocialAnalystUserPromptZeroValues(t *testing.T) {
 
 func TestFormatSocialAnalystUserPromptSanitizesTicker(t *testing.T) {
 	result := FormatSocialAnalystUserPrompt("BAD|TICK\nER", nil)
+
+	if !strings.Contains(result, `BAD\|TICK ER`) {
+		t.Error("ticker should have pipes escaped and newlines replaced")
+	}
+}
+
 func TestFormatNewsAnalystUserPromptEmptyArticles(t *testing.T) {
 	result := FormatNewsAnalystUserPrompt("TSLA", nil)
 

@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/PatrickFanella/get-rich-quick/internal/data"
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
 	"github.com/PatrickFanella/get-rich-quick/internal/llm"
 )
@@ -20,6 +21,7 @@ type AgentRole = domain.AgentRole
 
 const (
 	AgentRoleMarketAnalyst       = domain.AgentRoleMarketAnalyst
+	AgentRoleFundamentalsAnalyst = domain.AgentRoleFundamentalsAnalyst
 	AgentRoleBullResearcher      = domain.AgentRoleBullResearcher
 	AgentRoleBearResearcher      = domain.AgentRoleBearResearcher
 	AgentRoleTrader              = domain.AgentRoleTrader
@@ -53,6 +55,7 @@ type PipelineState struct {
 	StrategyID     uuid.UUID            `json:"strategy_id"`
 	Ticker         string               `json:"ticker"`
 	Market         *MarketData          `json:"market,omitempty"`
+	Fundamentals   *data.Fundamentals   `json:"fundamentals,omitempty"`
 	AnalystReports map[AgentRole]string `json:"analyst_reports,omitempty"`
 	ResearchDebate ResearchDebateState  `json:"research_debate"`
 	TradingPlan    TradingPlan          `json:"trading_plan"`
