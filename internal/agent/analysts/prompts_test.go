@@ -343,12 +343,11 @@ func TestSocialAnalystSystemPromptContainsRequiredSections(t *testing.T) {
 	}
 	for _, keyword := range required {
 		if !strings.Contains(SocialAnalystSystemPrompt, keyword) {
-			t.Errorf("system prompt missing required keyword %q", keyword)
+			t.Errorf("SocialAnalystSystemPrompt missing required keyword %q", keyword)
 		}
 	}
 }
 
-// ---------------------------------------------------------------------------
 // News analyst prompt tests
 // ---------------------------------------------------------------------------
 
@@ -406,9 +405,9 @@ func TestFormatSocialAnalystUserPromptWithData(t *testing.T) {
 		"2025-03-20",
 		"Provide your structured social sentiment analysis report.",
 	}
-	for _, want := range checks {
-		if !strings.Contains(result, want) {
-			t.Errorf("user prompt missing expected content %q", want)
+	for _, check := range checks {
+		if !strings.Contains(result, check) {
+			t.Errorf("FormatSocialAnalystUserPrompt() missing expected content %q", check)
 		}
 	}
 }

@@ -21,6 +21,7 @@ type AgentRole = domain.AgentRole
 
 const (
 	AgentRoleMarketAnalyst       = domain.AgentRoleMarketAnalyst
+	AgentRoleFundamentalsAnalyst = domain.AgentRoleFundamentalsAnalyst
 	AgentRoleBullResearcher      = domain.AgentRoleBullResearcher
 	AgentRoleBearResearcher      = domain.AgentRoleBearResearcher
 	AgentRoleTrader              = domain.AgentRoleTrader
@@ -56,6 +57,7 @@ type PipelineState struct {
 	Ticker         string               `json:"ticker"`
 	Market         *MarketData          `json:"market,omitempty"`
 	News           []data.NewsArticle   `json:"news,omitempty"`
+	Fundamentals   *data.Fundamentals   `json:"fundamentals,omitempty"`
 	AnalystReports map[AgentRole]string `json:"analyst_reports,omitempty"`
 	ResearchDebate ResearchDebateState  `json:"research_debate"`
 	TradingPlan    TradingPlan          `json:"trading_plan"`
