@@ -285,11 +285,14 @@ func (s *DataService) currentTime() time.Time {
 }
 
 func ttlForOHLCV(timeframe Timeframe) time.Duration {
-	if timeframe == Timeframe1d {
+	switch timeframe {
+	case Timeframe1m, Timeframe5m, Timeframe15m, Timeframe1h:
+		return 5 * time.Minute
+	case Timeframe1d:
 		return 24 * time.Hour
 	}
 
-	return 5 * time.Minute
+	return 24 * time.Hour
 }
 
 func normalizeMarketType(marketType domain.MarketType) domain.MarketType {
