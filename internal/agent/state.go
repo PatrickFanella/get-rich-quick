@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
+	"github.com/PatrickFanella/get-rich-quick/internal/llm"
 )
 
 type AgentRole = domain.AgentRole
@@ -55,16 +56,83 @@ type PipelineState struct {
 	// mu protects concurrent writes to AnalystReports during the analysis phase.
 	// It is a pointer so that copying PipelineState does not copy a sync.Mutex by value.
 	mu *sync.Mutex
+	// decisions stores per-node outputs and optional LLM metadata for persistence.
+	// It is intentionally excluded from JSON output.
+	decisions map[decisionKey]NodeDecision
 }
 
 // SetAnalystReport stores the analyst report for the given role in a thread-safe manner.
 func (s *PipelineState) SetAnalystReport(role AgentRole, report string) {
+	s.ensureMutex()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.AnalystReports == nil {
 		s.AnalystReports = make(map[AgentRole]string)
 	}
 	s.AnalystReports[role] = report
+}
+
+// DecisionLLMResponse captures the persisted LLM metadata for a node decision.
+type DecisionLLMResponse struct {
+	Provider string                  `json:"provider,omitempty"`
+	Response *llm.CompletionResponse `json:"response,omitempty"`
+}
+
+// NodeDecision stores a node's output text and optional LLM metadata.
+type NodeDecision struct {
+	OutputText  string               `json:"output_text"`
+	LLMResponse *DecisionLLMResponse `json:"llm_response,omitempty"`
+}
+
+type decisionKey struct {
+	role     AgentRole
+	phase    Phase
+	round    int
+	hasRound bool
+}
+
+// RecordDecision stores a node decision so the pipeline can persist it after execution.
+func (s *PipelineState) RecordDecision(role AgentRole, phase Phase, roundNumber *int, output string, llmResponse *DecisionLLMResponse) {
+	s.ensureMutex()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.decisions == nil {
+		s.decisions = make(map[decisionKey]NodeDecision)
+	}
+
+	s.decisions[newDecisionKey(role, phase, roundNumber)] = NodeDecision{
+		OutputText:  output,
+		LLMResponse: llmResponse,
+	}
+}
+
+// Decision returns a recorded node decision, if one has been stored on the state.
+func (s *PipelineState) Decision(role AgentRole, phase Phase, roundNumber *int) (NodeDecision, bool) {
+	s.ensureMutex()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	decision, ok := s.decisions[newDecisionKey(role, phase, roundNumber)]
+	return decision, ok
+}
+
+func (s *PipelineState) ensureMutex() {
+	if s.mu == nil {
+		s.mu = &sync.Mutex{}
+	}
+}
+
+func newDecisionKey(role AgentRole, phase Phase, roundNumber *int) decisionKey {
+	key := decisionKey{
+		role:  role,
+		phase: phase,
+	}
+	if roundNumber != nil {
+		key.round = *roundNumber
+		key.hasRound = true
+	}
+	return key
 }
 
 // DebateRound stores the contributions made during a single debate round.

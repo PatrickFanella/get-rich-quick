@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -146,9 +147,24 @@ func (p *Pipeline) executeResearchDebatePhase(ctx context.Context, state *Pipeli
 		if err := bullNode.Execute(phaseCtx, state); err != nil {
 			return err
 		}
+		roundNumber := i
+		output, llmResponse, err := p.decisionPayload(state, bullNode, &roundNumber)
+		if err != nil {
+			return err
+		}
+		if err := p.persistDecision(phaseCtx, state.PipelineRunID, bullNode, &roundNumber, output, llmResponse); err != nil {
+			return err
+		}
 
 		// Execute bear researcher.
 		if err := bearNode.Execute(phaseCtx, state); err != nil {
+			return err
+		}
+		output, llmResponse, err = p.decisionPayload(state, bearNode, &roundNumber)
+		if err != nil {
+			return err
+		}
+		if err := p.persistDecision(phaseCtx, state.PipelineRunID, bearNode, &roundNumber, output, llmResponse); err != nil {
 			return err
 		}
 
@@ -179,6 +195,13 @@ func (p *Pipeline) executeResearchDebatePhase(ctx context.Context, state *Pipeli
 
 	// Execute the InvestJudge (Research Manager).
 	if err := judgeNode.Execute(phaseCtx, state); err != nil {
+		return err
+	}
+	output, llmResponse, err := p.decisionPayload(state, judgeNode, nil)
+	if err != nil {
+		return err
+	}
+	if err := p.persistDecision(phaseCtx, state.PipelineRunID, judgeNode, nil, output, llmResponse); err != nil {
 		return err
 	}
 
@@ -220,6 +243,13 @@ func (p *Pipeline) executeAnalysisPhase(ctx context.Context, state *PipelineStat
 					slog.Any("error", err),
 				)
 				return nil // partial failures are tolerated; do not abort the phase
+			}
+			output, llmResponse, err := p.decisionPayload(state, node, nil)
+			if err != nil {
+				return err
+			}
+			if err := p.persistDecision(gCtx, state.PipelineRunID, node, nil, output, llmResponse); err != nil {
+				return err
 			}
 
 			if p.events != nil {
@@ -271,6 +301,13 @@ func (p *Pipeline) executeTradingPhase(ctx context.Context, state *PipelineState
 	}
 
 	if err := traderNode.Execute(phaseCtx, state); err != nil {
+		return err
+	}
+	output, llmResponse, err := p.decisionPayload(state, traderNode, nil)
+	if err != nil {
+		return err
+	}
+	if err := p.persistDecision(phaseCtx, state.PipelineRunID, traderNode, nil, output, llmResponse); err != nil {
 		return err
 	}
 
@@ -356,14 +393,36 @@ func (p *Pipeline) executeRiskDebatePhase(ctx context.Context, state *PipelineSt
 		if err := aggressiveNode.Execute(phaseCtx, state); err != nil {
 			return err
 		}
+		roundNumber := i
+		output, llmResponse, err := p.decisionPayload(state, aggressiveNode, &roundNumber)
+		if err != nil {
+			return err
+		}
+		if err := p.persistDecision(phaseCtx, state.PipelineRunID, aggressiveNode, &roundNumber, output, llmResponse); err != nil {
+			return err
+		}
 
 		// Execute conservative analyst.
 		if err := conservativeNode.Execute(phaseCtx, state); err != nil {
 			return err
 		}
+		output, llmResponse, err = p.decisionPayload(state, conservativeNode, &roundNumber)
+		if err != nil {
+			return err
+		}
+		if err := p.persistDecision(phaseCtx, state.PipelineRunID, conservativeNode, &roundNumber, output, llmResponse); err != nil {
+			return err
+		}
 
 		// Execute neutral analyst.
 		if err := neutralNode.Execute(phaseCtx, state); err != nil {
+			return err
+		}
+		output, llmResponse, err = p.decisionPayload(state, neutralNode, &roundNumber)
+		if err != nil {
+			return err
+		}
+		if err := p.persistDecision(phaseCtx, state.PipelineRunID, neutralNode, &roundNumber, output, llmResponse); err != nil {
 			return err
 		}
 
@@ -394,6 +453,13 @@ func (p *Pipeline) executeRiskDebatePhase(ctx context.Context, state *PipelineSt
 
 	// Execute the RiskManager to produce the final risk signal.
 	if err := riskManagerNode.Execute(phaseCtx, state); err != nil {
+		return err
+	}
+	output, llmResponse, err := p.decisionPayload(state, riskManagerNode, nil)
+	if err != nil {
+		return err
+	}
+	if err := p.persistDecision(phaseCtx, state.PipelineRunID, riskManagerNode, nil, output, llmResponse); err != nil {
 		return err
 	}
 
@@ -543,4 +609,91 @@ func (p *Pipeline) emitEvent(event PipelineEvent) {
 			slog.String("type", string(event.Type)),
 		)
 	}
+}
+
+func (p *Pipeline) persistDecision(
+	ctx context.Context,
+	runID uuid.UUID,
+	node Node,
+	roundNumber *int,
+	output string,
+	llmResponse *DecisionLLMResponse,
+) error {
+	if p.agentDecisionRepo == nil {
+		return nil
+	}
+
+	decision := &domain.AgentDecision{
+		PipelineRunID: runID,
+		AgentRole:     node.Role(),
+		Phase:         node.Phase(),
+		RoundNumber:   cloneRoundNumber(roundNumber),
+		OutputText:    output,
+	}
+	if llmResponse != nil {
+		decision.LLMProvider = llmResponse.Provider
+		if llmResponse.Response != nil {
+			decision.LLMModel = llmResponse.Response.Model
+			decision.PromptTokens = llmResponse.Response.Usage.PromptTokens
+			decision.CompletionTokens = llmResponse.Response.Usage.CompletionTokens
+			decision.LatencyMS = llmResponse.Response.LatencyMS
+		}
+	}
+
+	if err := p.agentDecisionRepo.Create(ctx, decision); err != nil {
+		return fmt.Errorf("agent/pipeline: persist decision for %s: %w", node.Name(), err)
+	}
+
+	return nil
+}
+
+func (p *Pipeline) decisionPayload(state *PipelineState, node Node, roundNumber *int) (string, *DecisionLLMResponse, error) {
+	if decision, ok := state.Decision(node.Role(), node.Phase(), roundNumber); ok {
+		return decision.OutputText, decision.LLMResponse, nil
+	}
+
+	switch node.Phase() {
+	case PhaseAnalysis:
+		return state.AnalystReports[node.Role()], nil, nil
+	case PhaseResearchDebate:
+		if node.Role() == AgentRoleInvestJudge {
+			return state.ResearchDebate.InvestmentPlan, nil, nil
+		}
+		return debateContribution(state.ResearchDebate.Rounds, node.Role(), roundNumber), nil, nil
+	case PhaseTrading:
+		tradingPlanJSON, err := json.Marshal(state.TradingPlan)
+		if err != nil {
+			return "", nil, fmt.Errorf("agent/pipeline: marshal trading plan output: %w", err)
+		}
+		return string(tradingPlanJSON), nil, nil
+	case PhaseRiskDebate:
+		if node.Role() == AgentRoleRiskManager {
+			return state.RiskDebate.FinalSignal, nil, nil
+		}
+		return debateContribution(state.RiskDebate.Rounds, node.Role(), roundNumber), nil, nil
+	default:
+		return "", nil, nil
+	}
+}
+
+func debateContribution(rounds []DebateRound, role AgentRole, roundNumber *int) string {
+	if roundNumber == nil {
+		return ""
+	}
+
+	roundIndex := *roundNumber - 1
+	if roundIndex < 0 || roundIndex >= len(rounds) {
+		return ""
+	}
+
+	return rounds[roundIndex].Contributions[role]
+}
+
+func cloneRoundNumber(roundNumber *int) *int {
+	if roundNumber == nil {
+		return nil
+	}
+
+	value := *roundNumber
+	return &value
 }
