@@ -21,6 +21,7 @@ const (
 	functionOverview           = "OVERVIEW"
 	functionIncomeStatement    = "INCOME_STATEMENT"
 	functionBalanceSheet       = "BALANCE_SHEET"
+	functionNewsSentiment      = "NEWS_SENTIMENT"
 )
 
 // Provider retrieves market data from Alpha Vantage.
@@ -72,6 +73,27 @@ type balanceSheetReport struct {
 	TotalLiabilities       string `json:"totalLiabilities"`
 	TotalShareholderEquity string `json:"totalShareholderEquity"`
 }
+
+type newsResponse struct {
+	Feed []newsFeedItem `json:"feed"`
+}
+
+type newsFeedItem struct {
+	Title                 string                `json:"title"`
+	URL                   string                `json:"url"`
+	TimePublished         string                `json:"time_published"`
+	Summary               string                `json:"summary"`
+	Source                string                `json:"source"`
+	OverallSentimentScore optionalFloat64       `json:"overall_sentiment_score"`
+	TickerSentiment       []newsTickerSentiment `json:"ticker_sentiment"`
+}
+
+type newsTickerSentiment struct {
+	Ticker               string          `json:"ticker"`
+	TickerSentimentScore optionalFloat64 `json:"ticker_sentiment_score"`
+}
+
+type optionalFloat64 float64
 
 // NewProvider constructs an Alpha Vantage market-data provider.
 func NewProvider(client *Client) *Provider {
@@ -190,13 +212,66 @@ func (p *Provider) GetFundamentals(ctx context.Context, ticker string) (data.Fun
 	return fundamentals, nil
 }
 
-// GetNews is not supported by the Alpha Vantage provider yet.
-func (p *Provider) GetNews(_ context.Context, _ string, _, _ time.Time) ([]data.NewsArticle, error) {
+// GetNews returns news articles from Alpha Vantage NEWS_SENTIMENT.
+func (p *Provider) GetNews(ctx context.Context, ticker string, from, to time.Time) ([]data.NewsArticle, error) {
 	if p == nil {
 		return nil, errors.New("alphavantage: provider is nil")
 	}
+	if p.client == nil {
+		return nil, errors.New("alphavantage: client is nil")
+	}
 
-	return nil, fmt.Errorf("alphavantage: GetNews: %w", data.ErrNotImplemented)
+	ticker = strings.TrimSpace(ticker)
+	if ticker == "" {
+		return nil, errors.New("alphavantage: ticker is required")
+	}
+	if from.After(to) {
+		return nil, errors.New("alphavantage: from must be before or equal to to")
+	}
+
+	body, err := p.client.Get(ctx, url.Values{
+		"function":  []string{functionNewsSentiment},
+		"tickers":   []string{ticker},
+		"time_from": []string{formatNewsTimestamp(from.UTC())},
+		"time_to":   []string{formatNewsTimestamp(to.UTC())},
+		"sort":      []string{"EARLIEST"},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var response newsResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("alphavantage: decode news response: %w", err)
+	}
+
+	articles := make([]data.NewsArticle, 0, len(response.Feed))
+	for _, item := range response.Feed {
+		publishedAt, err := time.Parse("20060102T150405", strings.TrimSpace(item.TimePublished))
+		if err != nil {
+			return nil, fmt.Errorf("alphavantage: parse news time_published %q: %w", item.TimePublished, err)
+		}
+
+		publishedAt = publishedAt.UTC()
+		if publishedAt.Before(from.UTC()) || publishedAt.After(to.UTC()) {
+			continue
+		}
+
+		articles = append(articles, data.NewsArticle{
+			Title:       item.Title,
+			Summary:     item.Summary,
+			URL:         item.URL,
+			Source:      item.Source,
+			PublishedAt: publishedAt,
+			Sentiment:   newsSentimentForTicker(ticker, item),
+		})
+	}
+
+	sort.Slice(articles, func(i, j int) bool {
+		return articles[i].PublishedAt.Before(articles[j].PublishedAt)
+	})
+
+	return articles, nil
 }
 
 // GetSocialSentiment is not supported by the Alpha Vantage provider yet.
@@ -459,4 +534,40 @@ func parseOptionalFundamentalFloat(value string) float64 {
 	}
 
 	return parsed
+}
+
+func formatNewsTimestamp(t time.Time) string {
+	return t.UTC().Format("20060102T150405")
+}
+
+func newsSentimentForTicker(ticker string, item newsFeedItem) float64 {
+	for _, sentiment := range item.TickerSentiment {
+		if strings.EqualFold(strings.TrimSpace(sentiment.Ticker), ticker) {
+			return float64(sentiment.TickerSentimentScore)
+		}
+	}
+
+	return float64(item.OverallSentimentScore)
+}
+
+func (f *optionalFloat64) UnmarshalJSON(data []byte) error {
+	var stringValue string
+	if err := json.Unmarshal(data, &stringValue); err == nil {
+		*f = optionalFloat64(parseOptionalFundamentalFloat(stringValue))
+		return nil
+	}
+
+	var numberValue float64
+	if err := json.Unmarshal(data, &numberValue); err == nil {
+		*f = optionalFloat64(numberValue)
+		return nil
+	}
+
+	var nilValue any
+	if err := json.Unmarshal(data, &nilValue); err == nil && nilValue == nil {
+		*f = 0
+		return nil
+	}
+
+	return fmt.Errorf("invalid float value %s", strings.TrimSpace(string(data)))
 }

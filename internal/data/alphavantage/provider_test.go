@@ -623,6 +623,192 @@ func TestProviderGetFundamentalsErrors(t *testing.T) {
 	})
 }
 
+func TestProviderGetNews(t *testing.T) {
+	t.Parallel()
+
+	type requestDetails struct {
+		method string
+		path   string
+		query  url.Values
+	}
+
+	from := time.Date(2024, time.January, 2, 14, 30, 0, 0, time.UTC)
+	to := time.Date(2024, time.January, 2, 15, 0, 0, 0, time.UTC)
+
+	requests := make(chan requestDetails, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests <- requestDetails{
+			method: r.Method,
+			path:   r.URL.Path,
+			query:  r.URL.Query(),
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"feed": [
+				{
+					"title": "Apple launches new product",
+					"url": "https://example.com/apple-product",
+					"time_published": "20240102T143000",
+					"summary": "Apple announced a new device.",
+					"source": "Reuters",
+					"overall_sentiment_score": 0.1,
+					"ticker_sentiment": [
+						{
+							"ticker": "AAPL",
+							"ticker_sentiment_score": "0.45"
+						}
+					]
+				},
+				{
+					"title": "Tech stocks mixed",
+					"url": "https://example.com/tech-stocks",
+					"time_published": "20240102T150000",
+					"summary": "Large-cap technology names traded mixed.",
+					"source": "Associated Press",
+					"overall_sentiment_score": "-0.2",
+					"ticker_sentiment": [
+						{
+							"ticker": "MSFT",
+							"ticker_sentiment_score": "-0.6"
+						}
+					]
+				},
+				{
+					"title": "Older story",
+					"url": "https://example.com/older-story",
+					"time_published": "20240102T142959",
+					"summary": "Should be filtered out.",
+					"source": "Example News",
+					"overall_sentiment_score": -0.5
+				}
+			]
+		}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", discardLogger())
+	client.baseURL = server.URL + "/query"
+	client.httpClient = server.Client()
+
+	provider := NewProvider(client)
+
+	got, err := provider.GetNews(context.Background(), "AAPL", from, to)
+	if err != nil {
+		t.Fatalf("GetNews() error = %v", err)
+	}
+
+	want := []data.NewsArticle{
+		{
+			Title:       "Apple launches new product",
+			Summary:     "Apple announced a new device.",
+			URL:         "https://example.com/apple-product",
+			Source:      "Reuters",
+			PublishedAt: from,
+			Sentiment:   0.45,
+		},
+		{
+			Title:       "Tech stocks mixed",
+			Summary:     "Large-cap technology names traded mixed.",
+			URL:         "https://example.com/tech-stocks",
+			Source:      "Associated Press",
+			PublishedAt: to,
+			Sentiment:   -0.2,
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("GetNews() = %#v, want %#v", got, want)
+	}
+
+	select {
+	case request := <-requests:
+		if request.method != http.MethodGet {
+			t.Fatalf("request method = %s, want %s", request.method, http.MethodGet)
+		}
+		if request.path != "/query" {
+			t.Fatalf("request path = %s, want %s", request.path, "/query")
+		}
+		if request.query.Get("apikey") != "test-key" {
+			t.Fatalf("apikey = %q, want %q", request.query.Get("apikey"), "test-key")
+		}
+		if request.query.Get("function") != functionNewsSentiment {
+			t.Fatalf("function = %q, want %q", request.query.Get("function"), functionNewsSentiment)
+		}
+		if request.query.Get("tickers") != "AAPL" {
+			t.Fatalf("tickers = %q, want %q", request.query.Get("tickers"), "AAPL")
+		}
+		if request.query.Get("time_from") != "20240102T143000" {
+			t.Fatalf("time_from = %q, want %q", request.query.Get("time_from"), "20240102T143000")
+		}
+		if request.query.Get("time_to") != "20240102T150000" {
+			t.Fatalf("time_to = %q, want %q", request.query.Get("time_to"), "20240102T150000")
+		}
+		if request.query.Get("sort") != "EARLIEST" {
+			t.Fatalf("sort = %q, want %q", request.query.Get("sort"), "EARLIEST")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("request details were not captured")
+	}
+}
+
+func TestProviderGetNewsErrors(t *testing.T) {
+	t.Parallel()
+
+	from := time.Date(2024, time.January, 2, 14, 30, 0, 0, time.UTC)
+	to := time.Date(2024, time.January, 2, 15, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name           string
+		responseBody   string
+		wantErrMessage string
+	}{
+		{
+			name:           "invalid json",
+			responseBody:   `{"feed":`,
+			wantErrMessage: "alphavantage: decode news response: unexpected end of JSON input",
+		},
+		{
+			name: "invalid published time",
+			responseBody: `{
+				"feed": [
+					{
+						"title": "Bad timestamp",
+						"time_published": "not-a-timestamp"
+					}
+				]
+			}`,
+			wantErrMessage: "alphavantage: parse news time_published \"not-a-timestamp\": parsing time \"not-a-timestamp\" as \"20060102T150405\": cannot parse \"not-a-timestamp\" as \"2006\"",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tt.responseBody))
+			}))
+			defer server.Close()
+
+			client := NewClient("test-key", discardLogger())
+			client.baseURL = server.URL + "/query"
+			client.httpClient = server.Client()
+
+			provider := NewProvider(client)
+
+			_, err := provider.GetNews(context.Background(), "AAPL", from, to)
+			if err == nil {
+				t.Fatal("GetNews() error = nil, want non-nil")
+			}
+			if err.Error() != tt.wantErrMessage {
+				t.Fatalf("GetNews() error = %q, want %q", err.Error(), tt.wantErrMessage)
+			}
+		})
+	}
+}
+
 func TestParseOptionalFundamentalFloat(t *testing.T) {
 	t.Parallel()
 
@@ -654,15 +840,10 @@ func TestParseOptionalFundamentalFloat(t *testing.T) {
 	}
 }
 
-func TestProviderUnsupportedMethodsReturnErrNotImplemented(t *testing.T) {
+func TestProviderGetSocialSentimentReturnsErrNotImplemented(t *testing.T) {
 	t.Parallel()
 
 	provider := NewProvider(&Client{})
-
-	_, newsErr := provider.GetNews(context.Background(), "AAPL", time.Now(), time.Now())
-	if !errors.Is(newsErr, data.ErrNotImplemented) {
-		t.Fatalf("GetNews() error = %v, want ErrNotImplemented", newsErr)
-	}
 
 	_, socialErr := provider.GetSocialSentiment(context.Background(), "AAPL")
 	if !errors.Is(socialErr, data.ErrNotImplemented) {
