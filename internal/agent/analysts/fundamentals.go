@@ -40,17 +40,19 @@ func (f *FundamentalsAnalyst) Phase() agent.Phase { return agent.PhaseAnalysis }
 // the node skips the LLM call and records a static message indicating that
 // fundamental data is not available for this asset type.
 func (f *FundamentalsAnalyst) Execute(ctx context.Context, state *agent.PipelineState) error {
-	if f.provider == nil {
-		return fmt.Errorf("fundamentals_analyst: provider is nil")
-	}
-
 	// When no fundamentals are available (e.g. crypto), skip the LLM call.
+	// This check is intentionally before the nil-provider guard because no
+	// LLM interaction is needed in this path.
 	if state.Fundamentals == nil {
 		const msg = "No fundamentals available for this asset type."
 		f.logger.InfoContext(ctx, "fundamentals analyst skipped: no fundamentals data")
 		state.SetAnalystReport(f.Role(), msg)
 		state.RecordDecision(f.Role(), f.Phase(), nil, msg, nil)
 		return nil
+	}
+
+	if f.provider == nil {
+		return fmt.Errorf("fundamentals_analyst: provider is nil")
 	}
 
 	userPrompt := FormatFundamentalsAnalystUserPrompt(

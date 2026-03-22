@@ -158,7 +158,10 @@ func TestFundamentalsAnalystExecuteLLMError(t *testing.T) {
 
 func TestFundamentalsAnalystExecuteNilProvider(t *testing.T) {
 	fa := NewFundamentalsAnalyst(nil, "openai", "gpt-4", nil)
-	state := &agent.PipelineState{Ticker: "GOOG"}
+	state := &agent.PipelineState{
+		Ticker:       "GOOG",
+		Fundamentals: &data.Fundamentals{Ticker: "GOOG"},
+	}
 
 	err := fa.Execute(context.Background(), state)
 	if err == nil {
@@ -211,6 +214,28 @@ func TestFundamentalsAnalystExecuteNilFundamentals(t *testing.T) {
 	}
 	if dec.LLMResponse != nil {
 		t.Errorf("decision LLM response should be nil when fundamentals are nil, got %+v", dec.LLMResponse)
+	}
+}
+
+func TestFundamentalsAnalystExecuteNilFundamentalsNilProvider(t *testing.T) {
+	fa := NewFundamentalsAnalyst(nil, "openai", "gpt-4", nil)
+	state := &agent.PipelineState{
+		Ticker:       "BTC-USD",
+		Fundamentals: nil,
+	}
+
+	err := fa.Execute(context.Background(), state)
+	if err != nil {
+		t.Fatalf("Execute() returned unexpected error: %v", err)
+	}
+
+	// Verify a report was still stored even with nil provider.
+	report, ok := state.AnalystReports[agent.AgentRoleFundamentalsAnalyst]
+	if !ok {
+		t.Fatal("analyst report not stored in state")
+	}
+	if !strings.Contains(report, "No fundamentals available") {
+		t.Errorf("report = %q, want message about no fundamentals available", report)
 	}
 }
 
