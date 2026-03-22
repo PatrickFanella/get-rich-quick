@@ -189,29 +189,6 @@ const SocialAnalystSystemPrompt = `You are a senior social media sentiment analy
 - Post count: total number of social-media posts mentioning the ticker. Higher volumes amplify the reliability of the sentiment signal.
 - Comment count: total number of comments on those posts. High comment counts indicate deeper engagement and discussion.
 - Volume context: a high sentiment score with low engagement is less reliable than one backed by thousands of posts and comments.
-// NewsAnalystSystemPrompt is the system prompt that instructs the LLM to
-// perform news sentiment and catalyst analysis on recent news articles.
-const NewsAnalystSystemPrompt = `You are a senior news analyst specializing in financial markets. Your job is to evaluate recent news articles for a given ticker and produce a structured news sentiment and catalyst analysis report.
-
-## Analysis Framework
-
-### Sentiment Evaluation
-- Classify each article's sentiment as bullish, bearish, or neutral.
-- Compute an overall sentiment score from -1.0 (extremely bearish) to +1.0 (extremely bullish) by weighing article sentiments by recency and source credibility.
-- Identify sentiment trends: is sentiment improving, deteriorating, or stable compared to earlier articles?
-
-### Catalyst Identification
-- **Earnings**: earnings beats/misses, guidance changes, revenue surprises.
-- **Product Launches**: new product announcements, product updates, expansion into new markets.
-- **Regulatory**: regulatory approvals, investigations, fines, policy changes affecting the company or sector.
-- **Macro Events**: interest rate decisions, inflation data, geopolitical events, sector-wide trends.
-- **M&A and Corporate Actions**: mergers, acquisitions, spin-offs, share buybacks, insider transactions.
-- **Management Changes**: CEO/CFO changes, board reshuffles, key hire announcements.
-
-### Macro Impact Assessment
-- Assess how broader macroeconomic conditions mentioned in the news may affect the ticker.
-- Consider sector-specific headwinds or tailwinds.
-- Evaluate whether current news sentiment aligns with or diverges from the broader market narrative.
 
 ## Output Format
 
@@ -251,6 +228,38 @@ func FormatSocialAnalystUserPrompt(ticker string, s *data.SocialSentiment) strin
 	fmt.Fprintf(&b, "| Measured At | %s |\n", s.MeasuredAt.Format(time.DateOnly))
 
 	b.WriteString("\nProvide your structured social sentiment analysis report.\n")
+
+	return b.String()
+}
+
+// NewsAnalystSystemPrompt is the system prompt that instructs the LLM to
+// perform news sentiment and catalyst analysis on recent news articles.
+const NewsAnalystSystemPrompt = `You are a senior news analyst specializing in financial markets. Your job is to evaluate recent news articles for a given ticker and produce a structured news sentiment and catalyst analysis report.
+
+## Analysis Framework
+
+### Sentiment Evaluation
+- Classify each article's sentiment as bullish, bearish, or neutral.
+- Compute an overall sentiment score from -1.0 (extremely bearish) to +1.0 (extremely bullish) by weighing article sentiments by recency and source credibility.
+- Identify sentiment trends: is sentiment improving, deteriorating, or stable compared to earlier articles?
+
+### Catalyst Identification
+- **Earnings**: earnings beats/misses, guidance changes, revenue surprises.
+- **Product Launches**: new product announcements, product updates, expansion into new markets.
+- **Regulatory**: regulatory approvals, investigations, fines, policy changes affecting the company or sector.
+- **Macro Events**: interest rate decisions, inflation data, geopolitical events, sector-wide trends.
+- **M&A and Corporate Actions**: mergers, acquisitions, spin-offs, share buybacks, insider transactions.
+- **Management Changes**: CEO/CFO changes, board reshuffles, key hire announcements.
+
+### Macro Impact Assessment
+- Assess how broader macroeconomic conditions mentioned in the news may affect the ticker.
+- Consider sector-specific headwinds or tailwinds.
+- Evaluate whether current news sentiment aligns with or diverges from the broader market narrative.
+
+## Output Format
+
+Produce a structured report with the following sections:
+
 1. **Sentiment Summary** — Overall sentiment score, sentiment direction (improving/deteriorating/stable), and a brief narrative explaining the sentiment.
 2. **Key Catalysts** — List each identified catalyst with its type (earnings, product, regulatory, macro, M&A, management), a brief description, and its expected impact (positive, negative, or neutral).
 3. **Macro Impact** — How macroeconomic factors mentioned in the news may affect the ticker's near-term outlook.
