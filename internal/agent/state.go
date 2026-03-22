@@ -30,6 +30,7 @@ const (
 	AgentRoleAggressiveAnalyst   = domain.AgentRoleAggressiveAnalyst
 	AgentRoleConservativeAnalyst = domain.AgentRoleConservativeAnalyst
 	AgentRoleNeutralAnalyst      = domain.AgentRoleNeutralAnalyst
+	AgentRoleSocialMediaAnalyst  = domain.AgentRoleSocialMediaAnalyst
 	AgentRoleNewsAnalyst         = domain.AgentRoleNewsAnalyst
 )
 
