@@ -11,13 +11,13 @@ import (
 type AgentRole string
 
 const (
-	AgentRoleMarketAnalyst      AgentRole = "market_analyst"
-	AgentRoleBullResearcher     AgentRole = "bull_researcher"
-	AgentRoleBearResearcher     AgentRole = "bear_researcher"
-	AgentRoleTrader             AgentRole = "trader"
-	AgentRoleInvestJudge        AgentRole = "invest_judge"
-	AgentRoleRiskManager        AgentRole = "risk_manager"
-	AgentRoleAggressiveAnalyst  AgentRole = "aggressive_analyst"
+	AgentRoleMarketAnalyst       AgentRole = "market_analyst"
+	AgentRoleBullResearcher      AgentRole = "bull_researcher"
+	AgentRoleBearResearcher      AgentRole = "bear_researcher"
+	AgentRoleTrader              AgentRole = "trader"
+	AgentRoleInvestJudge         AgentRole = "invest_judge"
+	AgentRoleRiskManager         AgentRole = "risk_manager"
+	AgentRoleAggressiveAnalyst   AgentRole = "aggressive_analyst"
 	AgentRoleConservativeAnalyst AgentRole = "conservative_analyst"
 	AgentRoleNeutralAnalyst      AgentRole = "neutral_analyst"
 	AgentRoleSocialMediaAnalyst  AgentRole = "social_media_analyst"
