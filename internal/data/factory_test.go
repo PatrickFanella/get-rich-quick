@@ -115,6 +115,12 @@ func TestDataServiceGetOHLCVCacheHitReturnsCachedData(t *testing.T) {
 	if cacheRepo.setCalls != 0 {
 		t.Fatalf("cache Set() calls = %d, want 0", cacheRepo.setCalls)
 	}
+	if len(cacheRepo.getKeys) != 1 {
+		t.Fatalf("cache Get() keys = %d, want 1", len(cacheRepo.getKeys))
+	}
+	if cacheRepo.getKeys[0].Timeframe != ohlcvCacheTimeframe(Timeframe1d, from, to) {
+		t.Fatalf("cache key timeframe = %q, want %q", cacheRepo.getKeys[0].Timeframe, ohlcvCacheTimeframe(Timeframe1d, from, to))
+	}
 }
 
 func TestDataServiceGetOHLCVCacheMissCallsChainAndCachesResult(t *testing.T) {
@@ -169,8 +175,8 @@ func TestDataServiceGetOHLCVCacheMissCallsChainAndCachesResult(t *testing.T) {
 			if cacheRepo.setData.DataType != cacheDataTypeOHLCV {
 				t.Fatalf("cache data type = %q, want %q", cacheRepo.setData.DataType, cacheDataTypeOHLCV)
 			}
-			if cacheRepo.setData.Timeframe != tc.timeframe.String() {
-				t.Fatalf("cache timeframe = %q, want %q", cacheRepo.setData.Timeframe, tc.timeframe.String())
+			if cacheRepo.setData.Timeframe != ohlcvCacheTimeframe(tc.timeframe, from, to) {
+				t.Fatalf("cache timeframe = %q, want %q", cacheRepo.setData.Timeframe, ohlcvCacheTimeframe(tc.timeframe, from, to))
 			}
 			if !cacheRepo.setData.FetchedAt.Equal(now) {
 				t.Fatalf("cache fetched_at = %s, want %s", cacheRepo.setData.FetchedAt, now)
@@ -187,6 +193,175 @@ func TestDataServiceGetOHLCVCacheMissCallsChainAndCachesResult(t *testing.T) {
 				t.Fatalf("cached data = %#v, want %#v", cached, want)
 			}
 		})
+	}
+}
+
+func TestDataServiceGetFundamentalsCacheHitReturnsCachedData(t *testing.T) {
+	want := Fundamentals{
+		Ticker:    "AAPL",
+		PERatio:   31.2,
+		FetchedAt: time.Date(2026, 3, 20, 15, 0, 0, 0, time.UTC),
+	}
+	payload, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	provider := &serviceStubProvider{
+		fundamentalsErr: errors.New("provider should not be called"),
+	}
+	cacheRepo := &fakeMarketDataCacheRepo{
+		getResult: &domain.MarketData{Data: payload},
+	}
+	service := &DataService{
+		stockChain: provider,
+		cacheRepo:  cacheRepo,
+		logger:     discardLogger(),
+		now:        func() time.Time { return want.FetchedAt },
+	}
+
+	got, err := service.GetFundamentals(context.Background(), domain.MarketTypeStock, "AAPL")
+	if err != nil {
+		t.Fatalf("GetFundamentals() error = %v", err)
+	}
+	if got != want {
+		t.Fatalf("GetFundamentals() = %#v, want %#v", got, want)
+	}
+	if provider.fundamentalsCalls != 0 {
+		t.Fatalf("provider GetFundamentals calls = %d, want 0", provider.fundamentalsCalls)
+	}
+	if cacheRepo.setCalls != 0 {
+		t.Fatalf("cache Set() calls = %d, want 0", cacheRepo.setCalls)
+	}
+}
+
+func TestDataServiceGetFundamentalsCacheMissCallsChainAndCachesResult(t *testing.T) {
+	now := time.Date(2026, 3, 22, 17, 0, 0, 0, time.UTC)
+	want := Fundamentals{
+		Ticker:    "AAPL",
+		PERatio:   28.4,
+		FetchedAt: now.Add(-time.Hour),
+	}
+
+	provider := &serviceStubProvider{fundamentals: want}
+	cacheRepo := &fakeMarketDataCacheRepo{}
+	service := &DataService{
+		stockChain: provider,
+		cacheRepo:  cacheRepo,
+		logger:     discardLogger(),
+		now:        func() time.Time { return now },
+	}
+
+	got, err := service.GetFundamentals(context.Background(), domain.MarketTypeStock, "AAPL")
+	if err != nil {
+		t.Fatalf("GetFundamentals() error = %v", err)
+	}
+	if got != want {
+		t.Fatalf("GetFundamentals() = %#v, want %#v", got, want)
+	}
+	if provider.fundamentalsCalls != 1 {
+		t.Fatalf("provider GetFundamentals calls = %d, want 1", provider.fundamentalsCalls)
+	}
+	if cacheRepo.setCalls != 1 {
+		t.Fatalf("cache Set() calls = %d, want 1", cacheRepo.setCalls)
+	}
+	if cacheRepo.setData == nil {
+		t.Fatal("cache Set() data = nil, want value")
+	}
+	if cacheRepo.setData.DataType != cacheDataTypeFundamentals {
+		t.Fatalf("cache data type = %q, want %q", cacheRepo.setData.DataType, cacheDataTypeFundamentals)
+	}
+	if cacheRepo.setData.Timeframe != "" {
+		t.Fatalf("cache timeframe = %q, want empty", cacheRepo.setData.Timeframe)
+	}
+	if !cacheRepo.setData.ExpiresAt.Equal(now.Add(6 * time.Hour)) {
+		t.Fatalf("cache expires_at = %s, want %s", cacheRepo.setData.ExpiresAt, now.Add(6*time.Hour))
+	}
+}
+
+func TestDataServiceGetNewsCacheHitReturnsCachedData(t *testing.T) {
+	from := time.Date(2026, 3, 21, 14, 30, 0, 0, time.UTC)
+	to := time.Date(2026, 3, 22, 9, 45, 0, 0, time.UTC)
+	want := []NewsArticle{
+		{Title: "AAPL news", Source: "Example", PublishedAt: from, Sentiment: 0.4},
+	}
+	payload, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	provider := &serviceStubProvider{
+		newsErr: errors.New("provider should not be called"),
+	}
+	cacheRepo := &fakeMarketDataCacheRepo{
+		getResult: &domain.MarketData{Data: payload},
+	}
+	service := &DataService{
+		stockChain: provider,
+		cacheRepo:  cacheRepo,
+		logger:     discardLogger(),
+		now:        func() time.Time { return to },
+	}
+
+	got, err := service.GetNews(context.Background(), domain.MarketTypeStock, "AAPL", from, to)
+	if err != nil {
+		t.Fatalf("GetNews() error = %v", err)
+	}
+	if len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("GetNews() = %#v, want %#v", got, want)
+	}
+	if provider.newsCalls != 0 {
+		t.Fatalf("provider GetNews calls = %d, want 0", provider.newsCalls)
+	}
+	if len(cacheRepo.getKeys) != 1 {
+		t.Fatalf("cache Get() keys = %d, want 1", len(cacheRepo.getKeys))
+	}
+	if cacheRepo.getKeys[0].Timeframe != newsCacheWindow(from, to) {
+		t.Fatalf("cache key timeframe = %q, want %q", cacheRepo.getKeys[0].Timeframe, newsCacheWindow(from, to))
+	}
+}
+
+func TestDataServiceGetNewsCacheMissCallsChainAndCachesResult(t *testing.T) {
+	now := time.Date(2026, 3, 22, 17, 0, 0, 0, time.UTC)
+	from := now.Add(-2 * time.Hour)
+	to := now
+	want := []NewsArticle{
+		{Title: "Market update", Source: "Newswire", PublishedAt: from, Sentiment: 0.7},
+	}
+
+	provider := &serviceStubProvider{news: want}
+	cacheRepo := &fakeMarketDataCacheRepo{}
+	service := &DataService{
+		stockChain: provider,
+		cacheRepo:  cacheRepo,
+		logger:     discardLogger(),
+		now:        func() time.Time { return now },
+	}
+
+	got, err := service.GetNews(context.Background(), domain.MarketTypeStock, "AAPL", from, to)
+	if err != nil {
+		t.Fatalf("GetNews() error = %v", err)
+	}
+	if len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("GetNews() = %#v, want %#v", got, want)
+	}
+	if provider.newsCalls != 1 {
+		t.Fatalf("provider GetNews calls = %d, want 1", provider.newsCalls)
+	}
+	if cacheRepo.setCalls != 1 {
+		t.Fatalf("cache Set() calls = %d, want 1", cacheRepo.setCalls)
+	}
+	if cacheRepo.setData == nil {
+		t.Fatal("cache Set() data = nil, want value")
+	}
+	if cacheRepo.setData.DataType != cacheDataTypeNews {
+		t.Fatalf("cache data type = %q, want %q", cacheRepo.setData.DataType, cacheDataTypeNews)
+	}
+	if cacheRepo.setData.Timeframe != newsCacheWindow(from, to) {
+		t.Fatalf("cache timeframe = %q, want %q", cacheRepo.setData.Timeframe, newsCacheWindow(from, to))
+	}
+	if !cacheRepo.setData.ExpiresAt.Equal(now.Add(30 * time.Minute)) {
+		t.Fatalf("cache expires_at = %s, want %s", cacheRepo.setData.ExpiresAt, now.Add(30*time.Minute))
 	}
 }
 

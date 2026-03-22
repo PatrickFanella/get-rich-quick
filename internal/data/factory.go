@@ -112,7 +112,7 @@ func (s *DataService) GetOHLCV(ctx context.Context, marketType domain.MarketType
 		Ticker:    ticker,
 		Provider:  providerName,
 		DataType:  cacheDataTypeOHLCV,
-		Timeframe: timeframe.String(),
+		Timeframe: ohlcvCacheTimeframe(timeframe, fromUTC, toUTC),
 		DateFrom:  &fromUTC,
 		DateTo:    &toUTC,
 	}
@@ -169,11 +169,12 @@ func (s *DataService) GetNews(ctx context.Context, marketType domain.MarketType,
 	}
 
 	key := repository.MarketDataCacheKey{
-		Ticker:   ticker,
-		Provider: providerName,
-		DataType: cacheDataTypeNews,
-		DateFrom: &fromUTC,
-		DateTo:   &toUTC,
+		Ticker:    ticker,
+		Provider:  providerName,
+		DataType:  cacheDataTypeNews,
+		Timeframe: newsCacheWindow(fromUTC, toUTC),
+		DateFrom:  &fromUTC,
+		DateTo:    &toUTC,
 	}
 
 	if cached, ok := s.loadCachedNews(ctx, key); ok {
@@ -222,7 +223,16 @@ func (s *DataService) loadCached(ctx context.Context, key repository.MarketDataC
 	}
 
 	entry, err := s.cacheRepo.Get(ctx, key)
-	if err != nil || entry == nil {
+	if err != nil {
+		s.logger.Warn("failed to load market data from cache",
+			slog.String("ticker", key.Ticker),
+			slog.String("provider", key.Provider),
+			slog.String("data_type", key.DataType),
+			slog.Any("error", err),
+		)
+		return false
+	}
+	if entry == nil {
 		return false
 	}
 
@@ -297,4 +307,12 @@ func ttlForOHLCV(timeframe Timeframe) time.Duration {
 
 func normalizeMarketType(marketType domain.MarketType) domain.MarketType {
 	return domain.MarketType(strings.ToLower(strings.TrimSpace(marketType.String())))
+}
+
+func ohlcvCacheTimeframe(timeframe Timeframe, from, to time.Time) string {
+	return timeframe.String() + "|" + newsCacheWindow(from, to)
+}
+
+func newsCacheWindow(from, to time.Time) string {
+	return from.UTC().Format(time.RFC3339Nano) + "|" + to.UTC().Format(time.RFC3339Nano)
 }
