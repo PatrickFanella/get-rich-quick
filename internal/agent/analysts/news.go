@@ -39,16 +39,16 @@ func (n *NewsAnalyst) Phase() agent.Phase { return agent.PhaseAnalysis }
 // and stores the analysis report in state. When no articles are present it
 // records a static message without invoking the LLM.
 func (n *NewsAnalyst) Execute(ctx context.Context, state *agent.PipelineState) error {
-	if n.provider == nil {
-		return fmt.Errorf("news_analyst: provider is nil")
-	}
-
 	if len(state.News) == 0 {
 		const noDataMsg = "No news articles available. Unable to perform news analysis."
 		n.logger.InfoContext(ctx, "news analyst skipped: no articles available")
 		state.SetAnalystReport(n.Role(), noDataMsg)
 		state.RecordDecision(n.Role(), n.Phase(), nil, noDataMsg, nil)
 		return nil
+	}
+
+	if n.provider == nil {
+		return fmt.Errorf("news_analyst: provider is nil")
 	}
 
 	userPrompt := FormatNewsAnalystUserPrompt(state.Ticker, state.News)

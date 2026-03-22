@@ -89,7 +89,7 @@ func TestNewsAnalystExecute(t *testing.T) {
 
 	// Verify user prompt references the ticker and article data.
 	userMsg := mock.lastReq.Messages[1].Content
-	for _, want := range []string{"AAPL", "Apple Beats Earnings Estimates", "0.85"} {
+	for _, want := range []string{"AAPL", "Apple Beats Earnings Estimates", "Reuters", "0.85"} {
 		if !strings.Contains(userMsg, want) {
 			t.Errorf("user prompt missing expected content %q", want)
 		}
@@ -226,11 +226,23 @@ func TestNewsAnalystExecuteLLMError(t *testing.T) {
 
 func TestNewsAnalystExecuteNilProvider(t *testing.T) {
 	na := NewNewsAnalyst(nil, "openai", "gpt-4", nil)
-	state := &agent.PipelineState{Ticker: "GOOG"}
 
+	// With no news, nil provider should not cause an error (LLM is not needed).
+	noNewsState := &agent.PipelineState{Ticker: "GOOG"}
+	if err := na.Execute(context.Background(), noNewsState); err != nil {
+		t.Fatalf("Execute() should succeed with nil provider when no news: %v", err)
+	}
+
+	// With news, nil provider should return an error.
+	state := &agent.PipelineState{
+		Ticker: "GOOG",
+		News: []data.NewsArticle{
+			{Title: "Test Article", PublishedAt: time.Now(), Sentiment: 0.5},
+		},
+	}
 	err := na.Execute(context.Background(), state)
 	if err == nil {
-		t.Fatal("Execute() should return error when provider is nil")
+		t.Fatal("Execute() should return error when provider is nil and news is present")
 	}
 	if !strings.Contains(err.Error(), "provider is nil") {
 		t.Errorf("error should mention nil provider, got: %v", err)
