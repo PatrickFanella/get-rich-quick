@@ -240,6 +240,10 @@ func (p *Pipeline) executeAnalysisPhase(ctx context.Context, state *PipelineStat
 					p.logger.Debug("agent/pipeline: AgentDecisionMade event dropped; phase context cancelled",
 						slog.String("node", node.Name()),
 					)
+				default:
+					p.logger.Debug("agent/pipeline: AgentDecisionMade event dropped; events channel full",
+						slog.String("node", node.Name()),
+					)
 				}
 			}
 			return nil
@@ -404,6 +408,10 @@ func (p *Pipeline) executeRiskDebatePhase(ctx context.Context, state *PipelineSt
 // at the end. The PipelineRun status is updated to completed or failed
 // accordingly.
 func (p *Pipeline) Execute(ctx context.Context, strategyID uuid.UUID, ticker string) (*PipelineState, error) {
+	if p.pipelineRunRepo == nil {
+		return nil, fmt.Errorf("agent/pipeline: pipeline run repository is required")
+	}
+
 	// Apply pipeline-level timeout when configured.
 	if p.config.PipelineTimeout > 0 {
 		var cancel context.CancelFunc
@@ -433,7 +441,7 @@ func (p *Pipeline) Execute(ctx context.Context, strategyID uuid.UUID, ticker str
 	}
 
 	// Emit PipelineStarted event.
-	p.emitEvent(ctx, PipelineEvent{
+	p.emitEvent(PipelineEvent{
 		Type:          PipelineStarted,
 		PipelineRunID: run.ID,
 		StrategyID:    strategyID,
@@ -459,11 +467,13 @@ func (p *Pipeline) Execute(ctx context.Context, strategyID uuid.UUID, ticker str
 				slog.Any("error", err),
 			)
 
-			// Use a background context for the status update so that it
-			// succeeds even when the pipeline context has been cancelled.
+			// Use a short-lived background context for the status update so
+			// that it succeeds even when the pipeline context has been
+			// cancelled, but cannot hang indefinitely on a stalled DB.
 			completedAt := time.Now().UTC()
+			dbCtx, dbCancel := context.WithTimeout(context.Background(), 10*time.Second)
 			if updateErr := p.pipelineRunRepo.UpdateStatus(
-				context.Background(), run.ID, run.TradeDate,
+				dbCtx, run.ID, run.TradeDate,
 				repository.PipelineRunStatusUpdate{
 					Status:       domain.PipelineStatusFailed,
 					CompletedAt:  &completedAt,
@@ -474,8 +484,9 @@ func (p *Pipeline) Execute(ctx context.Context, strategyID uuid.UUID, ticker str
 					slog.Any("error", updateErr),
 				)
 			}
+			dbCancel()
 
-			p.emitEvent(ctx, PipelineEvent{
+			p.emitEvent(PipelineEvent{
 				Type:          PipelineError,
 				PipelineRunID: run.ID,
 				StrategyID:    strategyID,
@@ -488,10 +499,13 @@ func (p *Pipeline) Execute(ctx context.Context, strategyID uuid.UUID, ticker str
 		}
 	}
 
-	// All phases succeeded – mark the run as completed.
+	// All phases succeeded – mark the run as completed. Use a short-lived
+	// background context so the update succeeds even if the pipeline context
+	// is near/past its deadline.
 	completedAt := time.Now().UTC()
+	dbCtx, dbCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	if updateErr := p.pipelineRunRepo.UpdateStatus(
-		ctx, run.ID, run.TradeDate,
+		dbCtx, run.ID, run.TradeDate,
 		repository.PipelineRunStatusUpdate{
 			Status:      domain.PipelineStatusCompleted,
 			CompletedAt: &completedAt,
@@ -501,8 +515,9 @@ func (p *Pipeline) Execute(ctx context.Context, strategyID uuid.UUID, ticker str
 			slog.Any("error", updateErr),
 		)
 	}
+	dbCancel()
 
-	p.emitEvent(ctx, PipelineEvent{
+	p.emitEvent(PipelineEvent{
 		Type:          PipelineCompleted,
 		PipelineRunID: run.ID,
 		StrategyID:    strategyID,
@@ -514,17 +529,15 @@ func (p *Pipeline) Execute(ctx context.Context, strategyID uuid.UUID, ticker str
 }
 
 // emitEvent sends an event to the events channel in a non-blocking fashion.
-// It is a no-op when the events channel is nil.
-func (p *Pipeline) emitEvent(ctx context.Context, event PipelineEvent) {
+// It does not accept a context so that terminal events (PipelineError,
+// PipelineCompleted) are never nondeterministically dropped due to a cancelled
+// pipeline context. It is a no-op when the events channel is nil.
+func (p *Pipeline) emitEvent(event PipelineEvent) {
 	if p.events == nil {
 		return
 	}
 	select {
 	case p.events <- event:
-	case <-ctx.Done():
-		p.logger.Debug("agent/pipeline: event dropped; context cancelled",
-			slog.String("type", string(event.Type)),
-		)
 	default:
 		p.logger.Debug("agent/pipeline: event dropped; events channel full",
 			slog.String("type", string(event.Type)),

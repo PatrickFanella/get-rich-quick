@@ -1009,8 +1009,6 @@ func registerAllPhaseNodes(
 	executionLog *[]string,
 	overrides map[AgentRole]func(context.Context, *PipelineState) error,
 ) {
-	noop := func(_ context.Context, _ *PipelineState) error { return nil }
-
 	mkExec := func(role AgentRole, phaseName string) func(context.Context, *PipelineState) error {
 		if overrides != nil {
 			if fn, ok := overrides[role]; ok {
@@ -1087,7 +1085,6 @@ func registerAllPhaseNodes(
 			return nil
 		}
 	}
-	_ = noop
 	p.RegisterNode(&mockPhaseNode{
 		name: "aggressive_analyst", role: AgentRoleAggressiveAnalyst, phase: PhaseRiskDebate,
 		execute: riskNoop(AgentRoleAggressiveAnalyst),
