@@ -2,6 +2,7 @@ package debate
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync/atomic"
 	"testing"
@@ -120,5 +121,29 @@ func TestBaseDebaterCallWithContextSendsCorrectMessages(t *testing.T) {
 		"News flow is mixed."
 	if got := mock.lastReq.Messages[1]; got.Role != "user" || got.Content != wantUser {
 		t.Fatalf("user message = %+v, want role=user content=%q", got, wantUser)
+	}
+}
+
+func TestBaseDebaterCallWithContextIncludesRoleAndPhaseInErrors(t *testing.T) {
+	mock := &mockProvider{
+		err: errors.New("boom"),
+	}
+
+	debater := NewBaseDebater(
+		agent.AgentRoleBearResearcher,
+		agent.PhaseResearchDebate,
+		mock,
+		"deep-model",
+		slog.Default(),
+	)
+
+	_, _, err := debater.callWithContext(context.Background(), "system", nil, nil)
+	if err == nil {
+		t.Fatal("callWithContext() error = nil, want non-nil")
+	}
+
+	want := "bear_researcher (research_debate): llm completion failed: boom"
+	if err.Error() != want {
+		t.Fatalf("error = %q, want %q", err.Error(), want)
 	}
 }

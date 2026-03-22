@@ -48,8 +48,10 @@ func (b BaseDebater) callWithContext(
 	previousRounds []agent.DebateRound,
 	analystReports map[agent.AgentRole]string,
 ) (string, llm.CompletionUsage, error) {
+	errorPrefix := fmt.Sprintf("%s (%s)", b.role, b.phase)
+
 	if b.provider == nil {
-		return "", llm.CompletionUsage{}, fmt.Errorf("debate base: nil llm provider")
+		return "", llm.CompletionUsage{}, fmt.Errorf("%s: nil llm provider", errorPrefix)
 	}
 
 	resp, err := b.provider.Complete(ctx, llm.CompletionRequest{
@@ -63,10 +65,10 @@ func (b BaseDebater) callWithContext(
 		},
 	})
 	if err != nil {
-		return "", llm.CompletionUsage{}, fmt.Errorf("debate base: llm completion failed: %w", err)
+		return "", llm.CompletionUsage{}, fmt.Errorf("%s: llm completion failed: %w", errorPrefix, err)
 	}
 	if resp == nil {
-		return "", llm.CompletionUsage{}, fmt.Errorf("debate base: nil llm response")
+		return "", llm.CompletionUsage{}, fmt.Errorf("%s: nil llm response", errorPrefix)
 	}
 
 	return resp.Content, resp.Usage, nil
