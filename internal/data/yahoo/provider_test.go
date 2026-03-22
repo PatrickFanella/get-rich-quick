@@ -157,6 +157,73 @@ func TestProviderGetOHLCVEmptyResults(t *testing.T) {
 	}
 }
 
+func TestProviderGetOHLCVErrorResponses(t *testing.T) {
+	t.Parallel()
+
+	from := time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2024, time.January, 2, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name           string
+		statusCode     int
+		responseBody   string
+		wantErrMessage string
+	}{
+		{
+			name:           "non-2xx status",
+			statusCode:     http.StatusTooManyRequests,
+			responseBody:   `rate limit exceeded`,
+			wantErrMessage: "yahoo: request failed with status 429: rate limit exceeded",
+		},
+		{
+			name:       "chart error response",
+			statusCode: http.StatusOK,
+			responseBody: `{
+				"chart": {
+					"result": null,
+					"error": {
+						"code": "Not Found",
+						"description": "No data found, symbol may be delisted"
+					}
+				}
+			}`,
+			wantErrMessage: "yahoo: No data found, symbol may be delisted",
+		},
+		{
+			name:           "invalid json",
+			statusCode:     http.StatusOK,
+			responseBody:   `{"chart":`,
+			wantErrMessage: "yahoo: decode chart response: unexpected end of JSON input",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.statusCode)
+				_, _ = w.Write([]byte(tt.responseBody))
+			}))
+			defer server.Close()
+
+			provider := NewProvider(discardLogger())
+			provider.baseURL = server.URL
+			provider.httpClient = server.Client()
+
+			_, err := provider.GetOHLCV(context.Background(), "AAPL", data.Timeframe1d, from, to)
+			if err == nil {
+				t.Fatal("GetOHLCV() error = nil, want non-nil")
+			}
+			if err.Error() != tt.wantErrMessage {
+				t.Fatalf("GetOHLCV() error = %q, want %q", err.Error(), tt.wantErrMessage)
+			}
+		})
+	}
+}
+
 func TestProviderUnsupportedMethodsReturnErrNotImplemented(t *testing.T) {
 	t.Parallel()
 
