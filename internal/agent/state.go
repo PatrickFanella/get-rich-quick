@@ -21,6 +21,7 @@ type AgentRole = domain.AgentRole
 
 const (
 	AgentRoleMarketAnalyst       = domain.AgentRoleMarketAnalyst
+	AgentRoleFundamentalsAnalyst = domain.AgentRoleFundamentalsAnalyst
 	AgentRoleBullResearcher      = domain.AgentRoleBullResearcher
 	AgentRoleBearResearcher      = domain.AgentRoleBearResearcher
 	AgentRoleTrader              = domain.AgentRoleTrader
@@ -30,6 +31,7 @@ const (
 	AgentRoleConservativeAnalyst = domain.AgentRoleConservativeAnalyst
 	AgentRoleNeutralAnalyst      = domain.AgentRoleNeutralAnalyst
 	AgentRoleSocialMediaAnalyst  = domain.AgentRoleSocialMediaAnalyst
+	AgentRoleNewsAnalyst         = domain.AgentRoleNewsAnalyst
 )
 
 type Phase = domain.Phase
@@ -51,16 +53,17 @@ const (
 
 // PipelineState carries the mutable state shared across all pipeline phases.
 type PipelineState struct {
-	PipelineRunID  uuid.UUID             `json:"pipeline_run_id"`
-	StrategyID     uuid.UUID             `json:"strategy_id"`
-	Ticker         string                `json:"ticker"`
-	Market         *MarketData           `json:"market,omitempty"`
-	Social         *data.SocialSentiment `json:"social,omitempty"`
-	AnalystReports map[AgentRole]string  `json:"analyst_reports,omitempty"`
-	ResearchDebate ResearchDebateState   `json:"research_debate"`
-	TradingPlan    TradingPlan           `json:"trading_plan"`
-	RiskDebate     RiskDebateState       `json:"risk_debate"`
-	FinalSignal    FinalSignal           `json:"final_signal"`
+	PipelineRunID  uuid.UUID            `json:"pipeline_run_id"`
+	StrategyID     uuid.UUID            `json:"strategy_id"`
+	Ticker         string               `json:"ticker"`
+	Market         *MarketData          `json:"market,omitempty"`
+	News           []data.NewsArticle   `json:"news,omitempty"`
+	Fundamentals   *data.Fundamentals   `json:"fundamentals,omitempty"`
+	AnalystReports map[AgentRole]string `json:"analyst_reports,omitempty"`
+	ResearchDebate ResearchDebateState  `json:"research_debate"`
+	TradingPlan    TradingPlan          `json:"trading_plan"`
+	RiskDebate     RiskDebateState      `json:"risk_debate"`
+	FinalSignal    FinalSignal          `json:"final_signal"`
 	// Errors holds internal errors encountered during pipeline execution.
 	// It is intentionally excluded from JSON output via `json:"-"`.
 	Errors []error `json:"-"`
