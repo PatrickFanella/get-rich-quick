@@ -51,10 +51,10 @@ type chartError struct {
 }
 
 type chartResult struct {
-	Timestamp  []int64           `json:"timestamp"`
-	Indicators chartIndicators   `json:"indicators"`
-	Meta       json.RawMessage   `json:"meta"`
-	Events     json.RawMessage   `json:"events"`
+	Timestamp  []int64         `json:"timestamp"`
+	Indicators chartIndicators `json:"indicators"`
+	Meta       json.RawMessage `json:"meta"`
+	Events     json.RawMessage `json:"events"`
 }
 
 type chartIndicators struct {
@@ -188,7 +188,7 @@ func (p *Provider) GetOHLCV(ctx context.Context, ticker string, timeframe data.T
 
 	bars := make([]domain.OHLCV, 0, len(response.Chart.Result[0].Timestamp))
 	for index, timestamp := range response.Chart.Result[0].Timestamp {
-		open, high, low, close, ok := quote.bar(index)
+		open, high, low, closePrice, ok := quote.bar(index)
 		if !ok {
 			continue
 		}
@@ -204,7 +204,7 @@ func (p *Provider) GetOHLCV(ctx context.Context, ticker string, timeframe data.T
 			Open:      open,
 			High:      high,
 			Low:       low,
-			Close:     close,
+			Close:     closePrice,
 			Volume:    volume,
 		})
 	}
