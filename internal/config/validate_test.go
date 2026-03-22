@@ -21,6 +21,7 @@ func TestLoadParsesEnvironmentValues(t *testing.T) {
 	t.Setenv("DATABASE_SSL_MODE", "require")
 	t.Setenv("REDIS_URL", "redis://localhost:6379/0")
 	t.Setenv("LLM_TIMEOUT", "45s")
+	t.Setenv("POLYGON_API_KEY", "polygon-key")
 	t.Setenv("ALPHA_VANTAGE_RATE_LIMIT_PER_MINUTE", "7")
 	t.Setenv("FINNHUB_RATE_LIMIT_PER_MINUTE", "20")
 	t.Setenv("ALPACA_PAPER_MODE", "false")
@@ -66,6 +67,10 @@ func TestLoadParsesEnvironmentValues(t *testing.T) {
 
 	if cfg.DataProviders.AlphaVantage.RateLimitPerMinute != 7 {
 		t.Fatalf("cfg.DataProviders.AlphaVantage.RateLimitPerMinute = %d, want %d", cfg.DataProviders.AlphaVantage.RateLimitPerMinute, 7)
+	}
+
+	if cfg.DataProviders.Polygon.APIKey != "polygon-key" {
+		t.Fatalf("cfg.DataProviders.Polygon.APIKey = %q, want %q", cfg.DataProviders.Polygon.APIKey, "polygon-key")
 	}
 
 	if cfg.DataProviders.Finnhub.RateLimitPerMinute != 20 {
@@ -214,6 +219,7 @@ func clearConfigEnv(t *testing.T) {
 		"XAI_MODEL",
 		"OLLAMA_BASE_URL",
 		"OLLAMA_MODEL",
+		"POLYGON_API_KEY",
 		"ALPHA_VANTAGE_API_KEY",
 		"ALPHA_VANTAGE_RATE_LIMIT_PER_MINUTE",
 		"FINNHUB_API_KEY",

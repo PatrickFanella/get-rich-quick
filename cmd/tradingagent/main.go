@@ -7,6 +7,10 @@ import (
 	"os"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/config"
+	_ "github.com/PatrickFanella/get-rich-quick/internal/data/alphavantage"
+	_ "github.com/PatrickFanella/get-rich-quick/internal/data/binance"
+	_ "github.com/PatrickFanella/get-rich-quick/internal/data/polygon"
+	_ "github.com/PatrickFanella/get-rich-quick/internal/data/yahoo"
 )
 
 func main() {

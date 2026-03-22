@@ -75,6 +75,7 @@ type OllamaConfig struct {
 
 // DataProviderConfigs contains external data provider settings.
 type DataProviderConfigs struct {
+	Polygon      DataProviderConfig
 	AlphaVantage DataProviderConfig
 	Finnhub      DataProviderConfig
 }
@@ -283,6 +284,9 @@ func loadFromEnvironment() (Config, error) {
 			},
 		},
 		DataProviders: DataProviderConfigs{
+			Polygon: DataProviderConfig{
+				APIKey: os.Getenv("POLYGON_API_KEY"),
+			},
 			AlphaVantage: DataProviderConfig{
 				APIKey:             os.Getenv("ALPHA_VANTAGE_API_KEY"),
 				RateLimitPerMinute: alphaVantageRateLimit,
