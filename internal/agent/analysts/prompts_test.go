@@ -315,6 +315,217 @@ func TestFormatFundamentalsAnalystUserPromptSanitizesTicker(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Social analyst prompt tests
+// ---------------------------------------------------------------------------
+
+func TestSocialAnalystSystemPromptIsNonEmpty(t *testing.T) {
+	if SocialAnalystSystemPrompt == "" {
+		t.Fatal("SocialAnalystSystemPrompt must not be empty")
+	}
+}
+
+func TestSocialAnalystSystemPromptContainsRequiredSections(t *testing.T) {
+	required := []string{
+		"Sentiment Score",
+		"Bullish",
+		"Bearish",
+		"Post count",
+		"Comment count",
+		"Retail Sentiment Summary",
+		"Trending Assessment",
+		"Contrarian Signals",
+		"Overall Assessment",
+		"bullish",
+		"bearish",
+		"confidence",
+		"engagement",
+	}
+	for _, keyword := range required {
+		if !strings.Contains(SocialAnalystSystemPrompt, keyword) {
+// News analyst prompt tests
+// ---------------------------------------------------------------------------
+
+func TestNewsAnalystSystemPromptIsNonEmpty(t *testing.T) {
+	if NewsAnalystSystemPrompt == "" {
+		t.Fatal("NewsAnalystSystemPrompt must not be empty")
+	}
+}
+
+func TestNewsAnalystSystemPromptContainsRequiredSections(t *testing.T) {
+	required := []string{
+		"Sentiment",
+		"Catalyst",
+		"Macro",
+		"Risk",
+		"Overall Assessment",
+		"bullish",
+		"bearish",
+		"neutral",
+		"earnings",
+		"regulatory",
+		"confidence",
+		"Product",
+		"M&A",
+		"Management",
+	}
+	for _, keyword := range required {
+		if !strings.Contains(NewsAnalystSystemPrompt, keyword) {
+			t.Errorf("system prompt missing required keyword %q", keyword)
+		}
+	}
+}
+
+func TestFormatSocialAnalystUserPromptWithData(t *testing.T) {
+	s := &data.SocialSentiment{
+		Ticker:       "GME",
+		Score:        0.7523,
+		Bullish:      0.82,
+		Bearish:      0.18,
+		PostCount:    15420,
+		CommentCount: 87300,
+		MeasuredAt:   time.Date(2025, 3, 20, 0, 0, 0, 0, time.UTC),
+	}
+
+	result := FormatSocialAnalystUserPrompt("GME", s)
+
+	checks := []string{
+		"GME",
+		"## Social Sentiment Data",
+		"0.7523",
+		"0.8200",
+		"0.1800",
+		"15420",
+		"87300",
+		"2025-03-20",
+		"Provide your structured social sentiment analysis report.",
+func TestFormatNewsAnalystUserPromptWithData(t *testing.T) {
+	articles := []data.NewsArticle{
+		{
+			Title:       "AAPL beats earnings expectations",
+			Summary:     "Apple reported Q1 earnings above analyst estimates.",
+			URL:         "https://example.com/1",
+			Source:      "Reuters",
+			PublishedAt: time.Date(2025, 3, 20, 0, 0, 0, 0, time.UTC),
+			Sentiment:   0.85,
+		},
+		{
+			Title:       "AAPL faces regulatory scrutiny",
+			Summary:     "EU announces antitrust investigation into Apple.",
+			URL:         "https://example.com/2",
+			Source:      "Bloomberg",
+			PublishedAt: time.Date(2025, 3, 19, 0, 0, 0, 0, time.UTC),
+			Sentiment:   -0.60,
+		},
+	}
+
+	result := FormatNewsAnalystUserPrompt("AAPL", articles)
+
+	checks := []string{
+		"AAPL",
+		"## News Articles",
+		"AAPL beats earnings expectations",
+		"Apple reported Q1 earnings above analyst estimates.",
+		"0.85",
+		"2025-03-20",
+		"AAPL faces regulatory scrutiny",
+		"EU announces antitrust investigation into Apple.",
+		"-0.60",
+		"2025-03-19",
+		"Provide your structured news analysis report.",
+	}
+	for _, want := range checks {
+		if !strings.Contains(result, want) {
+			t.Errorf("user prompt missing expected content %q", want)
+		}
+	}
+}
+
+func TestFormatSocialAnalystUserPromptNilSentiment(t *testing.T) {
+	result := FormatSocialAnalystUserPrompt("DOGE-USD", nil)
+
+	if !strings.Contains(result, "DOGE-USD") {
+		t.Error("user prompt should contain ticker")
+	}
+	if !strings.Contains(result, "No social sentiment data available") {
+		t.Error("user prompt should indicate missing social sentiment data")
+	}
+	if strings.Contains(result, "| Metric | Value |") {
+		t.Error("user prompt should not contain the data table when sentiment is nil")
+	}
+}
+
+func TestFormatSocialAnalystUserPromptZeroValues(t *testing.T) {
+	s := &data.SocialSentiment{
+		Ticker:     "NEWCO",
+		MeasuredAt: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC),
+	}
+
+	result := FormatSocialAnalystUserPrompt("NEWCO", s)
+
+	if !strings.Contains(result, "| Sentiment Score | 0.0000 |") {
+		t.Error("user prompt should contain zero sentiment score")
+	}
+	if !strings.Contains(result, "| Post Count | 0 |") {
+		t.Error("user prompt should contain zero post count")
+	}
+	if !strings.Contains(result, "2025-06-01") {
+		t.Error("user prompt should contain measured-at date")
+	}
+}
+
+func TestFormatSocialAnalystUserPromptSanitizesTicker(t *testing.T) {
+	result := FormatSocialAnalystUserPrompt("BAD|TICK\nER", nil)
+func TestFormatNewsAnalystUserPromptEmptyArticles(t *testing.T) {
+	result := FormatNewsAnalystUserPrompt("TSLA", nil)
+
+	if !strings.Contains(result, "TSLA") {
+		t.Error("user prompt should contain ticker")
+	}
+	if !strings.Contains(result, "No news articles available.") {
+		t.Error("user prompt should indicate missing news data")
+	}
+	if strings.Contains(result, "| Date | Title |") {
+		t.Error("user prompt should not contain the data table when articles are nil")
+	}
+}
+
+func TestFormatNewsAnalystUserPromptEmptySlice(t *testing.T) {
+	result := FormatNewsAnalystUserPrompt("GOOG", []data.NewsArticle{})
+
+	if !strings.Contains(result, "No news articles available.") {
+		t.Error("user prompt should indicate missing news data for empty slice")
+	}
+}
+
+func TestFormatNewsAnalystUserPromptSanitizesTicker(t *testing.T) {
+	result := FormatNewsAnalystUserPrompt("BAD|TICK\nER", nil)
+
+	if !strings.Contains(result, `BAD\|TICK ER`) {
+		t.Error("ticker should have pipes escaped and newlines replaced")
+	}
+}
+
+func TestFormatNewsAnalystUserPromptSanitizesTitleAndSummary(t *testing.T) {
+	articles := []data.NewsArticle{
+		{
+			Title:       "evil|title\nbreaker",
+			Summary:     "bad|summary\r\ninjection",
+			PublishedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+			Sentiment:   0.0,
+		},
+	}
+
+	result := FormatNewsAnalystUserPrompt("TEST", articles)
+
+	if !strings.Contains(result, `evil\|title breaker`) {
+		t.Error("title should have pipes escaped and newlines replaced")
+	}
+	if !strings.Contains(result, `bad\|summary injection`) {
+		t.Error("summary should have pipes escaped and newlines replaced")
+	}
+}
+
 func TestSanitizeCell(t *testing.T) {
 	tests := []struct {
 		name  string
