@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
+	"github.com/PatrickFanella/get-rich-quick/internal/llm"
 	"github.com/PatrickFanella/get-rich-quick/internal/repository"
 )
 
@@ -963,6 +965,26 @@ type mockPipelineRunRepo struct {
 	updateStatusFn func(ctx context.Context, id uuid.UUID, tradeDate time.Time, update repository.PipelineRunStatusUpdate) error
 }
 
+type mockAgentDecisionRepo struct {
+	created   []*domain.AgentDecision
+	createErr error
+}
+
+func (m *mockAgentDecisionRepo) Create(_ context.Context, decision *domain.AgentDecision) error {
+	if m.createErr != nil {
+		return m.createErr
+	}
+
+	cloned := *decision
+	cloned.RoundNumber = cloneRoundNumber(decision.RoundNumber)
+	m.created = append(m.created, &cloned)
+	return nil
+}
+
+func (m *mockAgentDecisionRepo) GetByRun(_ context.Context, _ uuid.UUID, _ repository.AgentDecisionFilter, _, _ int) ([]domain.AgentDecision, error) {
+	return nil, nil
+}
+
 func (m *mockPipelineRunRepo) Create(ctx context.Context, run *domain.PipelineRun) error {
 	if m.createFn != nil {
 		return m.createFn(ctx, run)
@@ -1207,6 +1229,145 @@ func TestExecute_HappyPath(t *testing.T) {
 	}
 }
 
+func TestExecute_PersistsAgentDecisions(t *testing.T) {
+	stratID := uuid.New()
+	decisionRepo := &mockAgentDecisionRepo{}
+
+	pipeline := NewPipeline(
+		PipelineConfig{ResearchDebateRounds: 1, RiskDebateRounds: 1},
+		&mockPipelineRunRepo{},
+		decisionRepo,
+		nil,
+		slog.Default(),
+	)
+
+	registerAllPhaseNodes(pipeline, nil, map[AgentRole]func(context.Context, *PipelineState) error{
+		AgentRoleMarketAnalyst: func(_ context.Context, state *PipelineState) error {
+			state.SetAnalystReport(AgentRoleMarketAnalyst, "market output")
+			state.RecordDecision(AgentRoleMarketAnalyst, PhaseAnalysis, nil, "market output", newTestDecisionLLMResponse("openai", "gpt-4o-mini", 11, 7, 101))
+			return nil
+		},
+		AgentRoleBullResearcher: func(_ context.Context, state *PipelineState) error {
+			roundNumber := len(state.ResearchDebate.Rounds)
+			state.ResearchDebate.Rounds[roundNumber-1].Contributions[AgentRoleBullResearcher] = "bull output"
+			state.RecordDecision(AgentRoleBullResearcher, PhaseResearchDebate, &roundNumber, "bull output", newTestDecisionLLMResponse("anthropic", "claude-3-5-sonnet", 13, 5, 102))
+			return nil
+		},
+		AgentRoleBearResearcher: func(_ context.Context, state *PipelineState) error {
+			roundNumber := len(state.ResearchDebate.Rounds)
+			state.ResearchDebate.Rounds[roundNumber-1].Contributions[AgentRoleBearResearcher] = "bear output"
+			state.RecordDecision(AgentRoleBearResearcher, PhaseResearchDebate, &roundNumber, "bear output", newTestDecisionLLMResponse("google", "gemini-2.5-pro", 17, 9, 103))
+			return nil
+		},
+		AgentRoleInvestJudge: func(_ context.Context, state *PipelineState) error {
+			state.ResearchDebate.InvestmentPlan = "judge output"
+			state.RecordDecision(AgentRoleInvestJudge, PhaseResearchDebate, nil, "judge output", newTestDecisionLLMResponse("openrouter", "deepseek-chat", 19, 4, 104))
+			return nil
+		},
+		AgentRoleTrader: func(_ context.Context, state *PipelineState) error {
+			state.TradingPlan = TradingPlan{Action: PipelineSignalBuy, Ticker: state.Ticker}
+			state.RecordDecision(AgentRoleTrader, PhaseTrading, nil, "trader output", newTestDecisionLLMResponse("xai", "grok-2", 23, 6, 105))
+			return nil
+		},
+		AgentRoleAggressiveAnalyst: func(_ context.Context, state *PipelineState) error {
+			roundNumber := len(state.RiskDebate.Rounds)
+			state.RiskDebate.Rounds[roundNumber-1].Contributions[AgentRoleAggressiveAnalyst] = "aggressive output"
+			state.RecordDecision(AgentRoleAggressiveAnalyst, PhaseRiskDebate, &roundNumber, "aggressive output", newTestDecisionLLMResponse("openai", "gpt-4o", 29, 3, 106))
+			return nil
+		},
+		AgentRoleConservativeAnalyst: func(_ context.Context, state *PipelineState) error {
+			roundNumber := len(state.RiskDebate.Rounds)
+			state.RiskDebate.Rounds[roundNumber-1].Contributions[AgentRoleConservativeAnalyst] = "conservative output"
+			state.RecordDecision(AgentRoleConservativeAnalyst, PhaseRiskDebate, &roundNumber, "conservative output", newTestDecisionLLMResponse("anthropic", "claude-3-opus", 31, 8, 107))
+			return nil
+		},
+		AgentRoleNeutralAnalyst: func(_ context.Context, state *PipelineState) error {
+			roundNumber := len(state.RiskDebate.Rounds)
+			state.RiskDebate.Rounds[roundNumber-1].Contributions[AgentRoleNeutralAnalyst] = "neutral output"
+			state.RecordDecision(AgentRoleNeutralAnalyst, PhaseRiskDebate, &roundNumber, "neutral output", newTestDecisionLLMResponse("google", "gemini-2.0-flash", 37, 10, 108))
+			return nil
+		},
+		AgentRoleRiskManager: func(_ context.Context, state *PipelineState) error {
+			state.RiskDebate.FinalSignal = "risk output"
+			state.RecordDecision(AgentRoleRiskManager, PhaseRiskDebate, nil, "risk output", newTestDecisionLLMResponse("openai", "gpt-4.1", 41, 12, 109))
+			return nil
+		},
+	})
+
+	if _, err := pipeline.Execute(context.Background(), stratID, "AAPL"); err != nil {
+		t.Fatalf("Execute() error = %v, want nil", err)
+	}
+
+	if len(decisionRepo.created) != 9 {
+		t.Fatalf("Create() call count = %d, want 9", len(decisionRepo.created))
+	}
+
+	assertDecision := func(role AgentRole, phase Phase, roundNumber *int, output, provider, model string, promptTokens, completionTokens, latencyMS int) {
+		t.Helper()
+
+		for _, decision := range decisionRepo.created {
+			if decision.AgentRole != role || decision.Phase != phase {
+				continue
+			}
+			if !sameRoundNumber(decision.RoundNumber, roundNumber) {
+				continue
+			}
+
+			if decision.OutputText != output {
+				t.Fatalf("%s/%s output = %q, want %q", phase, role, decision.OutputText, output)
+			}
+			if decision.LLMProvider != provider {
+				t.Fatalf("%s/%s provider = %q, want %q", phase, role, decision.LLMProvider, provider)
+			}
+			if decision.LLMModel != model {
+				t.Fatalf("%s/%s model = %q, want %q", phase, role, decision.LLMModel, model)
+			}
+			if decision.PromptTokens != promptTokens {
+				t.Fatalf("%s/%s prompt tokens = %d, want %d", phase, role, decision.PromptTokens, promptTokens)
+			}
+			if decision.CompletionTokens != completionTokens {
+				t.Fatalf("%s/%s completion tokens = %d, want %d", phase, role, decision.CompletionTokens, completionTokens)
+			}
+			if decision.LatencyMS != latencyMS {
+				t.Fatalf("%s/%s latency = %d, want %d", phase, role, decision.LatencyMS, latencyMS)
+			}
+			return
+		}
+
+		t.Fatalf("missing persisted decision for phase=%s role=%s round=%v", phase, role, roundNumber)
+	}
+
+	roundOne := 1
+	assertDecision(AgentRoleMarketAnalyst, PhaseAnalysis, nil, "market output", "openai", "gpt-4o-mini", 11, 7, 101)
+	assertDecision(AgentRoleBullResearcher, PhaseResearchDebate, &roundOne, "bull output", "anthropic", "claude-3-5-sonnet", 13, 5, 102)
+	assertDecision(AgentRoleBearResearcher, PhaseResearchDebate, &roundOne, "bear output", "google", "gemini-2.5-pro", 17, 9, 103)
+	assertDecision(AgentRoleInvestJudge, PhaseResearchDebate, nil, "judge output", "openrouter", "deepseek-chat", 19, 4, 104)
+	assertDecision(AgentRoleTrader, PhaseTrading, nil, "trader output", "xai", "grok-2", 23, 6, 105)
+	assertDecision(AgentRoleAggressiveAnalyst, PhaseRiskDebate, &roundOne, "aggressive output", "openai", "gpt-4o", 29, 3, 106)
+	assertDecision(AgentRoleConservativeAnalyst, PhaseRiskDebate, &roundOne, "conservative output", "anthropic", "claude-3-opus", 31, 8, 107)
+	assertDecision(AgentRoleNeutralAnalyst, PhaseRiskDebate, &roundOne, "neutral output", "google", "gemini-2.0-flash", 37, 10, 108)
+	assertDecision(AgentRoleRiskManager, PhaseRiskDebate, nil, "risk output", "openai", "gpt-4.1", 41, 12, 109)
+
+	gotRoles := make([]AgentRole, 0, len(decisionRepo.created))
+	for _, decision := range decisionRepo.created {
+		gotRoles = append(gotRoles, decision.AgentRole)
+	}
+	wantRoles := []AgentRole{
+		AgentRoleMarketAnalyst,
+		AgentRoleBullResearcher,
+		AgentRoleBearResearcher,
+		AgentRoleInvestJudge,
+		AgentRoleTrader,
+		AgentRoleAggressiveAnalyst,
+		AgentRoleConservativeAnalyst,
+		AgentRoleNeutralAnalyst,
+		AgentRoleRiskManager,
+	}
+	if !slices.Equal(gotRoles, wantRoles) {
+		t.Fatalf("persisted roles order = %v, want %v", gotRoles, wantRoles)
+	}
+}
+
 // TestExecute_PhaseFailureUpdatesRunStatus verifies that when a phase fails,
 // the PipelineRun status is updated to failed with the error message, and a
 // PipelineError event is emitted.
@@ -1273,6 +1434,28 @@ func TestExecute_PhaseFailureUpdatesRunStatus(t *testing.T) {
 	if !strings.Contains(errorEvents[0].Error, "simulated trading failure") {
 		t.Errorf("PipelineError.Error = %q, want substring %q", errorEvents[0].Error, "simulated trading failure")
 	}
+}
+
+func newTestDecisionLLMResponse(provider, model string, promptTokens, completionTokens, latencyMS int) *DecisionLLMResponse {
+	return &DecisionLLMResponse{
+		Provider: provider,
+		Response: &llm.CompletionResponse{
+			Model: model,
+			Usage: llm.CompletionUsage{
+				PromptTokens:     promptTokens,
+				CompletionTokens: completionTokens,
+			},
+			LatencyMS: latencyMS,
+		},
+	}
+}
+
+func sameRoundNumber(got, want *int) bool {
+	if got == nil || want == nil {
+		return got == nil && want == nil
+	}
+
+	return *got == *want
 }
 
 // TestExecute_ContextCancellationStopsExecution verifies that cancelling the
