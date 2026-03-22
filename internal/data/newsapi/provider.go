@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -36,6 +35,7 @@ type Client struct {
 	apiKey       string
 	baseURL      string
 	httpClient   *http.Client
+	api          *data.APIClient
 	logger       *slog.Logger
 	rateLimiters []*data.RateLimiter
 }
@@ -81,13 +81,33 @@ func NewClient(apiKey string, logger *slog.Logger, rateLimiters ...*data.RateLim
 		logger = slog.Default()
 	}
 
-	client := &Client{
-		apiKey:  strings.TrimSpace(apiKey),
-		baseURL: defaultBaseURL,
-		httpClient: &http.Client{
-			Timeout: defaultTimeout,
+	trimmedKey := strings.TrimSpace(apiKey)
+	httpClient := &http.Client{
+		Timeout: defaultTimeout,
+	}
+
+	api := data.NewAPIClient(data.APIClientConfig{
+		BaseURL: defaultBaseURL,
+		Auth: data.AuthConfig{
+			Style:      data.AuthStyleHeader,
+			HeaderName: "X-Api-Key",
+			Value:      trimmedKey,
 		},
-		logger: logger,
+		Headers: http.Header{
+			"Accept": []string{"application/json"},
+		},
+		Timeout: defaultTimeout,
+		Logger:  logger,
+		Prefix:  "newsapi",
+	})
+	api.SetHTTPClient(httpClient)
+
+	client := &Client{
+		apiKey:     trimmedKey,
+		baseURL:    defaultBaseURL,
+		httpClient: httpClient,
+		api:        api,
+		logger:     logger,
 		rateLimiters: []*data.RateLimiter{
 			data.NewRateLimiter(freeTierRequestCap, freeTierRateWindow),
 		},
@@ -211,17 +231,10 @@ func (c *Client) Get(ctx context.Context, params url.Values) ([]byte, error) {
 		return nil, errors.New("newsapi: api key is required")
 	}
 
-	requestURL, err := c.buildURL(everythingEndpoint, params)
-	if err != nil {
-		return nil, err
+	// Sync baseURL in case tests changed it directly.
+	if c.baseURL != c.api.BaseURL() {
+		c.api.SetBaseURL(c.baseURL)
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("newsapi: create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Api-Key", c.apiKey)
 
 	reservations, err := c.reserveRateLimiters(ctx)
 	if err != nil {
@@ -234,52 +247,36 @@ func (c *Client) Get(ctx context.Context, params url.Values) ([]byte, error) {
 		}
 	}()
 
-	startedAt := time.Now()
-	c.logger.Info("newsapi: sending request",
-		slog.String("method", req.Method),
-		slog.String("path", req.URL.Path),
-	)
-
-	resp, err := c.httpClient.Do(req)
+	body, _, err := c.api.Get(ctx, everythingEndpoint, params)
 	if err != nil {
-		c.logger.Warn("newsapi: request failed",
-			slog.String("method", req.Method),
-			slog.String("path", req.URL.Path),
-			slog.Any("error", err),
-			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
-		)
-		return nil, fmt.Errorf("newsapi: do request: %w", err)
+		var apiErr *data.APIError
+		if errors.As(err, &apiErr) {
+			// Commit reservations on successful HTTP round-trip.
+			commitReservations(reservations)
+			committedReservations = true
+
+			if newsErr := parseErrorResponse(apiErr.StatusCode, apiErr.Body); newsErr != nil {
+				c.logger.Warn("newsapi: non-success response",
+					slog.Int("status", newsErr.StatusCode()),
+					slog.Any("error", newsErr),
+				)
+				return nil, newsErr
+			}
+		}
+		return nil, err
 	}
+
+	// Commit reservations on successful response.
 	commitReservations(reservations)
 	committedReservations = true
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			c.logger.Warn("newsapi: failed to close response body", slog.Any("error", closeErr))
-		}
-	}()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("newsapi: read response body: %w", err)
-	}
-
-	durationMS := time.Since(startedAt).Milliseconds()
-	c.logger.Info("newsapi: received response",
-		slog.String("method", req.Method),
-		slog.String("path", req.URL.Path),
-		slog.Int("status", resp.StatusCode),
-		slog.Int64("duration_ms", durationMS),
-	)
-
-	if apiErr := parseErrorResponse(resp.StatusCode, body); apiErr != nil {
+	// NewsAPI may return errors inside 200 OK responses.
+	if newsErr := parseErrorResponse(http.StatusOK, body); newsErr != nil {
 		c.logger.Warn("newsapi: non-success response",
-			slog.String("method", req.Method),
-			slog.String("path", req.URL.Path),
-			slog.Int("status", apiErr.StatusCode()),
-			slog.Any("error", apiErr),
-			slog.Int64("duration_ms", durationMS),
+			slog.Int("status", newsErr.StatusCode()),
+			slog.Any("error", newsErr),
 		)
-		return nil, apiErr
+		return nil, newsErr
 	}
 
 	return body, nil
@@ -328,38 +325,6 @@ func (c *Client) reserveRateLimiters(ctx context.Context) ([]*data.Reservation, 
 	}
 
 	return reservations, nil
-}
-
-func (c *Client) buildURL(requestPath string, params url.Values) (string, error) {
-	baseURL, err := url.Parse(c.baseURL)
-	if err != nil {
-		return "", fmt.Errorf("newsapi: parse base url: %w", err)
-	}
-
-	baseURL.Path = joinPath(baseURL.Path, requestPath)
-	query := baseURL.Query()
-	for key, values := range params {
-		for _, value := range values {
-			query.Add(key, value)
-		}
-	}
-	baseURL.RawQuery = query.Encode()
-
-	return baseURL.String(), nil
-}
-
-func joinPath(basePath, requestPath string) string {
-	trimmedPath := strings.TrimSpace(requestPath)
-	cleanPath := "/" + strings.TrimLeft(trimmedPath, "/")
-	if trimmedPath == "" {
-		cleanPath = "/"
-	}
-
-	if basePath == "" || basePath == "/" {
-		return cleanPath
-	}
-
-	return strings.TrimRight(basePath, "/") + cleanPath
 }
 
 func parseErrorResponse(statusCode int, body []byte) *ErrorResponse {

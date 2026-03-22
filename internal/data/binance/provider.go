@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -29,6 +28,7 @@ const (
 type Provider struct {
 	baseURL     string
 	httpClient  *http.Client
+	api         *data.APIClient
 	logger      *slog.Logger
 	rateLimiter *data.RateLimiter
 }
@@ -52,13 +52,31 @@ func NewProvider(logger *slog.Logger) *Provider {
 		logger = slog.Default()
 	}
 
-	return &Provider{
-		baseURL: defaultBaseURL,
-		httpClient: &http.Client{
-			Timeout: defaultTimeout,
+	httpClient := &http.Client{
+		Timeout: defaultTimeout,
+	}
+
+	rl := data.NewRateLimiter(defaultRateLimitPerMinute, time.Minute)
+
+	api := data.NewAPIClient(data.APIClientConfig{
+		BaseURL: defaultBaseURL,
+		Auth:    data.AuthConfig{Style: data.AuthStyleNone},
+		Headers: http.Header{
+			"Accept":     []string{"application/json"},
+			"User-Agent": []string{defaultUA},
 		},
+		Timeout: defaultTimeout,
+		Logger:  logger,
+		Prefix:  "binance",
+	})
+	api.SetHTTPClient(httpClient)
+
+	return &Provider{
+		baseURL:     defaultBaseURL,
+		httpClient:  httpClient,
+		api:         api,
 		logger:      logger,
-		rateLimiter: data.NewRateLimiter(defaultRateLimitPerMinute, time.Minute),
+		rateLimiter: rl,
 	}
 }
 
@@ -141,17 +159,20 @@ func (p *Provider) GetSocialSentiment(_ context.Context, _ string) (data.SocialS
 }
 
 func (p *Provider) getKlinesPage(ctx context.Context, ticker string, mapping timeframeMapping, from, to time.Time) ([]domain.OHLCV, error) {
-	requestURL, err := p.buildKlinesURL(ticker, mapping.interval, from, to)
-	if err != nil {
-		return nil, err
+	// Sync baseURL in case tests changed it directly.
+	if p.baseURL != p.api.BaseURL() {
+		p.api.SetBaseURL(p.baseURL)
 	}
+	// Sync httpClient in case tests changed it directly.
+	p.api.SetHTTPClient(p.httpClient)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("binance: create request: %w", err)
+	params := url.Values{
+		"symbol":    []string{ticker},
+		"interval":  []string{mapping.interval},
+		"startTime": []string{strconv.FormatInt(from.UnixMilli(), 10)},
+		"endTime":   []string{strconv.FormatInt(to.UnixMilli(), 10)},
+		"limit":     []string{strconv.Itoa(maxKlinesPerRequest)},
 	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", defaultUA)
 
 	reservation, err := p.rateLimiter.Reserve(ctx)
 	if err != nil {
@@ -164,66 +185,22 @@ func (p *Provider) getKlinesPage(ctx context.Context, ticker string, mapping tim
 		}
 	}()
 
-	startedAt := time.Now()
-	p.logger.Info("binance: sending request",
-		slog.String("method", req.Method),
-		slog.String("path", req.URL.Path),
-	)
-
-	resp, err := p.httpClient.Do(req)
+	body, _, err := p.api.Get(ctx, "/api/v3/klines", params)
 	if err != nil {
-		p.logger.Warn("binance: request failed",
-			slog.String("method", req.Method),
-			slog.String("path", req.URL.Path),
-			slog.Any("error", err),
-			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
-		)
-		return nil, fmt.Errorf("binance: do request: %w", err)
+		var apiErr *data.APIError
+		if errors.As(err, &apiErr) {
+			// Commit reservation on successful HTTP round-trip.
+			reservation.Commit()
+			committedReservation = true
+			return nil, fmt.Errorf("binance: request failed with status %d: %s", apiErr.StatusCode, parseErrorMessage(apiErr.StatusCode, apiErr.Body))
+		}
+		return nil, err
 	}
+
 	reservation.Commit()
 	committedReservation = true
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			p.logger.Warn("binance: failed to close response body", slog.Any("error", closeErr))
-		}
-	}()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("binance: read response body: %w", err)
-	}
-
-	durationMS := time.Since(startedAt).Milliseconds()
-	p.logger.Info("binance: received response",
-		slog.String("method", req.Method),
-		slog.String("path", req.URL.Path),
-		slog.Int("status", resp.StatusCode),
-		slog.Int64("duration_ms", durationMS),
-	)
-
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("binance: request failed with status %d: %s", resp.StatusCode, parseErrorMessage(resp.StatusCode, body))
-	}
 
 	return decodeKlines(body, from, to)
-}
-
-func (p *Provider) buildKlinesURL(ticker, interval string, from, to time.Time) (string, error) {
-	baseURL, err := url.Parse(p.baseURL)
-	if err != nil {
-		return "", fmt.Errorf("binance: parse base url: %w", err)
-	}
-
-	baseURL.Path = strings.TrimRight(baseURL.Path, "/") + "/api/v3/klines"
-	query := baseURL.Query()
-	query.Set("symbol", ticker)
-	query.Set("interval", interval)
-	query.Set("startTime", strconv.FormatInt(from.UnixMilli(), 10))
-	query.Set("endTime", strconv.FormatInt(to.UnixMilli(), 10))
-	query.Set("limit", strconv.Itoa(maxKlinesPerRequest))
-	baseURL.RawQuery = query.Encode()
-
-	return baseURL.String(), nil
 }
 
 func mapTimeframe(timeframe data.Timeframe) (timeframeMapping, error) {

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -25,6 +24,7 @@ type Client struct {
 	apiKey       string
 	baseURL      string
 	httpClient   *http.Client
+	api          *data.APIClient
 	logger       *slog.Logger
 	rateLimiters []*data.RateLimiter
 }
@@ -46,13 +46,30 @@ func NewClient(apiKey string, logger *slog.Logger, rateLimiters ...*data.RateLim
 		logger = slog.Default()
 	}
 
-	client := &Client{
-		apiKey:  strings.TrimSpace(apiKey),
-		baseURL: defaultBaseURL,
-		httpClient: &http.Client{
-			Timeout: defaultTimeout,
+	trimmedKey := strings.TrimSpace(apiKey)
+	httpClient := &http.Client{
+		Timeout: defaultTimeout,
+	}
+
+	api := data.NewAPIClient(data.APIClientConfig{
+		BaseURL: defaultBaseURL,
+		Auth: data.AuthConfig{
+			Style:     data.AuthStyleQueryParam,
+			ParamName: "apikey",
+			Value:     trimmedKey,
 		},
-		logger: logger,
+		Timeout: defaultTimeout,
+		Logger:  logger,
+		Prefix:  "alphavantage",
+	})
+	api.SetHTTPClient(httpClient)
+
+	client := &Client{
+		apiKey:     trimmedKey,
+		baseURL:    defaultBaseURL,
+		httpClient: httpClient,
+		api:        api,
+		logger:     logger,
 	}
 
 	for _, limiter := range rateLimiters {
@@ -89,14 +106,9 @@ func (c *Client) Get(ctx context.Context, params url.Values) ([]byte, error) {
 		return nil, errors.New("alphavantage: api key is required")
 	}
 
-	requestURL, err := c.buildURL(params)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("alphavantage: create request: %w", err)
+	// Sync baseURL in case tests changed it directly.
+	if c.baseURL != c.api.BaseURL() {
+		c.api.SetBaseURL(c.baseURL)
 	}
 
 	reservations, err := c.reserveRateLimiters(ctx)
@@ -110,52 +122,37 @@ func (c *Client) Get(ctx context.Context, params url.Values) ([]byte, error) {
 		}
 	}()
 
-	startedAt := time.Now()
-	c.logger.Info("alphavantage: sending request",
-		slog.String("method", req.Method),
-		slog.String("path", req.URL.Path),
-	)
-
-	resp, err := c.httpClient.Do(req)
+	body, _, err := c.api.Get(ctx, "", params)
 	if err != nil {
-		c.logger.Warn("alphavantage: request failed",
-			slog.String("method", req.Method),
-			slog.String("path", req.URL.Path),
-			slog.Any("error", err),
-			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
-		)
-		return nil, fmt.Errorf("alphavantage: do request: %w", err)
+		var apiErr *data.APIError
+		if errors.As(err, &apiErr) {
+			// Commit reservations on successful HTTP round-trip
+			// (the request was made, even though the server returned an error).
+			commitReservations(reservations)
+			committedReservations = true
+
+			if avErr := parseErrorResponse(apiErr.StatusCode, apiErr.Body); avErr != nil {
+				c.logger.Warn("alphavantage: non-success response",
+					slog.Int("status", avErr.StatusCode()),
+					slog.Any("error", avErr),
+				)
+				return nil, avErr
+			}
+		}
+		return nil, err
 	}
+
+	// Commit reservations on successful response.
 	commitReservations(reservations)
 	committedReservations = true
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			c.logger.Warn("alphavantage: failed to close response body", slog.Any("error", closeErr))
-		}
-	}()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("alphavantage: read response body: %w", err)
-	}
-
-	durationMS := time.Since(startedAt).Milliseconds()
-	c.logger.Info("alphavantage: received response",
-		slog.String("method", req.Method),
-		slog.String("path", req.URL.Path),
-		slog.Int("status", resp.StatusCode),
-		slog.Int64("duration_ms", durationMS),
-	)
-
-	if apiErr := parseErrorResponse(resp.StatusCode, body); apiErr != nil {
+	// Alpha Vantage may return errors inside 200 OK responses.
+	if avErr := parseErrorResponse(http.StatusOK, body); avErr != nil {
 		c.logger.Warn("alphavantage: non-success response",
-			slog.String("method", req.Method),
-			slog.String("path", req.URL.Path),
-			slog.Int("status", apiErr.StatusCode()),
-			slog.Any("error", apiErr),
-			slog.Int64("duration_ms", durationMS),
+			slog.Int("status", avErr.StatusCode()),
+			slog.Any("error", avErr),
 		)
-		return nil, apiErr
+		return nil, avErr
 	}
 
 	return body, nil
@@ -209,24 +206,6 @@ func (c *Client) reserveRateLimiters(ctx context.Context) ([]*data.Reservation, 
 	}
 
 	return reservations, nil
-}
-
-func (c *Client) buildURL(params url.Values) (string, error) {
-	baseURL, err := url.Parse(c.baseURL)
-	if err != nil {
-		return "", fmt.Errorf("alphavantage: parse base url: %w", err)
-	}
-
-	query := baseURL.Query()
-	for key, values := range params {
-		for _, value := range values {
-			query.Add(key, value)
-		}
-	}
-	query.Set("apikey", c.apiKey)
-	baseURL.RawQuery = query.Encode()
-
-	return baseURL.String(), nil
 }
 
 func parseErrorResponse(statusCode int, body []byte) *ErrorResponse {

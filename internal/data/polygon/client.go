@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/PatrickFanella/get-rich-quick/internal/data"
 )
 
 const (
@@ -23,6 +24,7 @@ type Client struct {
 	apiKey     string
 	baseURL    string
 	httpClient *http.Client
+	api        *data.APIClient
 	logger     *slog.Logger
 }
 
@@ -43,13 +45,30 @@ func NewClient(apiKey string, logger *slog.Logger) *Client {
 		logger = slog.Default()
 	}
 
-	return &Client{
-		apiKey:  strings.TrimSpace(apiKey),
-		baseURL: defaultBaseURL,
-		httpClient: &http.Client{
-			Timeout: defaultTimeout,
+	trimmedKey := strings.TrimSpace(apiKey)
+	httpClient := &http.Client{
+		Timeout: defaultTimeout,
+	}
+
+	api := data.NewAPIClient(data.APIClientConfig{
+		BaseURL: defaultBaseURL,
+		Auth: data.AuthConfig{
+			Style:     data.AuthStyleQueryParam,
+			ParamName: "apiKey",
+			Value:     trimmedKey,
 		},
-		logger: logger,
+		Timeout: defaultTimeout,
+		Logger:  logger,
+		Prefix:  "polygon",
+	})
+	api.SetHTTPClient(httpClient)
+
+	return &Client{
+		apiKey:     trimmedKey,
+		baseURL:    defaultBaseURL,
+		httpClient: httpClient,
+		api:        api,
+		logger:     logger,
 	}
 }
 
@@ -78,62 +97,24 @@ func (c *Client) Get(ctx context.Context, requestPath string, params url.Values)
 		return nil, errors.New("polygon: api key is required")
 	}
 
-	requestURL, err := c.buildURL(requestPath, params)
-	if err != nil {
-		return nil, err
+	// Sync baseURL in case tests changed it directly.
+	if c.baseURL != c.api.BaseURL() {
+		c.api.SetBaseURL(c.baseURL)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	body, statusCode, err := c.api.Get(ctx, requestPath, params)
 	if err != nil {
-		return nil, fmt.Errorf("polygon: create request: %w", err)
-	}
-
-	startedAt := time.Now()
-	c.logger.Info("polygon: sending request",
-		slog.String("method", req.Method),
-		slog.String("path", req.URL.Path),
-	)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		c.logger.Warn("polygon: request failed",
-			slog.String("method", req.Method),
-			slog.String("path", req.URL.Path),
-			slog.Any("error", err),
-			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
-		)
-		return nil, fmt.Errorf("polygon: do request: %w", err)
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			c.logger.Warn("polygon: failed to close response body", slog.Any("error", closeErr))
+		var apiErr *data.APIError
+		if errors.As(err, &apiErr) {
+			polygonErr := parseErrorResponse(apiErr.StatusCode, apiErr.Body)
+			c.logger.Warn("polygon: non-success response",
+				slog.Int("status", statusCode),
+				slog.String("request_id", polygonErr.RequestID),
+				slog.Any("error", polygonErr),
+			)
+			return nil, polygonErr
 		}
-	}()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("polygon: read response body: %w", err)
-	}
-
-	durationMS := time.Since(startedAt).Milliseconds()
-	c.logger.Info("polygon: received response",
-		slog.String("method", req.Method),
-		slog.String("path", req.URL.Path),
-		slog.Int("status", resp.StatusCode),
-		slog.Int64("duration_ms", durationMS),
-	)
-
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		apiErr := parseErrorResponse(resp.StatusCode, body)
-		c.logger.Warn("polygon: non-success response",
-			slog.String("method", req.Method),
-			slog.String("path", req.URL.Path),
-			slog.Int("status", resp.StatusCode),
-			slog.String("request_id", apiErr.RequestID),
-			slog.Any("error", apiErr),
-			slog.Int64("duration_ms", durationMS),
-		)
-		return nil, apiErr
+		return nil, err
 	}
 
 	return body, nil
@@ -168,39 +149,6 @@ func (e *ErrorResponse) Error() string {
 	}
 
 	return fmt.Sprintf("polygon: %s (status=%d)", message, e.statusCode)
-}
-
-func (c *Client) buildURL(requestPath string, params url.Values) (string, error) {
-	baseURL, err := url.Parse(c.baseURL)
-	if err != nil {
-		return "", fmt.Errorf("polygon: parse base url: %w", err)
-	}
-
-	baseURL.Path = joinPath(baseURL.Path, requestPath)
-	query := baseURL.Query()
-	for key, values := range params {
-		for _, value := range values {
-			query.Add(key, value)
-		}
-	}
-	query.Set("apiKey", c.apiKey)
-	baseURL.RawQuery = query.Encode()
-
-	return baseURL.String(), nil
-}
-
-func joinPath(basePath, requestPath string) string {
-	trimmedPath := strings.TrimSpace(requestPath)
-	cleanPath := "/" + strings.TrimLeft(trimmedPath, "/")
-	if trimmedPath == "" {
-		cleanPath = "/"
-	}
-
-	if basePath == "" || basePath == "/" {
-		return cleanPath
-	}
-
-	return strings.TrimRight(basePath, "/") + cleanPath
 }
 
 func parseErrorResponse(statusCode int, body []byte) *ErrorResponse {

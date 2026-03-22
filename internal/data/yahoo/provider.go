@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -26,6 +25,7 @@ const (
 type Provider struct {
 	baseURL    string
 	httpClient *http.Client
+	api        *data.APIClient
 	logger     *slog.Logger
 }
 
@@ -76,12 +76,28 @@ func NewProvider(logger *slog.Logger) *Provider {
 		logger = slog.Default()
 	}
 
-	return &Provider{
-		baseURL: defaultBaseURL,
-		httpClient: &http.Client{
-			Timeout: defaultTimeout,
+	httpClient := &http.Client{
+		Timeout: defaultTimeout,
+	}
+
+	api := data.NewAPIClient(data.APIClientConfig{
+		BaseURL: defaultBaseURL,
+		Auth:    data.AuthConfig{Style: data.AuthStyleNone},
+		Headers: http.Header{
+			"Accept":     []string{"application/json"},
+			"User-Agent": []string{defaultUA},
 		},
-		logger: logger,
+		Timeout: defaultTimeout,
+		Logger:  logger,
+		Prefix:  "yahoo",
+	})
+	api.SetHTTPClient(httpClient)
+
+	return &Provider{
+		baseURL:    defaultBaseURL,
+		httpClient: httpClient,
+		api:        api,
+		logger:     logger,
 	}
 }
 
@@ -107,59 +123,32 @@ func (p *Provider) GetOHLCV(ctx context.Context, ticker string, timeframe data.T
 		return nil, err
 	}
 
-	requestURL, err := p.buildChartURL(ticker, mapping, from.UTC(), to.UTC())
+	// Sync baseURL in case tests changed it directly.
+	if p.baseURL != p.api.BaseURL() {
+		p.api.SetBaseURL(p.baseURL)
+	}
+	// Sync httpClient in case tests changed it directly.
+	p.api.SetHTTPClient(p.httpClient)
+
+	chartPath := "/v8/finance/chart/" + url.PathEscape(ticker)
+	params := url.Values{
+		"interval":       []string{mapping.interval},
+		"includePrePost": []string{"false"},
+		"period1":        []string{fmt.Sprintf("%d", from.UTC().Unix())},
+		"period2":        []string{fmt.Sprintf("%d", to.UTC().Add(mapping.duration).Unix())},
+	}
+
+	body, _, err := p.api.Get(ctx, chartPath, params)
 	if err != nil {
+		var apiErr *data.APIError
+		if errors.As(err, &apiErr) {
+			message := strings.TrimSpace(string(apiErr.Body))
+			if message == "" {
+				message = http.StatusText(apiErr.StatusCode)
+			}
+			return nil, fmt.Errorf("yahoo: request failed with status %d: %s", apiErr.StatusCode, message)
+		}
 		return nil, err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("yahoo: create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", defaultUA)
-
-	startedAt := time.Now()
-	p.logger.Info("yahoo: sending request",
-		slog.String("method", req.Method),
-		slog.String("path", req.URL.Path),
-	)
-
-	resp, err := p.httpClient.Do(req)
-	if err != nil {
-		p.logger.Warn("yahoo: request failed",
-			slog.String("method", req.Method),
-			slog.String("path", req.URL.Path),
-			slog.Any("error", err),
-			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
-		)
-		return nil, fmt.Errorf("yahoo: do request: %w", err)
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			p.logger.Warn("yahoo: failed to close response body", slog.Any("error", closeErr))
-		}
-	}()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("yahoo: read response body: %w", err)
-	}
-
-	durationMS := time.Since(startedAt).Milliseconds()
-	p.logger.Info("yahoo: received response",
-		slog.String("method", req.Method),
-		slog.String("path", req.URL.Path),
-		slog.Int("status", resp.StatusCode),
-		slog.Int64("duration_ms", durationMS),
-	)
-
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		message := strings.TrimSpace(string(body))
-		if message == "" {
-			message = http.StatusText(resp.StatusCode)
-		}
-		return nil, fmt.Errorf("yahoo: request failed with status %d: %s", resp.StatusCode, message)
 	}
 
 	var response chartResponse
@@ -237,24 +226,6 @@ func (p *Provider) GetSocialSentiment(_ context.Context, _ string) (data.SocialS
 	}
 
 	return data.SocialSentiment{}, fmt.Errorf("yahoo: GetSocialSentiment: %w", data.ErrNotImplemented)
-}
-
-func (p *Provider) buildChartURL(ticker string, mapping timeframeMapping, from, to time.Time) (string, error) {
-	baseURL, err := url.Parse(p.baseURL)
-	if err != nil {
-		return "", fmt.Errorf("yahoo: parse base url: %w", err)
-	}
-
-	baseURL.Path = strings.TrimRight(baseURL.Path, "/") + "/v8/finance/chart/" + url.PathEscape(ticker)
-
-	query := baseURL.Query()
-	query.Set("interval", mapping.interval)
-	query.Set("includePrePost", "false")
-	query.Set("period1", fmt.Sprintf("%d", from.Unix()))
-	query.Set("period2", fmt.Sprintf("%d", to.Add(mapping.duration).Unix()))
-	baseURL.RawQuery = query.Encode()
-
-	return baseURL.String(), nil
 }
 
 func mapTimeframe(timeframe data.Timeframe) (timeframeMapping, error) {
