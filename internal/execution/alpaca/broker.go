@@ -110,9 +110,15 @@ func mapSubmitOrderRequest(order *domain.Order) (submitOrderRequest, error) {
 	if symbol == "" {
 		return submitOrderRequest{}, errors.New("alpaca: order ticker is required")
 	}
-	side := strings.TrimSpace(order.Side.String())
-	if side == "" {
+	rawSide := strings.TrimSpace(order.Side.String())
+	if rawSide == "" {
 		return submitOrderRequest{}, errors.New("alpaca: order side is required")
+	}
+	side := strings.ToLower(rawSide)
+	switch domain.OrderSide(side) {
+	case domain.OrderSideBuy, domain.OrderSideSell:
+	default:
+		return submitOrderRequest{}, fmt.Errorf("alpaca: unsupported order side %q", order.Side)
 	}
 	orderType := strings.TrimSpace(order.OrderType.String())
 	if orderType == "" {

@@ -111,6 +111,24 @@ func TestBrokerSubmitOrder_MapsOrderTypes(t *testing.T) {
 				"trail_price":   "1.5",
 			},
 		},
+		{
+			name: "trailing stop percent",
+			order: &domain.Order{
+				Ticker:     "AAPL",
+				Side:       domain.OrderSideSell,
+				OrderType:  domain.OrderTypeTrailingStop,
+				Quantity:   5,
+				LimitPrice: floatPtr(1.5),
+			},
+			want: map[string]string{
+				"symbol":        "AAPL",
+				"qty":           "5",
+				"side":          "sell",
+				"type":          "trailing_stop",
+				"time_in_force": "day",
+				"trail_percent": "1.5",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -200,6 +218,26 @@ func TestBrokerSubmitOrder_HandlesAlpacaErrorResponse(t *testing.T) {
 	}
 }
 
+func TestBrokerSubmitOrder_RejectsUnsupportedOrderSide(t *testing.T) {
+	t.Parallel()
+
+	client := NewClient("test-key", "test-secret", true, discardLogger())
+	broker := NewBroker(client)
+
+	_, err := broker.SubmitOrder(context.Background(), &domain.Order{
+		Ticker:    "AAPL",
+		Side:      domain.OrderSide("hold"),
+		OrderType: domain.OrderTypeMarket,
+		Quantity:  1,
+	})
+	if err == nil {
+		t.Fatal("SubmitOrder() error = nil, want non-nil")
+	}
+	if err.Error() != `alpaca: unsupported order side "hold"` {
+		t.Fatalf("SubmitOrder() error = %q, want unsupported side error", err.Error())
+	}
+}
+
 func TestBrokerCancelOrder_DeletesOrder(t *testing.T) {
 	t.Parallel()
 
@@ -208,7 +246,7 @@ func TestBrokerCancelOrder_DeletesOrder(t *testing.T) {
 		if r.Method != http.MethodDelete {
 			t.Fatalf("request method = %s, want %s", r.Method, http.MethodDelete)
 		}
-		requests <- r.URL.Path
+		requests <- r.RequestURI
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer server.Close()

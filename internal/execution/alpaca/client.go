@@ -259,6 +259,11 @@ func (c *Client) buildURL(requestPath string, params url.Values) (string, error)
 	}
 
 	baseURL.Path = joinPath(baseURL.Path, requestPath)
+	baseURL.RawPath = ""
+	if unescapedPath, err := url.PathUnescape(baseURL.Path); err == nil && unescapedPath != baseURL.Path {
+		baseURL.RawPath = baseURL.Path
+		baseURL.Path = unescapedPath
+	}
 
 	query := baseURL.Query()
 	for key, values := range params {
