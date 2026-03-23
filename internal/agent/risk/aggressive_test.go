@@ -36,8 +36,8 @@ func TestNewAggressiveRiskNilLogger(t *testing.T) {
 func TestAggressiveRiskNodeInterface(t *testing.T) {
 	a := NewAggressiveRisk(nil, "openai", "model", slog.Default())
 
-	if got := a.Name(); got != "aggressive_risk" {
-		t.Fatalf("Name() = %q, want %q", got, "aggressive_risk")
+	if got := a.Name(); got != "aggressive_analyst" {
+		t.Fatalf("Name() = %q, want %q", got, "aggressive_analyst")
 	}
 	if got := a.Role(); got != agent.AgentRoleAggressiveAnalyst {
 		t.Fatalf("Role() = %q, want %q", got, agent.AgentRoleAggressiveAnalyst)

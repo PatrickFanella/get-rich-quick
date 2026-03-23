@@ -51,7 +51,7 @@ func NewAggressiveRisk(provider llm.Provider, providerName, model string, logger
 }
 
 // Name returns the human-readable name for this node.
-func (a *AggressiveRisk) Name() string { return "aggressive_risk" }
+func (a *AggressiveRisk) Name() string { return "aggressive_analyst" }
 
 // Role returns the agent role constant.
 func (a *AggressiveRisk) Role() agent.AgentRole { return agent.AgentRoleAggressiveAnalyst }
@@ -70,7 +70,8 @@ func (a *AggressiveRisk) Execute(ctx context.Context, state *agent.PipelineState
 	// reference concrete position sizes, stop-losses, and take-profit levels.
 	tradingPlanJSON, err := json.Marshal(state.TradingPlan)
 	if err != nil {
-		return fmt.Errorf("aggressive_analyst (risk_debate): marshal trading plan: %w", err)
+		prefix := fmt.Sprintf("%s (%s)", a.Role(), a.Phase())
+		return fmt.Errorf("%s: marshal trading plan: %w", prefix, err)
 	}
 	contextReports := map[agent.AgentRole]string{
 		agent.AgentRoleTrader: string(tradingPlanJSON),
