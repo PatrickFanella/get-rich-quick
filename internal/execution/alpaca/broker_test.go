@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -222,8 +223,9 @@ func TestBrokerCancelOrder_DeletesOrder(t *testing.T) {
 
 	select {
 	case path := <-requests:
-		if path != "/v2/orders/order%2F1" {
-			t.Fatalf("request path = %s, want %s", path, "/v2/orders/order%2F1")
+		wantPath := "/v2/orders/" + url.PathEscape("order/1")
+		if path != wantPath {
+			t.Fatalf("request path = %s, want %s", path, wantPath)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("request details were not captured")

@@ -153,18 +153,19 @@ func mapSubmitOrderRequest(order *domain.Order) (submitOrderRequest, error) {
 		request.LimitPrice = formatFloat(*order.LimitPrice)
 		request.StopPrice = formatFloat(*order.StopPrice)
 	case domain.OrderTypeTrailingStop:
-		if order.StopPrice != nil && order.LimitPrice != nil {
-			return submitOrderRequest{}, errors.New("alpaca: trailing stop order requires exactly one trail value")
+		// Until domain.Order exposes dedicated Alpaca trail fields, trailing stops
+		// reuse StopPrice for trail_price and LimitPrice for trail_percent.
+		useStopPriceForTrail := order.StopPrice != nil
+		useLimitPriceForTrail := order.LimitPrice != nil
+		if useStopPriceForTrail == useLimitPriceForTrail {
+			return submitOrderRequest{}, errors.New("alpaca: trailing stop order requires either StopPrice (trail_price) or LimitPrice (trail_percent), but not both or neither")
 		}
-		if order.StopPrice != nil {
+		if useStopPriceForTrail {
 			request.TrailPrice = formatFloat(*order.StopPrice)
-			return request, nil
-		}
-		if order.LimitPrice != nil {
+		} else {
 			request.TrailPercent = formatFloat(*order.LimitPrice)
-			return request, nil
 		}
-		return submitOrderRequest{}, errors.New("alpaca: trailing stop order requires trail price or trail percent")
+		return request, nil
 	default:
 		return submitOrderRequest{}, fmt.Errorf("alpaca: unsupported order type %q", order.OrderType)
 	}
