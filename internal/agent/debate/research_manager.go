@@ -87,8 +87,9 @@ func (r *ResearchManager) Phase() agent.Phase { return agent.PhaseResearchDebate
 
 // Execute calls the LLM with the research manager system prompt, all debate
 // rounds, and analyst reports. It parses the structured JSON output into an
-// InvestmentPlanOutput, stores the raw content in state.ResearchDebate.InvestmentPlan,
-// and records the decision for persistence.
+// InvestmentPlanOutput and stores a normalized JSON string in
+// state.ResearchDebate.InvestmentPlan when parsing succeeds. If parsing fails,
+// the raw LLM content is stored instead so the pipeline can proceed.
 func (r *ResearchManager) Execute(ctx context.Context, state *agent.PipelineState) error {
 	rounds := state.ResearchDebate.Rounds
 
@@ -102,8 +103,10 @@ func (r *ResearchManager) Execute(ctx context.Context, state *agent.PipelineStat
 		return err
 	}
 
-	// Attempt to parse the structured output. If parsing fails, we still
-	// store the raw content so the pipeline can proceed.
+	// Attempt to parse the structured output. When parsing succeeds we
+	// store a clean, re-marshaled JSON string. On failure we fall back to
+	// the raw LLM content so the pipeline can still proceed.
+	storedPlan := content
 	plan, parseErr := ParseInvestmentPlan(content)
 	if parseErr != nil {
 		r.logger.Warn("research_manager: failed to parse structured output; storing raw content",
@@ -114,17 +117,21 @@ func (r *ResearchManager) Execute(ctx context.Context, state *agent.PipelineStat
 			slog.String("direction", plan.Direction),
 			slog.Int("conviction", plan.Conviction),
 		)
+		if normalized, err := json.Marshal(plan); err == nil {
+			storedPlan = string(normalized)
+		}
 	}
 
 	// Store the investment plan in the research debate state.
-	state.ResearchDebate.InvestmentPlan = content
+	state.ResearchDebate.InvestmentPlan = storedPlan
 
 	// Record the decision so the pipeline can persist it with LLM metadata.
+	// The raw LLM content is kept in the decision for debugging purposes.
 	state.RecordDecision(
 		agent.AgentRoleInvestJudge,
 		agent.PhaseResearchDebate,
 		nil,
-		content,
+		storedPlan,
 		&agent.DecisionLLMResponse{
 			Provider: r.providerName,
 			Response: &llm.CompletionResponse{
@@ -158,24 +165,33 @@ func ParseInvestmentPlan(content string) (*InvestmentPlanOutput, error) {
 }
 
 // stripCodeFences removes optional markdown code fences (```json ... ``` or ``` ... ```)
-// from the LLM response so the JSON can be parsed cleanly.
+// from the LLM response so the JSON can be parsed cleanly. It handles both
+// fences with a newline after the opening tag and inline fences where the JSON
+// starts on the same line (e.g. ```json { ... }```).
 func stripCodeFences(s string) string {
 	trimmed := strings.TrimSpace(s)
 
-	// Handle ```json ... ``` or ``` ... ```
-	if strings.HasPrefix(trimmed, "```") {
-		// Remove the opening fence (and optional language tag).
-		if idx := strings.Index(trimmed, "\n"); idx != -1 {
-			trimmed = trimmed[idx+1:]
-		}
-		// Remove the closing fence.
-		if idx := strings.LastIndex(trimmed, "```"); idx != -1 {
-			trimmed = trimmed[:idx]
-		}
-		return strings.TrimSpace(trimmed)
+	if !strings.HasPrefix(trimmed, "```") {
+		return trimmed
 	}
 
-	return trimmed
+	// Remove the closing fence if it appears at the end.
+	body := trimmed
+	if idx := strings.LastIndex(body, "```"); idx > 2 {
+		body = body[:idx]
+	}
+
+	// Remove the opening fence. When a newline follows the fence line we
+	// strip everything up to and including that newline. Otherwise we look
+	// for the first '{' or '[' that starts the JSON payload on the same
+	// line (inline fence).
+	if idx := strings.Index(body, "\n"); idx != -1 {
+		body = body[idx+1:]
+	} else if idx := strings.IndexAny(body, "{["); idx != -1 {
+		body = body[idx:]
+	}
+
+	return strings.TrimSpace(body)
 }
 
 // validateInvestmentPlan checks that the parsed plan has valid field values.
@@ -191,6 +207,18 @@ func validateInvestmentPlan(plan *InvestmentPlanOutput) error {
 
 	if plan.Conviction < 1 || plan.Conviction > 10 {
 		return fmt.Errorf("investment plan conviction must be 1-10, got %d", plan.Conviction)
+	}
+
+	if len(plan.KeyEvidence) == 0 {
+		return fmt.Errorf("investment plan missing required field: key_evidence")
+	}
+
+	if len(plan.AcknowledgedRisks) == 0 {
+		return fmt.Errorf("investment plan missing required field: acknowledged_risks")
+	}
+
+	if strings.TrimSpace(plan.Rationale) == "" {
+		return fmt.Errorf("investment plan missing required field: rationale")
 	}
 
 	return nil

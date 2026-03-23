@@ -75,9 +75,11 @@ func TestResearchManagerExecuteStoresInvestmentPlanAndDecision(t *testing.T) {
 		t.Fatalf("Execute() error = %v, want nil", err)
 	}
 
-	// Verify investment plan was stored.
-	if state.ResearchDebate.InvestmentPlan != validJSON {
-		t.Fatalf("InvestmentPlan = %q, want %q", state.ResearchDebate.InvestmentPlan, validJSON)
+	// When parsing succeeds, Execute stores a normalized (re-marshaled) JSON
+	// string, not the raw LLM content.
+	wantPlan := `{"direction":"buy","conviction":7,"key_evidence":["Strong revenue growth of 15% YoY","Expanding margins"],"acknowledged_risks":["High valuation multiple","Macro headwinds"],"rationale":"Bull case is stronger given revenue momentum, but valuation risk limits conviction."}`
+	if state.ResearchDebate.InvestmentPlan != wantPlan {
+		t.Fatalf("InvestmentPlan = %q, want %q", state.ResearchDebate.InvestmentPlan, wantPlan)
 	}
 
 	// Verify decision was recorded (no round number for judge).
@@ -85,8 +87,8 @@ func TestResearchManagerExecuteStoresInvestmentPlanAndDecision(t *testing.T) {
 	if !ok {
 		t.Fatal("Decision() not found for invest_judge")
 	}
-	if decision.OutputText != validJSON {
-		t.Fatalf("decision output = %q, want %q", decision.OutputText, validJSON)
+	if decision.OutputText != wantPlan {
+		t.Fatalf("decision output = %q, want %q", decision.OutputText, wantPlan)
 	}
 	if decision.LLMResponse == nil || decision.LLMResponse.Response == nil {
 		t.Fatal("decision LLM response is nil")
@@ -235,9 +237,10 @@ func TestResearchManagerExecuteNoRounds(t *testing.T) {
 		t.Fatalf("Execute() error = %v, want nil", err)
 	}
 
-	// Investment plan should still be stored even without rounds.
-	if state.ResearchDebate.InvestmentPlan != validJSON {
-		t.Fatalf("InvestmentPlan = %q, want %q", state.ResearchDebate.InvestmentPlan, validJSON)
+	// Normalized JSON should be stored.
+	wantPlan := `{"direction":"hold","conviction":3,"key_evidence":["Insufficient data"],"acknowledged_risks":["No debate occurred"],"rationale":"Without debate, defaulting to hold."}`
+	if state.ResearchDebate.InvestmentPlan != wantPlan {
+		t.Fatalf("InvestmentPlan = %q, want %q", state.ResearchDebate.InvestmentPlan, wantPlan)
 	}
 
 	// Decision should be recorded (nil round for judge).
@@ -245,8 +248,8 @@ func TestResearchManagerExecuteNoRounds(t *testing.T) {
 	if !ok {
 		t.Fatal("Decision() not found for invest_judge with no rounds")
 	}
-	if decision.OutputText != validJSON {
-		t.Fatalf("decision output = %q, want %q", decision.OutputText, validJSON)
+	if decision.OutputText != wantPlan {
+		t.Fatalf("decision output = %q, want %q", decision.OutputText, wantPlan)
 	}
 }
 
@@ -341,7 +344,7 @@ func TestParseInvestmentPlanMalformedJSON(t *testing.T) {
 }
 
 func TestParseInvestmentPlanInvalidDirection(t *testing.T) {
-	input := `{"direction": "maybe", "conviction": 5, "key_evidence": [], "acknowledged_risks": [], "rationale": "test"}`
+	input := `{"direction": "maybe", "conviction": 5, "key_evidence": ["a"], "acknowledged_risks": ["b"], "rationale": "test"}`
 
 	_, err := ParseInvestmentPlan(input)
 	if err == nil {
@@ -353,7 +356,7 @@ func TestParseInvestmentPlanInvalidDirection(t *testing.T) {
 }
 
 func TestParseInvestmentPlanMissingDirection(t *testing.T) {
-	input := `{"conviction": 5, "key_evidence": [], "acknowledged_risks": [], "rationale": "test"}`
+	input := `{"conviction": 5, "key_evidence": ["a"], "acknowledged_risks": ["b"], "rationale": "test"}`
 
 	_, err := ParseInvestmentPlan(input)
 	if err == nil {
@@ -371,11 +374,11 @@ func TestParseInvestmentPlanConvictionOutOfRange(t *testing.T) {
 	}{
 		{
 			name:  "conviction too low",
-			input: `{"direction": "buy", "conviction": 0, "key_evidence": [], "acknowledged_risks": [], "rationale": "test"}`,
+			input: `{"direction": "buy", "conviction": 0, "key_evidence": ["a"], "acknowledged_risks": ["b"], "rationale": "test"}`,
 		},
 		{
 			name:  "conviction too high",
-			input: `{"direction": "buy", "conviction": 11, "key_evidence": [], "acknowledged_risks": [], "rationale": "test"}`,
+			input: `{"direction": "buy", "conviction": 11, "key_evidence": ["a"], "acknowledged_risks": ["b"], "rationale": "test"}`,
 		},
 	}
 
@@ -404,6 +407,69 @@ func TestParseInvestmentPlanAllDirections(t *testing.T) {
 				t.Fatalf("Direction = %q, want %q", plan.Direction, dir)
 			}
 		})
+	}
+}
+
+func TestParseInvestmentPlanWithInlineCodeFence(t *testing.T) {
+	input := "```json {\"direction\": \"buy\", \"conviction\": 7, \"key_evidence\": [\"Growth\"], \"acknowledged_risks\": [\"Risk\"], \"rationale\": \"test\"}```"
+
+	plan, err := ParseInvestmentPlan(input)
+	if err != nil {
+		t.Fatalf("ParseInvestmentPlan() error = %v, want nil", err)
+	}
+	if plan.Direction != "buy" {
+		t.Fatalf("Direction = %q, want %q", plan.Direction, "buy")
+	}
+	if plan.Conviction != 7 {
+		t.Fatalf("Conviction = %d, want 7", plan.Conviction)
+	}
+}
+
+func TestParseInvestmentPlanMissingKeyEvidence(t *testing.T) {
+	input := `{"direction": "buy", "conviction": 5, "key_evidence": [], "acknowledged_risks": ["risk"], "rationale": "test"}`
+
+	_, err := ParseInvestmentPlan(input)
+	if err == nil {
+		t.Fatal("ParseInvestmentPlan() error = nil, want non-nil for missing key_evidence")
+	}
+	if got := err.Error(); !contains(got, "missing required field: key_evidence") {
+		t.Fatalf("error = %q, want it to contain %q", got, "missing required field: key_evidence")
+	}
+}
+
+func TestParseInvestmentPlanMissingAcknowledgedRisks(t *testing.T) {
+	input := `{"direction": "buy", "conviction": 5, "key_evidence": ["evidence"], "acknowledged_risks": [], "rationale": "test"}`
+
+	_, err := ParseInvestmentPlan(input)
+	if err == nil {
+		t.Fatal("ParseInvestmentPlan() error = nil, want non-nil for missing acknowledged_risks")
+	}
+	if got := err.Error(); !contains(got, "missing required field: acknowledged_risks") {
+		t.Fatalf("error = %q, want it to contain %q", got, "missing required field: acknowledged_risks")
+	}
+}
+
+func TestParseInvestmentPlanMissingRationale(t *testing.T) {
+	input := `{"direction": "buy", "conviction": 5, "key_evidence": ["evidence"], "acknowledged_risks": ["risk"], "rationale": ""}`
+
+	_, err := ParseInvestmentPlan(input)
+	if err == nil {
+		t.Fatal("ParseInvestmentPlan() error = nil, want non-nil for missing rationale")
+	}
+	if got := err.Error(); !contains(got, "missing required field: rationale") {
+		t.Fatalf("error = %q, want it to contain %q", got, "missing required field: rationale")
+	}
+}
+
+func TestParseInvestmentPlanWhitespaceOnlyRationale(t *testing.T) {
+	input := `{"direction": "buy", "conviction": 5, "key_evidence": ["evidence"], "acknowledged_risks": ["risk"], "rationale": "   "}`
+
+	_, err := ParseInvestmentPlan(input)
+	if err == nil {
+		t.Fatal("ParseInvestmentPlan() error = nil, want non-nil for whitespace-only rationale")
+	}
+	if got := err.Error(); !contains(got, "missing required field: rationale") {
+		t.Fatalf("error = %q, want it to contain %q", got, "missing required field: rationale")
 	}
 }
 
