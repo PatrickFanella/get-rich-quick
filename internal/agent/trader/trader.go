@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/agent"
@@ -43,16 +44,17 @@ You MUST respond with a JSON object in the following format (no markdown, no cod
 Rules:
 - "action" must be exactly one of: "buy", "sell", or "hold"
 - "ticker" must be the ticker symbol being analyzed
-- "entry_type" must be "market" or "limit"
-- "entry_price" must be a positive number representing the target entry price
-- "position_size" must be a positive number representing the dollar amount to allocate
-- "stop_loss" must be a positive number representing the stop-loss price level
-- "take_profit" must be a positive number representing the take-profit price level
-- "time_horizon" must be one of: "intraday", "swing", or "position"
 - "confidence" must be a float between 0.0 and 1.0
 - "rationale" must be a concise explanation of why this specific plan was chosen
-- "risk_reward" must be a positive number representing the risk/reward ratio
-- For "hold" actions, set entry_price, position_size, stop_loss, take_profit, and risk_reward to 0
+- For "buy" or "sell" actions:
+  - "entry_type" must be "market" or "limit"
+  - "entry_price" must be a positive number representing the target entry price
+  - "position_size" must be a positive number representing the dollar amount to allocate
+  - "stop_loss" must be a positive number representing the stop-loss price level
+  - "take_profit" must be a positive number representing the take-profit price level
+  - "time_horizon" must be one of: "intraday", "swing", or "position"
+  - "risk_reward" must be a positive number representing the risk/reward ratio
+- For "hold" actions, entry_type, time_horizon, entry_price, position_size, stop_loss, take_profit, and risk_reward may be omitted or set to zero
 - Be data-driven: reference specific evidence from the investment plan and analyst reports`
 
 // TradingPlanOutput represents the structured output parsed from the trader's
@@ -148,6 +150,15 @@ func (t *Trader) Execute(ctx context.Context, state *agent.PipelineState) error 
 			Rationale: "Failed to parse trading plan: " + parseErr.Error(),
 		}
 	} else {
+		// Validate that the LLM-returned ticker matches the pipeline ticker.
+		// Override with state.Ticker to prevent acting on a hallucinated symbol.
+		if !strings.EqualFold(strings.TrimSpace(plan.Ticker), state.Ticker) {
+			t.logger.Warn("trader: LLM returned mismatched ticker; overriding with pipeline ticker",
+				slog.String("llm_ticker", plan.Ticker),
+				slog.String("pipeline_ticker", state.Ticker),
+			)
+			plan.Ticker = state.Ticker
+		}
 		t.logger.Info("trader: parsed trading plan",
 			slog.String("action", plan.Action),
 			slog.String("ticker", plan.Ticker),
@@ -196,8 +207,15 @@ func buildUserPrompt(state *agent.PipelineState) string {
 	if len(state.AnalystReports) == 0 {
 		b.WriteString("No analyst reports available.")
 	} else {
-		for role, report := range state.AnalystReports {
-			b.WriteString(fmt.Sprintf("%s:\n%s\n\n", role, report))
+		roles := make([]agent.AgentRole, 0, len(state.AnalystReports))
+		for role := range state.AnalystReports {
+			roles = append(roles, role)
+		}
+		sort.Slice(roles, func(i, j int) bool {
+			return roles[i] < roles[j]
+		})
+		for _, role := range roles {
+			b.WriteString(fmt.Sprintf("%s:\n%s\n\n", role, state.AnalystReports[role]))
 		}
 	}
 
@@ -282,17 +300,29 @@ func validateTradingPlan(plan *TradingPlanOutput) error {
 		return fmt.Errorf("trading plan has invalid action: %q", plan.Action)
 	}
 
-	if strings.TrimSpace(plan.Ticker) == "" {
+	// Normalize ticker: trim whitespace and uppercase.
+	ticker := strings.TrimSpace(plan.Ticker)
+	if ticker == "" {
 		return fmt.Errorf("trading plan missing required field: ticker")
 	}
+	plan.Ticker = strings.ToUpper(ticker)
 
-	// For hold actions, skip numeric field validation since they should be zero.
+	// Confidence is required for all actions (including hold).
+	if plan.Confidence < 0 || plan.Confidence > 1 {
+		return fmt.Errorf("trading plan confidence must be 0.0-1.0, got %v", plan.Confidence)
+	}
+
+	if strings.TrimSpace(plan.Rationale) == "" {
+		return fmt.Errorf("trading plan missing required field: rationale")
+	}
+
+	// For hold actions, skip entry/exit/sizing validation since those fields
+	// may be omitted or zero.
 	if plan.Action == "hold" {
-		if strings.TrimSpace(plan.Rationale) == "" {
-			return fmt.Errorf("trading plan missing required field: rationale")
-		}
 		return nil
 	}
+
+	// --- buy/sell specific validation ---
 
 	switch plan.EntryType {
 	case "market", "limit":
@@ -312,12 +342,20 @@ func validateTradingPlan(plan *TradingPlanOutput) error {
 		return fmt.Errorf("trading plan has invalid time_horizon: %q", plan.TimeHorizon)
 	}
 
-	if plan.Confidence < 0 || plan.Confidence > 1 {
-		return fmt.Errorf("trading plan confidence must be 0.0-1.0, got %v", plan.Confidence)
+	if plan.EntryPrice <= 0 {
+		return fmt.Errorf("trading plan entry_price must be positive, got %v", plan.EntryPrice)
 	}
-
-	if strings.TrimSpace(plan.Rationale) == "" {
-		return fmt.Errorf("trading plan missing required field: rationale")
+	if plan.PositionSize <= 0 {
+		return fmt.Errorf("trading plan position_size must be positive, got %v", plan.PositionSize)
+	}
+	if plan.StopLoss <= 0 {
+		return fmt.Errorf("trading plan stop_loss must be positive, got %v", plan.StopLoss)
+	}
+	if plan.TakeProfit <= 0 {
+		return fmt.Errorf("trading plan take_profit must be positive, got %v", plan.TakeProfit)
+	}
+	if plan.RiskReward <= 0 {
+		return fmt.Errorf("trading plan risk_reward must be positive, got %v", plan.RiskReward)
 	}
 
 	return nil

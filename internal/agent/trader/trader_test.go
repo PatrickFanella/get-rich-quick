@@ -508,6 +508,123 @@ func TestParseTradingPlanHoldActionSkipsNumericValidation(t *testing.T) {
 	}
 }
 
+func TestParseTradingPlanHoldWithOutOfRangeConfidence(t *testing.T) {
+	input := `{"action":"hold","ticker":"AAPL","confidence":1.5,"rationale":"Wait and see."}`
+
+	_, err := ParseTradingPlan(input)
+	if err == nil {
+		t.Fatal("ParseTradingPlan() error = nil, want non-nil for hold with out-of-range confidence")
+	}
+	if got := err.Error(); !strings.Contains(got, "confidence must be 0.0-1.0") {
+		t.Fatalf("error = %q, want it to contain %q", got, "confidence must be 0.0-1.0")
+	}
+}
+
+func TestParseTradingPlanBuySellNumericValidation(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		wantError string
+	}{
+		{
+			name:      "zero entry_price",
+			input:     `{"action":"buy","ticker":"AAPL","entry_type":"market","entry_price":0,"position_size":5000,"stop_loss":170,"take_profit":200,"time_horizon":"swing","confidence":0.7,"rationale":"test","risk_reward":2.0}`,
+			wantError: "entry_price must be positive",
+		},
+		{
+			name:      "negative entry_price",
+			input:     `{"action":"sell","ticker":"AAPL","entry_type":"limit","entry_price":-10,"position_size":5000,"stop_loss":170,"take_profit":200,"time_horizon":"swing","confidence":0.7,"rationale":"test","risk_reward":2.0}`,
+			wantError: "entry_price must be positive",
+		},
+		{
+			name:      "zero position_size",
+			input:     `{"action":"buy","ticker":"AAPL","entry_type":"market","entry_price":180,"position_size":0,"stop_loss":170,"take_profit":200,"time_horizon":"swing","confidence":0.7,"rationale":"test","risk_reward":2.0}`,
+			wantError: "position_size must be positive",
+		},
+		{
+			name:      "zero stop_loss",
+			input:     `{"action":"buy","ticker":"AAPL","entry_type":"market","entry_price":180,"position_size":5000,"stop_loss":0,"take_profit":200,"time_horizon":"swing","confidence":0.7,"rationale":"test","risk_reward":2.0}`,
+			wantError: "stop_loss must be positive",
+		},
+		{
+			name:      "zero take_profit",
+			input:     `{"action":"buy","ticker":"AAPL","entry_type":"market","entry_price":180,"position_size":5000,"stop_loss":170,"take_profit":0,"time_horizon":"swing","confidence":0.7,"rationale":"test","risk_reward":2.0}`,
+			wantError: "take_profit must be positive",
+		},
+		{
+			name:      "zero risk_reward",
+			input:     `{"action":"buy","ticker":"AAPL","entry_type":"market","entry_price":180,"position_size":5000,"stop_loss":170,"take_profit":200,"time_horizon":"swing","confidence":0.7,"rationale":"test","risk_reward":0}`,
+			wantError: "risk_reward must be positive",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseTradingPlan(tc.input)
+			if err == nil {
+				t.Fatalf("ParseTradingPlan() error = nil, want non-nil")
+			}
+			if got := err.Error(); !strings.Contains(got, tc.wantError) {
+				t.Fatalf("error = %q, want it to contain %q", got, tc.wantError)
+			}
+		})
+	}
+}
+
+func TestParseTradingPlanTickerNormalization(t *testing.T) {
+	input := `{"action":"hold","ticker":" aapl ","confidence":0.5,"rationale":"Wait and see."}`
+
+	plan, err := ParseTradingPlan(input)
+	if err != nil {
+		t.Fatalf("ParseTradingPlan() error = %v, want nil", err)
+	}
+	if plan.Ticker != "AAPL" {
+		t.Fatalf("Ticker = %q, want %q (should be trimmed and uppercased)", plan.Ticker, "AAPL")
+	}
+}
+
+func TestTraderExecuteTickerMismatchOverride(t *testing.T) {
+	// LLM returns "MSFT" but state.Ticker is "AAPL" — should override to "AAPL".
+	validJSON := `{
+  "action": "buy",
+  "ticker": "MSFT",
+  "entry_type": "market",
+  "entry_price": 180.00,
+  "position_size": 5000.00,
+  "stop_loss": 170.00,
+  "take_profit": 200.00,
+  "time_horizon": "swing",
+  "confidence": 0.8,
+  "rationale": "Strong momentum supports entry.",
+  "risk_reward": 2.0
+}`
+
+	mock := &mockProvider{
+		response: &llm.CompletionResponse{
+			Content: validJSON,
+			Model:   "test-model",
+			Usage:   llm.CompletionUsage{PromptTokens: 100, CompletionTokens: 50},
+		},
+	}
+
+	tr := NewTrader(mock, "test-provider", "test-model", slog.Default())
+
+	state := &agent.PipelineState{
+		Ticker: "AAPL",
+		ResearchDebate: agent.ResearchDebateState{
+			InvestmentPlan: `{"direction":"buy"}`,
+		},
+	}
+
+	if err := tr.Execute(context.Background(), state); err != nil {
+		t.Fatalf("Execute() error = %v, want nil", err)
+	}
+
+	if state.TradingPlan.Ticker != "AAPL" {
+		t.Fatalf("Ticker = %q, want %q (should override mismatched LLM ticker)", state.TradingPlan.Ticker, "AAPL")
+	}
+}
+
 func TestParseTradingPlanAllActions(t *testing.T) {
 	for _, action := range []string{"buy", "sell"} {
 		t.Run(action, func(t *testing.T) {
