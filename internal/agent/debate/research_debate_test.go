@@ -450,5 +450,73 @@ func TestNewResearchDebateNilLogger(t *testing.T) {
 	}
 }
 
+// TestResearchDebateNilNodes verifies that Execute returns a descriptive error
+// when any required node is nil, matching Pipeline's fail-fast pattern.
+func TestResearchDebateNilNodes(t *testing.T) {
+	callLog := []string{}
+	bull := newBullStub(&callLog)
+	bear := newBearStub(&callLog)
+	mgr := newManagerStub(&callLog)
+
+	tests := []struct {
+		name    string
+		bull    agent.Node
+		bear    agent.Node
+		manager agent.Node
+		wantErr string
+	}{
+		{
+			name:    "nil bull",
+			bull:    nil,
+			bear:    bear,
+			manager: mgr,
+			wantErr: "debate/research_debate: nil bull node",
+		},
+		{
+			name:    "nil bear",
+			bull:    bull,
+			bear:    nil,
+			manager: mgr,
+			wantErr: "debate/research_debate: nil bear node",
+		},
+		{
+			name:    "nil manager",
+			bull:    bull,
+			bear:    bear,
+			manager: nil,
+			wantErr: "debate/research_debate: nil manager node",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rd := NewResearchDebate(tt.bull, tt.bear, tt.manager, 1, slog.Default())
+			err := rd.Execute(context.Background(), &agent.PipelineState{})
+			if err == nil {
+				t.Fatal("Execute() error = nil, want non-nil")
+			}
+			if got := err.Error(); got != tt.wantErr {
+				t.Fatalf("error = %q, want %q", got, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestResearchDebateNilManagerRole verifies that Role() returns an empty string
+// when manager is nil instead of panicking.
+func TestResearchDebateNilManagerRole(t *testing.T) {
+	callLog := []string{}
+	rd := NewResearchDebate(
+		newBullStub(&callLog),
+		newBearStub(&callLog),
+		nil,
+		1,
+		slog.Default(),
+	)
+	if got := rd.Role(); got != "" {
+		t.Fatalf("Role() = %q, want empty string for nil manager", got)
+	}
+}
+
 // Verify ResearchDebate satisfies the agent.Node interface at compile time.
 var _ agent.Node = (*ResearchDebate)(nil)

@@ -11,6 +11,12 @@ import (
 // ResearchDebate is an orchestration Node that runs the full research debate
 // sequence: N rounds of bull/bear arguments followed by a manager (judge) that
 // produces an investment plan.
+//
+// This node focuses on state orchestration: creating rounds, running debaters,
+// and invoking the judge. Pipeline-level concerns such as decision persistence,
+// phase timeouts, and DebateRoundCompleted event emission are handled by the
+// generic DebateExecutor (internal/agent/debate_executor.go), which the
+// Pipeline wires separately.
 type ResearchDebate struct {
 	bull    agent.Node
 	bear    agent.Node
@@ -46,8 +52,14 @@ func (rd *ResearchDebate) Name() string { return "research_debate" }
 
 // Role returns the agent role for the orchestration node. It delegates to the
 // manager (judge) node because the research debate's final output is the
-// investment plan produced by the judge.
-func (rd *ResearchDebate) Role() agent.AgentRole { return rd.manager.Role() }
+// investment plan produced by the judge. Returns an empty role when the
+// manager node is nil.
+func (rd *ResearchDebate) Role() agent.AgentRole {
+	if rd.manager == nil {
+		return ""
+	}
+	return rd.manager.Role()
+}
 
 // Phase returns the pipeline phase this node belongs to.
 func (rd *ResearchDebate) Phase() agent.Phase { return agent.PhaseResearchDebate }
@@ -57,6 +69,18 @@ func (rd *ResearchDebate) Phase() agent.Phase { return agent.PhaseResearchDebate
 //     execute the bull node followed by the bear node.
 //  2. Execute the manager node to synthesize all rounds into an investment plan.
 func (rd *ResearchDebate) Execute(ctx context.Context, state *agent.PipelineState) error {
+	// Fail fast when required nodes are missing, mirroring the pattern used
+	// by Pipeline.executeResearchDebatePhase.
+	if rd.bull == nil {
+		return fmt.Errorf("debate/research_debate: nil bull node")
+	}
+	if rd.bear == nil {
+		return fmt.Errorf("debate/research_debate: nil bear node")
+	}
+	if rd.manager == nil {
+		return fmt.Errorf("debate/research_debate: nil manager node")
+	}
+
 	for i := 1; i <= rd.rounds; i++ {
 		if err := ctx.Err(); err != nil {
 			return err
