@@ -1555,3 +1555,206 @@ func TestExecute_PipelineTimeoutTriggersCancellation(t *testing.T) {
 		t.Errorf("updated status = %q, want %q", updatedStatus, domain.PipelineStatusFailed)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Config / Nodes / debateContribution tests
+// ---------------------------------------------------------------------------
+
+// TestPipelineConfig verifies that Config() returns the resolved configuration,
+// including defaults applied for zero-valued debate-round counts.
+func TestPipelineConfig(t *testing.T) {
+	t.Run("explicit values", func(t *testing.T) {
+		cfg := PipelineConfig{
+			PipelineTimeout:      5 * time.Minute,
+			PhaseTimeout:         30 * time.Second,
+			ResearchDebateRounds: 4,
+			RiskDebateRounds:     2,
+		}
+		p := NewPipeline(cfg, nil, nil, nil, nil)
+		got := p.Config()
+
+		if got.PipelineTimeout != 5*time.Minute {
+			t.Errorf("PipelineTimeout = %v, want %v", got.PipelineTimeout, 5*time.Minute)
+		}
+		if got.PhaseTimeout != 30*time.Second {
+			t.Errorf("PhaseTimeout = %v, want %v", got.PhaseTimeout, 30*time.Second)
+		}
+		if got.ResearchDebateRounds != 4 {
+			t.Errorf("ResearchDebateRounds = %d, want 4", got.ResearchDebateRounds)
+		}
+		if got.RiskDebateRounds != 2 {
+			t.Errorf("RiskDebateRounds = %d, want 2", got.RiskDebateRounds)
+		}
+	})
+
+	t.Run("defaults applied for zero rounds", func(t *testing.T) {
+		p := NewPipeline(PipelineConfig{}, nil, nil, nil, nil)
+		got := p.Config()
+
+		if got.ResearchDebateRounds != 3 {
+			t.Errorf("ResearchDebateRounds = %d, want default 3", got.ResearchDebateRounds)
+		}
+		if got.RiskDebateRounds != 3 {
+			t.Errorf("RiskDebateRounds = %d, want default 3", got.RiskDebateRounds)
+		}
+	})
+}
+
+// TestPipelineNodes verifies that Nodes() returns registered nodes grouped by
+// phase, and that the returned map is a copy (mutations do not affect the pipeline).
+func TestPipelineNodes(t *testing.T) {
+	p := NewPipeline(PipelineConfig{}, nil, nil, nil, nil)
+
+	analystNode := &mockAnalystNode{
+		name: "market_analyst", role: AgentRoleMarketAnalyst,
+		execute: func(_ context.Context, _ *PipelineState) error { return nil },
+	}
+	fundamentalsNode := &mockAnalystNode{
+		name: "fundamentals_analyst", role: AgentRoleFundamentalsAnalyst,
+		execute: func(_ context.Context, _ *PipelineState) error { return nil },
+	}
+	bullNode := &mockDebateNode{
+		name: "bull_researcher", role: AgentRoleBullResearcher,
+		execute: func(_ context.Context, _ *PipelineState) error { return nil },
+	}
+	traderNode := &mockTradingNode{
+		name: "trader", role: AgentRoleTrader,
+		execute: func(_ context.Context, _ *PipelineState) error { return nil },
+	}
+	riskNode := &mockRiskDebateNode{
+		name: "aggressive_analyst", role: AgentRoleAggressiveAnalyst,
+		execute: func(_ context.Context, _ *PipelineState) error { return nil },
+	}
+
+	p.RegisterNode(analystNode)
+	p.RegisterNode(fundamentalsNode)
+	p.RegisterNode(bullNode)
+	p.RegisterNode(traderNode)
+	p.RegisterNode(riskNode)
+
+	nodes := p.Nodes()
+
+	// PhaseAnalysis should contain 2 nodes.
+	if got := len(nodes[PhaseAnalysis]); got != 2 {
+		t.Errorf("PhaseAnalysis node count = %d, want 2", got)
+	}
+	// PhaseResearchDebate should contain 1 node.
+	if got := len(nodes[PhaseResearchDebate]); got != 1 {
+		t.Errorf("PhaseResearchDebate node count = %d, want 1", got)
+	}
+	// PhaseTrading should contain 1 node.
+	if got := len(nodes[PhaseTrading]); got != 1 {
+		t.Errorf("PhaseTrading node count = %d, want 1", got)
+	}
+	// PhaseRiskDebate should contain 1 node.
+	if got := len(nodes[PhaseRiskDebate]); got != 1 {
+		t.Errorf("PhaseRiskDebate node count = %d, want 1", got)
+	}
+
+	// Verify the returned map is a copy: mutating it must not affect the pipeline.
+	delete(nodes, PhaseAnalysis)
+	nodesAgain := p.Nodes()
+	if got := len(nodesAgain[PhaseAnalysis]); got != 2 {
+		t.Errorf("after deleting from copy, PhaseAnalysis node count = %d, want 2", got)
+	}
+}
+
+// TestDebateContribution_NilRoundNumber verifies that debateContribution
+// returns an empty string when roundNumber is nil.
+func TestDebateContribution_NilRoundNumber(t *testing.T) {
+	rounds := []DebateRound{
+		{Number: 1, Contributions: map[AgentRole]string{AgentRoleBullResearcher: "bull r1"}},
+	}
+	got := debateContribution(rounds, AgentRoleBullResearcher, nil)
+	if got != "" {
+		t.Errorf("debateContribution() = %q, want empty string", got)
+	}
+}
+
+// TestDebateContribution_OutOfBounds verifies that debateContribution returns
+// an empty string when the round number exceeds the available rounds.
+func TestDebateContribution_OutOfBounds(t *testing.T) {
+	rounds := []DebateRound{
+		{Number: 1, Contributions: map[AgentRole]string{AgentRoleBullResearcher: "bull r1"}},
+	}
+	roundNum := 5
+	got := debateContribution(rounds, AgentRoleBullResearcher, &roundNum)
+	if got != "" {
+		t.Errorf("debateContribution(roundNumber=5) = %q, want empty string", got)
+	}
+
+	// Also verify a zero round number (which yields index -1).
+	zeroRound := 0
+	got = debateContribution(rounds, AgentRoleBullResearcher, &zeroRound)
+	if got != "" {
+		t.Errorf("debateContribution(roundNumber=0) = %q, want empty string", got)
+	}
+}
+
+// TestDebateContribution_MissingRole verifies that debateContribution returns
+// an empty string when the requested role has no contribution in the round.
+func TestDebateContribution_MissingRole(t *testing.T) {
+	rounds := []DebateRound{
+		{
+			Number: 1,
+			Contributions: map[AgentRole]string{
+				AgentRoleBullResearcher: "bull argument round 1",
+			},
+		},
+	}
+	roundNum := 1
+	got := debateContribution(rounds, AgentRoleBearResearcher, &roundNum)
+	if got != "" {
+		t.Errorf("debateContribution(role=BearResearcher) = %q, want empty string", got)
+	}
+}
+
+// TestDebateContribution_HappyPath verifies that debateContribution returns
+// the correct contribution string for a valid round number and role.
+func TestDebateContribution_HappyPath(t *testing.T) {
+	rounds := []DebateRound{
+		{
+			Number: 1,
+			Contributions: map[AgentRole]string{
+				AgentRoleBullResearcher: "bull argument round 1",
+				AgentRoleBearResearcher: "bear argument round 1",
+			},
+		},
+		{
+			Number: 2,
+			Contributions: map[AgentRole]string{
+				AgentRoleBullResearcher: "bull argument round 2",
+				AgentRoleBearResearcher: "bear argument round 2",
+			},
+		},
+		{
+			Number: 3,
+			Contributions: map[AgentRole]string{
+				AgentRoleBullResearcher: "bull argument round 3",
+				AgentRoleBearResearcher: "bear argument round 3",
+			},
+		},
+	}
+
+	tests := []struct {
+		name        string
+		roundNumber int
+		role        AgentRole
+		want        string
+	}{
+		{"round 1 bull", 1, AgentRoleBullResearcher, "bull argument round 1"},
+		{"round 1 bear", 1, AgentRoleBearResearcher, "bear argument round 1"},
+		{"round 2 bull", 2, AgentRoleBullResearcher, "bull argument round 2"},
+		{"round 3 bear", 3, AgentRoleBearResearcher, "bear argument round 3"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			roundNum := tt.roundNumber
+			got := debateContribution(rounds, tt.role, &roundNum)
+			if got != tt.want {
+				t.Errorf("debateContribution() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

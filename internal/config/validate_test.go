@@ -205,6 +205,69 @@ func TestValidateDefaultProviderOllamaNoKey(t *testing.T) {
 	}
 }
 
+func TestLoadFloat64Field_ValidValue(t *testing.T) {
+	clearConfigEnv(t)
+
+	t.Setenv("APP_ENV", "test")
+	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/tradingagent?sslmode=disable")
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("RISK_MAX_POSITION_SIZE_PCT", "0.25")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Risk.MaxPositionSizePct != 0.25 {
+		t.Fatalf("cfg.Risk.MaxPositionSizePct = %f, want %f", cfg.Risk.MaxPositionSizePct, 0.25)
+	}
+}
+
+func TestLoadFloat64Field_InvalidReturnsError(t *testing.T) {
+	clearConfigEnv(t)
+
+	t.Setenv("APP_ENV", "test")
+	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/tradingagent?sslmode=disable")
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("RISK_MAX_POSITION_SIZE_PCT", "not-a-number")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() error = nil, want error")
+	}
+
+	if !strings.Contains(err.Error(), "must be a number") {
+		t.Fatalf("Load() error = %q, want 'must be a number' message", err)
+	}
+}
+
+func TestSetDefaultLogger_ReturnsNonNil(t *testing.T) {
+	logger := SetDefaultLogger("development", "debug")
+	if logger == nil {
+		t.Fatal("SetDefaultLogger() returned nil, want non-nil logger")
+	}
+}
+
+func TestSetDefaultLogger_ProductionJSON(t *testing.T) {
+	logger := SetDefaultLogger("production", "info")
+	if logger == nil {
+		t.Fatal("SetDefaultLogger() returned nil, want non-nil logger")
+	}
+}
+
+func TestLoadDotEnv_NonDevDoesNotFail(t *testing.T) {
+	clearConfigEnv(t)
+
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/tradingagent?sslmode=disable")
+	t.Setenv("OPENAI_API_KEY", "test-key")
+
+	_, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil (loadDotEnv should skip in non-dev)", err)
+	}
+}
+
 func validConfig() Config {
 	return Config{
 		Environment: "test",

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -186,5 +187,129 @@ func TestProviderUnsupportedMethodsReturnErrNotImplemented(t *testing.T) {
 	_, socialErr := provider.GetSocialSentiment(context.Background(), "AAPL")
 	if !errors.Is(socialErr, data.ErrNotImplemented) {
 		t.Fatalf("GetSocialSentiment() error = %v, want ErrNotImplemented", socialErr)
+	}
+}
+
+func TestSetTimeout_Valid(t *testing.T) {
+	t.Parallel()
+
+	client := NewClient("test-key", discardLogger())
+	client.SetTimeout(30 * time.Second)
+
+	if client.httpClient.Timeout != 30*time.Second {
+		t.Fatalf("Timeout = %v, want %v", client.httpClient.Timeout, 30*time.Second)
+	}
+}
+
+func TestSetTimeout_ZeroIgnored(t *testing.T) {
+	t.Parallel()
+
+	client := NewClient("test-key", discardLogger())
+	original := client.httpClient.Timeout
+
+	client.SetTimeout(0)
+
+	if client.httpClient.Timeout != original {
+		t.Fatalf("Timeout changed to %v, want original %v preserved", client.httpClient.Timeout, original)
+	}
+}
+
+func TestSetTimeout_NegativeIgnored(t *testing.T) {
+	t.Parallel()
+
+	client := NewClient("test-key", discardLogger())
+	original := client.httpClient.Timeout
+
+	client.SetTimeout(-1 * time.Second)
+
+	if client.httpClient.Timeout != original {
+		t.Fatalf("Timeout changed to %v, want original %v preserved", client.httpClient.Timeout, original)
+	}
+}
+
+func TestGetNews_EmptyTicker(t *testing.T) {
+	t.Parallel()
+
+	client := NewClient("test-key", discardLogger())
+	provider := NewProvider(client)
+
+	_, err := provider.GetNews(context.Background(), "", time.Time{}, time.Time{})
+	if err == nil {
+		t.Fatal("GetNews() error = nil, want non-nil for empty ticker")
+	}
+	if err.Error() != "newsapi: ticker is required" {
+		t.Fatalf("GetNews() error = %q, want %q", err.Error(), "newsapi: ticker is required")
+	}
+}
+
+func TestGetNews_InvalidDateRange(t *testing.T) {
+	t.Parallel()
+
+	client := NewClient("test-key", discardLogger())
+	provider := NewProvider(client)
+
+	from := time.Date(2024, time.January, 10, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC)
+
+	_, err := provider.GetNews(context.Background(), "AAPL", from, to)
+	if err == nil {
+		t.Fatal("GetNews() error = nil, want non-nil for from > to")
+	}
+	if err.Error() != "newsapi: from must be before or equal to to" {
+		t.Fatalf("GetNews() error = %q, want %q", err.Error(), "newsapi: from must be before or equal to to")
+	}
+}
+
+func TestGetNews_ServerError(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"status":"error","code":"unexpectedError","message":"something went wrong"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", discardLogger())
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	provider := NewProvider(client)
+
+	_, err := provider.GetNews(context.Background(), "AAPL", time.Time{}, time.Time{})
+	if err == nil {
+		t.Fatal("GetNews() error = nil, want non-nil for server 500")
+	}
+
+	var errResp *ErrorResponse
+	if !errors.As(err, &errResp) {
+		t.Fatalf("GetNews() error type = %T, want *ErrorResponse", err)
+	}
+	if errResp.StatusCode() != http.StatusInternalServerError {
+		t.Fatalf("ErrorResponse.StatusCode() = %d, want %d", errResp.StatusCode(), http.StatusInternalServerError)
+	}
+}
+
+func TestGetNews_MalformedJSON(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok","articles":[INVALID`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", discardLogger())
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	provider := NewProvider(client)
+
+	_, err := provider.GetNews(context.Background(), "AAPL", time.Time{}, time.Time{})
+	if err == nil {
+		t.Fatal("GetNews() error = nil, want non-nil for malformed JSON")
+	}
+
+	wantSubstring := "decode everything response"
+	if !strings.Contains(err.Error(), wantSubstring) {
+		t.Fatalf("GetNews() error = %q, want error containing %q", err.Error(), wantSubstring)
 	}
 }

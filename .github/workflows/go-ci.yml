@@ -71,7 +71,15 @@ jobs:
           migrate -path migrations -database "$DATABASE_URL" up || true
 
       - name: Run unit tests
-        run: go test -race -count=1 -coverprofile=coverage.out ./...
+        run: go test -short -race -count=1 -coverprofile=coverage-unit.out ./...
+
+      - name: Run integration tests
+        run: go test -race -count=1 -run Integration -coverprofile=coverage-integration.out ./...
+
+      - name: Merge coverage profiles
+        run: |
+          go install github.com/wadey/gocovmerge@latest
+          gocovmerge coverage-unit.out coverage-integration.out > coverage.out
 
       - name: Check coverage
         run: go tool cover -func=coverage.out | tail -1
