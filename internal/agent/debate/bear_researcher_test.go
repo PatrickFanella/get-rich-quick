@@ -11,14 +11,14 @@ import (
 )
 
 func TestNewBearResearcherNilLogger(t *testing.T) {
-	bear := NewBearResearcher(nil, "model", nil)
+	bear := NewBearResearcher(nil, "openai", "model", nil)
 	if bear == nil {
 		t.Fatal("NewBearResearcher() returned nil")
 	}
 }
 
 func TestBearResearcherNodeInterface(t *testing.T) {
-	bear := NewBearResearcher(nil, "model", slog.Default())
+	bear := NewBearResearcher(nil, "openai", "model", slog.Default())
 
 	if got := bear.Name(); got != "bear_researcher" {
 		t.Fatalf("Name() = %q, want %q", got, "bear_researcher")
@@ -42,7 +42,7 @@ func TestBearResearcherExecuteStoresContributionAndDecision(t *testing.T) {
 		},
 	}
 
-	bear := NewBearResearcher(mock, "test-model", slog.Default())
+	bear := NewBearResearcher(mock, "test-provider", "test-model", slog.Default())
 
 	state := &agent.PipelineState{
 		Ticker: "AAPL",
@@ -91,6 +91,12 @@ func TestBearResearcherExecuteStoresContributionAndDecision(t *testing.T) {
 	if decision.LLMResponse.Response.Usage.CompletionTokens != 45 {
 		t.Fatalf("completion tokens = %d, want 45", decision.LLMResponse.Response.Usage.CompletionTokens)
 	}
+	if decision.LLMResponse.Provider != "test-provider" {
+		t.Fatalf("provider = %q, want %q", decision.LLMResponse.Provider, "test-provider")
+	}
+	if decision.LLMResponse.Response.Model != "test-model" {
+		t.Fatalf("model in response = %q, want %q", decision.LLMResponse.Response.Model, "test-model")
+	}
 
 	// Verify the system prompt was the bear researcher prompt.
 	if mock.lastReq.Messages[0].Content != BearResearcherSystemPrompt {
@@ -104,7 +110,7 @@ func TestBearResearcherExecuteStoresContributionAndDecision(t *testing.T) {
 }
 
 func TestBearResearcherExecuteNilProvider(t *testing.T) {
-	bear := NewBearResearcher(nil, "model", slog.Default())
+	bear := NewBearResearcher(nil, "openai", "model", slog.Default())
 
 	state := &agent.PipelineState{
 		ResearchDebate: agent.ResearchDebateState{
@@ -130,7 +136,7 @@ func TestBearResearcherExecuteLLMError(t *testing.T) {
 		err: errors.New("service unavailable"),
 	}
 
-	bear := NewBearResearcher(mock, "model", slog.Default())
+	bear := NewBearResearcher(mock, "openai", "model", slog.Default())
 
 	state := &agent.PipelineState{
 		ResearchDebate: agent.ResearchDebateState{
@@ -164,7 +170,7 @@ func TestBearResearcherExecuteNoRounds(t *testing.T) {
 		},
 	}
 
-	bear := NewBearResearcher(mock, "model", slog.Default())
+	bear := NewBearResearcher(mock, "openai", "model", slog.Default())
 
 	state := &agent.PipelineState{
 		ResearchDebate: agent.ResearchDebateState{},
@@ -179,7 +185,12 @@ func TestBearResearcherExecuteNoRounds(t *testing.T) {
 	// No decision should be recorded when there are no rounds.
 	roundNumber := 0
 	if _, ok := state.Decision(agent.AgentRoleBearResearcher, agent.PhaseResearchDebate, &roundNumber); ok {
-		t.Fatal("Decision() should not be recorded when no rounds exist")
+		t.Fatal("Decision() should not be recorded when no rounds exist (round 0)")
+	}
+
+	// Also ensure no decision is recorded under a nil round key.
+	if _, ok := state.Decision(agent.AgentRoleBearResearcher, agent.PhaseResearchDebate, nil); ok {
+		t.Fatal("Decision() should not be recorded when no rounds exist (nil round)")
 	}
 }
 

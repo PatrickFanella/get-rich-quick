@@ -28,11 +28,13 @@ Be thorough, skeptical, and data-driven. Challenge the bull's thesis point by po
 // logic and writes its contribution into the current debate round.
 type BearResearcher struct {
 	BaseDebater
+	providerName string
 }
 
 // NewBearResearcher returns a BearResearcher wired to the given LLM provider
-// and model. A nil logger is replaced with the default logger.
-func NewBearResearcher(provider llm.Provider, model string, logger *slog.Logger) *BearResearcher {
+// and model. providerName (e.g. "openai") is recorded in decision metadata.
+// A nil logger is replaced with the default logger.
+func NewBearResearcher(provider llm.Provider, providerName, model string, logger *slog.Logger) *BearResearcher {
 	return &BearResearcher{
 		BaseDebater: NewBaseDebater(
 			agent.AgentRoleBearResearcher,
@@ -41,6 +43,7 @@ func NewBearResearcher(provider llm.Provider, model string, logger *slog.Logger)
 			model,
 			logger,
 		),
+		providerName: providerName,
 	}
 }
 
@@ -85,8 +88,10 @@ func (b *BearResearcher) Execute(ctx context.Context, state *agent.PipelineState
 			&roundNumber,
 			content,
 			&agent.DecisionLLMResponse{
+				Provider: b.providerName,
 				Response: &llm.CompletionResponse{
 					Content: content,
+					Model:   b.model,
 					Usage:   usage,
 				},
 			},
