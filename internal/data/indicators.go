@@ -1,6 +1,7 @@
 package data
 
 import (
+	"math"
 	"sort"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
@@ -196,6 +197,144 @@ func ROC(data []domain.OHLCV, period int) []float64 {
 		}
 
 		series[i-period] = (data[i].Close - base) / base * 100
+	}
+
+	return series
+}
+
+// BollingerBands returns the upper, middle, and lower bands using an SMA basis
+// and population standard deviation over each completed window.
+func BollingerBands(data []domain.OHLCV, period int, stdDev float64) (upper, middle, lower []float64) {
+	if period <= 0 || stdDev < 0 || len(data) < period {
+		return nil, nil, nil
+	}
+
+	closes := closePrices(data)
+	middle = smaSeries(closes, period)
+	if len(middle) == 0 {
+		return nil, nil, nil
+	}
+
+	upper = make([]float64, len(middle))
+	lower = make([]float64, len(middle))
+	windowSumSquares := 0.0
+	for _, close := range closes[:period] {
+		windowSumSquares += close * close
+	}
+
+	for i, average := range middle {
+		variance := windowSumSquares/float64(period) - average*average
+		if variance < 0 {
+			variance = 0
+		}
+
+		offset := math.Sqrt(variance) * stdDev
+		upper[i] = average + offset
+		lower[i] = average - offset
+
+		end := i + period
+		if end < len(closes) {
+			windowSumSquares += closes[end]*closes[end] - closes[i]*closes[i]
+		}
+	}
+
+	return upper, middle, lower
+}
+
+// ATR returns the Average True Range using Wilder smoothing.
+func ATR(data []domain.OHLCV, period int) []float64 {
+	if period <= 0 || len(data) < period {
+		return nil
+	}
+
+	trueRanges := make([]float64, len(data))
+	trueRanges[0] = data[0].High - data[0].Low
+	for i := 1; i < len(data); i++ {
+		highLow := data[i].High - data[i].Low
+		highClose := math.Abs(data[i].High - data[i-1].Close)
+		lowClose := math.Abs(data[i].Low - data[i-1].Close)
+		trueRanges[i] = math.Max(highLow, math.Max(highClose, lowClose))
+	}
+
+	series := make([]float64, len(data)-period+1)
+	atr := 0.0
+	for _, trueRange := range trueRanges[:period] {
+		atr += trueRange
+	}
+	atr /= float64(period)
+	series[0] = atr
+
+	for i := period; i < len(trueRanges); i++ {
+		atr = (atr*float64(period-1) + trueRanges[i]) / float64(period)
+		series[i-period+1] = atr
+	}
+
+	return series
+}
+
+// VWMA returns the volume-weighted moving average of closing prices for each completed window.
+func VWMA(data []domain.OHLCV, period int) []float64 {
+	if period <= 0 || len(data) < period {
+		return nil
+	}
+
+	series := make([]float64, len(data)-period+1)
+	priceVolumeSum := 0.0
+	volumeSum := 0.0
+	for _, bar := range data[:period] {
+		priceVolumeSum += bar.Close * bar.Volume
+		volumeSum += bar.Volume
+	}
+	series[0] = volumeWeightedAverage(priceVolumeSum, volumeSum)
+
+	for i := period; i < len(data); i++ {
+		priceVolumeSum += data[i].Close*data[i].Volume - data[i-period].Close*data[i-period].Volume
+		volumeSum += data[i].Volume - data[i-period].Volume
+		series[i-period+1] = volumeWeightedAverage(priceVolumeSum, volumeSum)
+	}
+
+	return series
+}
+
+// OBV returns the cumulative On-Balance Volume series.
+func OBV(data []domain.OHLCV) []float64 {
+	if len(data) == 0 {
+		return nil
+	}
+
+	series := make([]float64, len(data))
+	for i := 1; i < len(data); i++ {
+		series[i] = series[i-1]
+		switch {
+		case data[i].Close > data[i-1].Close:
+			series[i] += data[i].Volume
+		case data[i].Close < data[i-1].Close:
+			series[i] -= data[i].Volume
+		}
+	}
+
+	return series
+}
+
+// ADL returns the cumulative Accumulation/Distribution Line series.
+func ADL(data []domain.OHLCV) []float64 {
+	if len(data) == 0 {
+		return nil
+	}
+
+	series := make([]float64, len(data))
+	for i, bar := range data {
+		if i > 0 {
+			series[i] = series[i-1]
+		}
+
+		rangeWidth := bar.High - bar.Low
+		if rangeWidth == 0 {
+			continue
+		}
+
+		multiplier := ((bar.Close - bar.Low) - (bar.High - bar.Close)) / rangeWidth
+		series[i] += multiplier * bar.Volume
 	}
 
 	return series
@@ -405,6 +544,14 @@ func moneyFlowIndex(positiveFlow, negativeFlow float64) float64 {
 
 	ratio := positiveFlow / negativeFlow
 	return 100 - (100 / (1 + ratio))
+}
+
+func volumeWeightedAverage(priceVolumeSum, volumeSum float64) float64 {
+	if volumeSum == 0 {
+		return 0
+	}
+
+	return priceVolumeSum / volumeSum
 }
 
 type fenwickTree []float64
