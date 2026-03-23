@@ -390,6 +390,52 @@ func TestBrokerGetOrderStatus_MapsAlpacaStatuses(t *testing.T) {
 	}
 }
 
+func TestBrokerGetOrderStatus_RejectsInvalidStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		apiStatus string
+		wantErr   string
+	}{
+		{
+			name:      "blank",
+			apiStatus: "   ",
+			wantErr:   "alpaca: order status is required",
+		},
+		{
+			name:      "unknown",
+			apiStatus: "routing",
+			wantErr:   `alpaca: unsupported order status "routing"`,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"status":"` + tt.apiStatus + `"}`))
+			}))
+			defer server.Close()
+
+			client := NewClient("test-key", "test-secret", true, discardLogger())
+			client.SetBaseURL(server.URL)
+
+			broker := NewBroker(client)
+			_, err := broker.GetOrderStatus(context.Background(), "order-1")
+			if err == nil {
+				t.Fatal("GetOrderStatus() error = nil, want non-nil")
+			}
+			if err.Error() != tt.wantErr {
+				t.Fatalf("GetOrderStatus() error = %q, want %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestBrokerGetPositions_MapsResponse(t *testing.T) {
 	t.Parallel()
 
@@ -456,6 +502,31 @@ func TestBrokerGetPositions_MapsResponse(t *testing.T) {
 	}
 }
 
+func TestBrokerGetPositions_RejectsInvalidNumericField(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"symbol":"AAPL","side":"long","qty":"oops","avg_entry_price":"185.25","current_price":"190.10","unrealized_pl":"12.13"}
+		]`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", "test-secret", true, discardLogger())
+	client.SetBaseURL(server.URL)
+
+	broker := NewBroker(client)
+	_, err := broker.GetPositions(context.Background())
+	if err == nil {
+		t.Fatal("GetPositions() error = nil, want non-nil")
+	}
+	wantErr := `alpaca: parse qty: strconv.ParseFloat: parsing "oops": invalid syntax`
+	if err.Error() != wantErr {
+		t.Fatalf("GetPositions() error = %q, want %q", err.Error(), wantErr)
+	}
+}
+
 func TestBrokerGetAccountBalance_MapsResponse(t *testing.T) {
 	t.Parallel()
 
@@ -499,6 +570,52 @@ func TestBrokerGetAccountBalance_MapsResponse(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("request details were not captured")
+	}
+}
+
+func TestBrokerGetAccountBalance_RejectsInvalidResponseFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{
+			name:    "blank currency",
+			body:    `{"currency":"   ","cash":"1000.50","buying_power":"4002.00","equity":"5005.25"}`,
+			wantErr: "alpaca: currency is required",
+		},
+		{
+			name:    "invalid cash",
+			body:    `{"currency":"USD","cash":"bad","buying_power":"4002.00","equity":"5005.25"}`,
+			wantErr: `alpaca: parse cash: strconv.ParseFloat: parsing "bad": invalid syntax`,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			client := NewClient("test-key", "test-secret", true, discardLogger())
+			client.SetBaseURL(server.URL)
+
+			broker := NewBroker(client)
+			_, err := broker.GetAccountBalance(context.Background())
+			if err == nil {
+				t.Fatal("GetAccountBalance() error = nil, want non-nil")
+			}
+			if err.Error() != tt.wantErr {
+				t.Fatalf("GetAccountBalance() error = %q, want %q", err.Error(), tt.wantErr)
+			}
+		})
 	}
 }
 

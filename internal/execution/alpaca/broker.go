@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -183,6 +182,10 @@ func (b *Broker) GetAccountBalance(ctx context.Context) (execution.Balance, erro
 	if err := json.Unmarshal(responseBody, &response); err != nil {
 		return execution.Balance{}, fmt.Errorf("alpaca: decode account balance response: %w", err)
 	}
+	currency := strings.TrimSpace(response.Currency)
+	if currency == "" {
+		return execution.Balance{}, errors.New("alpaca: currency is required")
+	}
 
 	cash, err := parseRequiredFloat("cash", response.Cash)
 	if err != nil {
@@ -198,7 +201,7 @@ func (b *Broker) GetAccountBalance(ctx context.Context) (execution.Balance, erro
 	}
 
 	return execution.Balance{
-		Currency:    strings.TrimSpace(response.Currency),
+		Currency:    currency,
 		Cash:        cash,
 		BuyingPower: buyingPower,
 		Equity:      equity,
@@ -285,20 +288,20 @@ func formatFloat(value float64) string {
 
 func mapOrderStatus(rawStatus string) (domain.OrderStatus, error) {
 	status := strings.ToLower(strings.TrimSpace(rawStatus))
-	switch {
-	case status == "":
+	switch status {
+	case "":
 		return "", errors.New("alpaca: order status is required")
-	case slices.Contains([]string{"accepted_for_bidding", "calculated", "held", "pending_cancel", "pending_new", "pending_replace"}, status):
+	case "accepted_for_bidding", "calculated", "held", "pending_cancel", "pending_new", "pending_replace":
 		return domain.OrderStatusPending, nil
-	case slices.Contains([]string{"accepted", "done_for_day", "new", "replaced", "stopped", "suspended"}, status):
+	case "accepted", "done_for_day", "new", "replaced", "stopped", "suspended":
 		return domain.OrderStatusSubmitted, nil
-	case status == "partially_filled":
+	case "partially_filled":
 		return domain.OrderStatusPartial, nil
-	case status == "filled":
+	case "filled":
 		return domain.OrderStatusFilled, nil
-	case slices.Contains([]string{"canceled", "expired"}, status):
+	case "canceled", "expired":
 		return domain.OrderStatusCancelled, nil
-	case status == "rejected":
+	case "rejected":
 		return domain.OrderStatusRejected, nil
 	default:
 		return "", fmt.Errorf("alpaca: unsupported order status %q", rawStatus)
