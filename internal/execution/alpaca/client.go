@@ -108,16 +108,12 @@ func (c *Client) SetTimeout(timeout time.Duration) {
 	if c == nil {
 		return
 	}
-	if c.logger == nil {
-		c.logger = slog.Default()
-	}
+	c.ensureLogger()
 	if timeout <= 0 {
 		c.logger.Warn("alpaca: ignoring invalid timeout", slog.String("timeout", timeout.String()))
 		return
 	}
-	if c.httpClient == nil {
-		c.httpClient = &http.Client{Timeout: defaultTimeout}
-	}
+	c.ensureHTTPClient()
 
 	c.httpClient.Timeout = timeout
 }
@@ -213,9 +209,17 @@ func (c *Client) do(ctx context.Context, method, requestPath string, params url.
 }
 
 func (c *Client) ensureDefaults() {
+	c.ensureLogger()
+	c.ensureHTTPClient()
+}
+
+func (c *Client) ensureLogger() {
 	if c.logger == nil {
 		c.logger = slog.Default()
 	}
+}
+
+func (c *Client) ensureHTTPClient() {
 	if c.httpClient == nil {
 		c.httpClient = &http.Client{
 			Timeout: defaultTimeout,
