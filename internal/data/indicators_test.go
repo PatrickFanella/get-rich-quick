@@ -173,6 +173,63 @@ func TestROCAgainstKnownValues(t *testing.T) {
 	assertTailClose(t, got, []float64{-0.270142, -0.297897, -0.253791}, 1e-6)
 }
 
+func TestBollingerBandsAgainstKnownValues(t *testing.T) {
+	bars := indicatorTestBars(250)
+
+	upper, middle, lower := data.BollingerBands(bars, 20, 2.0)
+	if len(upper) != 231 || len(middle) != 231 || len(lower) != 231 {
+		t.Fatalf("BollingerBands lens = (%d, %d, %d), want (231, 231, 231)", len(upper), len(middle), len(lower))
+	}
+
+	assertTailClose(t, upper, []float64{187.622069, 187.603352, 187.584890}, 1e-6)
+	assertTailClose(t, middle, []float64{184.861078, 184.813277, 184.805252}, 1e-6)
+	assertTailClose(t, lower, []float64{182.100088, 182.023202, 182.025615}, 1e-6)
+}
+
+func TestATRAgainstKnownValues(t *testing.T) {
+	bars := indicatorTestBars(250)
+
+	got := data.ATR(bars, 14)
+	if len(got) != 237 {
+		t.Fatalf("ATR len = %d, want 237", len(got))
+	}
+
+	assertTailClose(t, got, []float64{2.654968, 2.608185, 2.614574}, 1e-6)
+}
+
+func TestVWMAAgainstKnownValues(t *testing.T) {
+	bars := indicatorTestBars(250)
+
+	got := data.VWMA(bars, 20)
+	if len(got) != 231 {
+		t.Fatalf("VWMA len = %d, want 231", len(got))
+	}
+
+	assertTailClose(t, got, []float64{184.859197, 184.811056, 184.803764}, 1e-6)
+}
+
+func TestOBVAgainstKnownValues(t *testing.T) {
+	bars := volumeIndicatorTestBars()
+
+	got := data.OBV(bars)
+	if len(got) != len(bars) {
+		t.Fatalf("OBV len = %d, want %d", len(got), len(bars))
+	}
+
+	assertClose(t, got, []float64{0, 150, 30, -100, 60, 260}, 1e-6)
+}
+
+func TestADLAgainstKnownValues(t *testing.T) {
+	bars := volumeIndicatorTestBars()
+
+	got := data.ADL(bars)
+	if len(got) != len(bars) {
+		t.Fatalf("ADL len = %d, want %d", len(got), len(bars))
+	}
+
+	assertClose(t, got, []float64{0, 75, -15, -145, -65, -65}, 1e-6)
+}
+
 func TestIndicatorsReturnEmptyWhenInsufficientData(t *testing.T) {
 	bars := indicatorTestBars(10)
 
@@ -205,6 +262,22 @@ func TestIndicatorsReturnEmptyWhenInsufficientData(t *testing.T) {
 	}
 	if got := data.ROC(bars, 12); len(got) != 0 {
 		t.Fatalf("ROC() len = %d, want 0", len(got))
+	}
+	upper, middle, lower := data.BollingerBands(bars, 20, 2)
+	if len(upper) != 0 || len(middle) != 0 || len(lower) != 0 {
+		t.Fatalf("BollingerBands() lens = (%d, %d, %d), want (0, 0, 0)", len(upper), len(middle), len(lower))
+	}
+	if got := data.ATR(bars, 14); len(got) != 0 {
+		t.Fatalf("ATR() len = %d, want 0", len(got))
+	}
+	if got := data.VWMA(bars, 20); len(got) != 0 {
+		t.Fatalf("VWMA() len = %d, want 0", len(got))
+	}
+	if got := data.OBV(nil); len(got) != 0 {
+		t.Fatalf("OBV() len = %d, want 0", len(got))
+	}
+	if got := data.ADL(nil); len(got) != 0 {
+		t.Fatalf("ADL() len = %d, want 0", len(got))
 	}
 }
 
@@ -262,6 +335,20 @@ func TestIndicatorsReturnEmptyForInvalidParameters(t *testing.T) {
 	if got := data.ROC(bars, 0); len(got) != 0 {
 		t.Fatalf("ROC() with period 0 len = %d, want 0", len(got))
 	}
+	upper, middle, lower := data.BollingerBands(bars, 0, 2)
+	if len(upper) != 0 || len(middle) != 0 || len(lower) != 0 {
+		t.Fatalf("BollingerBands() with period 0 lens = (%d, %d, %d), want (0, 0, 0)", len(upper), len(middle), len(lower))
+	}
+	upper, middle, lower = data.BollingerBands(bars, 20, -1)
+	if len(upper) != 0 || len(middle) != 0 || len(lower) != 0 {
+		t.Fatalf("BollingerBands() with negative stdDev lens = (%d, %d, %d), want (0, 0, 0)", len(upper), len(middle), len(lower))
+	}
+	if got := data.ATR(bars, 0); len(got) != 0 {
+		t.Fatalf("ATR() with period 0 len = %d, want 0", len(got))
+	}
+	if got := data.VWMA(bars, -1); len(got) != 0 {
+		t.Fatalf("VWMA() with negative period len = %d, want 0", len(got))
+	}
 }
 
 func indicatorTestBars(count int) []domain.OHLCV {
@@ -281,6 +368,34 @@ func indicatorTestBars(count int) []domain.OHLCV {
 	}
 
 	return bars
+}
+
+func volumeIndicatorTestBars() []domain.OHLCV {
+	start := time.Unix(0, 0).UTC()
+
+	return []domain.OHLCV{
+		{Timestamp: start, Open: 8.5, High: 10, Low: 8, Close: 9, Volume: 100},
+		{Timestamp: start.Add(time.Hour), Open: 9.5, High: 11, Low: 9, Close: 10.5, Volume: 150},
+		{Timestamp: start.Add(2 * time.Hour), Open: 10.75, High: 12, Low: 10, Close: 10.25, Volume: 120},
+		{Timestamp: start.Add(3 * time.Hour), Open: 10, High: 11, Low: 9, Close: 9, Volume: 130},
+		{Timestamp: start.Add(4 * time.Hour), Open: 11.5, High: 13, Low: 11, Close: 12.5, Volume: 160},
+		{Timestamp: start.Add(5 * time.Hour), Open: 13, High: 13, Low: 13, Close: 13, Volume: 200},
+	}
+}
+
+func assertClose(t *testing.T, got, want []float64, delta float64) {
+	t.Helper()
+
+	if len(got) != len(want) {
+		t.Fatalf("got %d values, want %d", len(got), len(want))
+	}
+
+	for i, expected := range want {
+		actual := got[i]
+		if math.Abs(actual-expected) > delta {
+			t.Fatalf("value[%d] = %.6f, want %.6f (delta %.6f)", i, actual, expected, delta)
+		}
+	}
 }
 
 func assertTailClose(t *testing.T, got, want []float64, delta float64) {
