@@ -108,12 +108,17 @@ func (c *Client) SetTimeout(timeout time.Duration) {
 	if c == nil {
 		return
 	}
-	c.ensureLogger()
+	logger := c.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	if timeout <= 0 {
-		c.logger.Warn("alpaca: ignoring invalid timeout", slog.String("timeout", timeout.String()))
+		logger.Warn("alpaca: ignoring invalid timeout", slog.String("timeout", timeout.String()))
 		return
 	}
-	c.ensureHTTPClient()
+	if c.httpClient == nil {
+		c.httpClient = &http.Client{Timeout: defaultTimeout}
+	}
 
 	c.httpClient.Timeout = timeout
 }
@@ -137,12 +142,22 @@ func (c *Client) do(ctx context.Context, method, requestPath string, params url.
 	if c == nil {
 		return nil, errors.New("alpaca: client is nil")
 	}
-	c.ensureDefaults()
 	if c.apiKey == "" {
 		return nil, errors.New("alpaca: api key is required")
 	}
 	if c.apiSecret == "" {
 		return nil, errors.New("alpaca: api secret is required")
+	}
+
+	logger := c.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	httpClient := c.httpClient
+	if httpClient == nil {
+		httpClient = &http.Client{
+			Timeout: defaultTimeout,
+		}
 	}
 
 	requestURL, err := c.buildURL(requestPath, params)
@@ -168,14 +183,14 @@ func (c *Client) do(ctx context.Context, method, requestPath string, params url.
 	}
 
 	startedAt := time.Now()
-	c.logger.Debug("alpaca: sending request",
+	logger.Debug("alpaca: sending request",
 		slog.String("method", req.Method),
 		slog.String("path", req.URL.Path),
 	)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
-		c.logger.Warn("alpaca: request failed",
+		logger.Warn("alpaca: request failed",
 			slog.String("method", req.Method),
 			slog.String("path", req.URL.Path),
 			slog.Any("error", err),
@@ -185,7 +200,7 @@ func (c *Client) do(ctx context.Context, method, requestPath string, params url.
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
-			c.logger.Warn("alpaca: failed to close response body", slog.Any("error", closeErr))
+			logger.Warn("alpaca: failed to close response body", slog.Any("error", closeErr))
 		}
 	}()
 
@@ -194,7 +209,7 @@ func (c *Client) do(ctx context.Context, method, requestPath string, params url.
 		return nil, fmt.Errorf("alpaca: read response body: %w", err)
 	}
 
-	c.logger.Debug("alpaca: received response",
+	logger.Debug("alpaca: received response",
 		slog.String("method", req.Method),
 		slog.String("path", req.URL.Path),
 		slog.Int("status", resp.StatusCode),
@@ -206,25 +221,6 @@ func (c *Client) do(ctx context.Context, method, requestPath string, params url.
 	}
 
 	return responseBody, nil
-}
-
-func (c *Client) ensureDefaults() {
-	c.ensureLogger()
-	c.ensureHTTPClient()
-}
-
-func (c *Client) ensureLogger() {
-	if c.logger == nil {
-		c.logger = slog.Default()
-	}
-}
-
-func (c *Client) ensureHTTPClient() {
-	if c.httpClient == nil {
-		c.httpClient = &http.Client{
-			Timeout: defaultTimeout,
-		}
-	}
 }
 
 func marshalRequestBody(body any) (io.Reader, error) {

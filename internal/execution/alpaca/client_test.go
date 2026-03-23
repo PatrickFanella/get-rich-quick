@@ -302,7 +302,7 @@ func TestClientGet_TreatsRedirectAsError(t *testing.T) {
 	}
 }
 
-func TestClientGet_InitializesDefaultHTTPClient(t *testing.T) {
+func TestClientGet_UsesDefaultHTTPClientWhenUnset(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -322,12 +322,6 @@ func TestClientGet_InitializesDefaultHTTPClient(t *testing.T) {
 	}
 	if got := string(body); got != `{"status":"ok"}` {
 		t.Fatalf("Get() body = %q, want %q", got, `{"status":"ok"}`)
-	}
-	if client.httpClient == nil {
-		t.Fatal("httpClient = nil, want default client")
-	}
-	if client.httpClient.Timeout != defaultTimeout {
-		t.Fatalf("httpClient.Timeout = %s, want %s", client.httpClient.Timeout, defaultTimeout)
 	}
 }
 
