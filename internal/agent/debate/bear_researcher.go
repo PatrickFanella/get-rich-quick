@@ -69,29 +69,29 @@ func (b *BearResearcher) Execute(ctx context.Context, state *agent.PipelineState
 		return err
 	}
 
-	// Store the contribution in the current (last) debate round.
+	// Store the contribution in the current (last) debate round and record
+	// the decision so the pipeline can persist it with LLM metadata.
 	if len(rounds) > 0 {
 		current := &state.ResearchDebate.Rounds[len(rounds)-1]
 		if current.Contributions == nil {
 			current.Contributions = make(map[agent.AgentRole]string)
 		}
 		current.Contributions[agent.AgentRoleBearResearcher] = content
-	}
 
-	// Record the decision so the pipeline can persist it with LLM metadata.
-	roundNumber := len(rounds)
-	state.RecordDecision(
-		agent.AgentRoleBearResearcher,
-		agent.PhaseResearchDebate,
-		&roundNumber,
-		content,
-		&agent.DecisionLLMResponse{
-			Response: &llm.CompletionResponse{
-				Content: content,
-				Usage:   usage,
+		roundNumber := current.Number
+		state.RecordDecision(
+			agent.AgentRoleBearResearcher,
+			agent.PhaseResearchDebate,
+			&roundNumber,
+			content,
+			&agent.DecisionLLMResponse{
+				Response: &llm.CompletionResponse{
+					Content: content,
+					Usage:   usage,
+				},
 			},
-		},
-	)
+		)
+	}
 
 	return nil
 }

@@ -170,19 +170,16 @@ func TestBearResearcherExecuteNoRounds(t *testing.T) {
 		ResearchDebate: agent.ResearchDebateState{},
 	}
 
-	// Execute should succeed even with no rounds; it just won't store a contribution.
+	// Execute should succeed even with no rounds; it calls the LLM but
+	// does not store a contribution or decision since there is no round.
 	if err := bear.Execute(context.Background(), state); err != nil {
 		t.Fatalf("Execute() error = %v, want nil", err)
 	}
 
-	// Decision should still be recorded with round 0.
+	// No decision should be recorded when there are no rounds.
 	roundNumber := 0
-	decision, ok := state.Decision(agent.AgentRoleBearResearcher, agent.PhaseResearchDebate, &roundNumber)
-	if !ok {
-		t.Fatal("Decision() not found for bear_researcher with no rounds")
-	}
-	if decision.OutputText != "Bear case without rounds." {
-		t.Fatalf("decision output = %q, want %q", decision.OutputText, "Bear case without rounds.")
+	if _, ok := state.Decision(agent.AgentRoleBearResearcher, agent.PhaseResearchDebate, &roundNumber); ok {
+		t.Fatal("Decision() should not be recorded when no rounds exist")
 	}
 }
 
