@@ -108,12 +108,15 @@ func (c *Client) SetTimeout(timeout time.Duration) {
 	if c == nil {
 		return
 	}
+	if c.logger == nil {
+		c.logger = slog.Default()
+	}
 	if timeout <= 0 {
 		c.logger.Warn("alpaca: ignoring invalid timeout", slog.String("timeout", timeout.String()))
 		return
 	}
 	if c.httpClient == nil {
-		c.httpClient = &http.Client{}
+		c.httpClient = &http.Client{Timeout: defaultTimeout}
 	}
 
 	c.httpClient.Timeout = timeout
@@ -138,6 +141,7 @@ func (c *Client) do(ctx context.Context, method, requestPath string, params url.
 	if c == nil {
 		return nil, errors.New("alpaca: client is nil")
 	}
+	c.ensureDefaults()
 	if c.apiKey == "" {
 		return nil, errors.New("alpaca: api key is required")
 	}
@@ -201,11 +205,22 @@ func (c *Client) do(ctx context.Context, method, requestPath string, params url.
 		slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
 	)
 
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return nil, parseErrorResponse(resp.StatusCode, responseBody)
 	}
 
 	return responseBody, nil
+}
+
+func (c *Client) ensureDefaults() {
+	if c.logger == nil {
+		c.logger = slog.Default()
+	}
+	if c.httpClient == nil {
+		c.httpClient = &http.Client{
+			Timeout: defaultTimeout,
+		}
+	}
 }
 
 func marshalRequestBody(body any) (io.Reader, error) {

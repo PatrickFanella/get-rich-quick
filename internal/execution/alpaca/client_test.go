@@ -114,13 +114,16 @@ func TestClientPost_SendsJSONBody(t *testing.T) {
 		method      string
 		contentType string
 		body        map[string]any
+		decodeErr   error
 	}
 
 	requests := make(chan requestDetails, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var payload map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("Decode() error = %v", err)
+			requests <- requestDetails{decodeErr: err}
+			w.WriteHeader(http.StatusBadRequest)
+			return
 		}
 
 		requests <- requestDetails{
@@ -151,6 +154,9 @@ func TestClientPost_SendsJSONBody(t *testing.T) {
 
 	select {
 	case request := <-requests:
+		if request.decodeErr != nil {
+			t.Fatalf("Decode() error = %v", request.decodeErr)
+		}
 		if request.method != http.MethodPost {
 			t.Fatalf("request method = %s, want %s", request.method, http.MethodPost)
 		}
@@ -175,15 +181,18 @@ func TestClientDelete_SendsJSONBody(t *testing.T) {
 	t.Parallel()
 
 	type requestDetails struct {
-		method string
-		body   map[string]any
+		method    string
+		body      map[string]any
+		decodeErr error
 	}
 
 	requests := make(chan requestDetails, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		payload := make(map[string]any)
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("Decode() error = %v", err)
+			requests <- requestDetails{decodeErr: err}
+			w.WriteHeader(http.StatusBadRequest)
+			return
 		}
 
 		requests <- requestDetails{
@@ -210,6 +219,9 @@ func TestClientDelete_SendsJSONBody(t *testing.T) {
 
 	select {
 	case request := <-requests:
+		if request.decodeErr != nil {
+			t.Fatalf("Decode() error = %v", request.decodeErr)
+		}
 		if request.method != http.MethodDelete {
 			t.Fatalf("request method = %s, want %s", request.method, http.MethodDelete)
 		}
@@ -251,6 +263,71 @@ func TestClientGet_ParsesErrorResponse(t *testing.T) {
 	}
 	if apiErr.Message != "invalid credentials" {
 		t.Fatalf("Message = %q, want %q", apiErr.Message, "invalid credentials")
+	}
+}
+
+func TestClientGet_TreatsRedirectAsError(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "/v2/account")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer server.Close()
+
+	client := &Client{
+		apiKey:    "test-key",
+		apiSecret: "test-secret",
+		baseURL:   server.URL,
+		httpClient: &http.Client{
+			Timeout: defaultTimeout,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+		logger: discardLogger(),
+	}
+
+	_, err := client.Get(context.Background(), "/v2/account", nil)
+	if err == nil {
+		t.Fatal("Get() error = nil, want non-nil")
+	}
+
+	var apiErr *ErrorResponse
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("Get() error type = %T, want *ErrorResponse", err)
+	}
+	if apiErr.StatusCode() != http.StatusFound {
+		t.Fatalf("StatusCode() = %d, want %d", apiErr.StatusCode(), http.StatusFound)
+	}
+}
+
+func TestClientGet_InitializesDefaultHTTPClient(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer server.Close()
+
+	client := &Client{
+		apiKey:    "test-key",
+		apiSecret: "test-secret",
+		baseURL:   server.URL,
+	}
+
+	body, err := client.Get(context.Background(), "/v2/account", nil)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got := string(body); got != `{"status":"ok"}` {
+		t.Fatalf("Get() body = %q, want %q", got, `{"status":"ok"}`)
+	}
+	if client.httpClient == nil {
+		t.Fatal("httpClient = nil, want default client")
+	}
+	if client.httpClient.Timeout != defaultTimeout {
+		t.Fatalf("httpClient.Timeout = %s, want %s", client.httpClient.Timeout, defaultTimeout)
 	}
 }
 
