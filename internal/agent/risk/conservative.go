@@ -2,8 +2,6 @@ package risk
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"log/slog"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/agent"
@@ -66,54 +64,5 @@ func (c *ConservativeRisk) Phase() agent.Phase { return agent.PhaseRiskDebate }
 // contribution in the current debate round and records the decision for
 // persistence.
 func (c *ConservativeRisk) Execute(ctx context.Context, state *agent.PipelineState) error {
-	rounds := state.RiskDebate.Rounds
-
-	// Build a context map that includes the trading plan so the LLM can
-	// reference concrete position sizes, stop-losses, and take-profit levels.
-	tradingPlanJSON, err := json.Marshal(state.TradingPlan)
-	if err != nil {
-		prefix := fmt.Sprintf("%s (%s)", c.Role(), c.Phase())
-		return fmt.Errorf("%s: marshal trading plan: %w", prefix, err)
-	}
-	contextReports := map[agent.AgentRole]string{
-		agent.AgentRoleTrader: string(tradingPlanJSON),
-	}
-
-	content, usage, err := c.CallWithContext(
-		ctx,
-		ConservativeRiskSystemPrompt,
-		rounds,
-		contextReports,
-	)
-	if err != nil {
-		return err
-	}
-
-	// Store the contribution in the current (last) debate round and record
-	// the decision so the pipeline can persist it with LLM metadata.
-	if len(rounds) > 0 {
-		current := &state.RiskDebate.Rounds[len(rounds)-1]
-		if current.Contributions == nil {
-			current.Contributions = make(map[agent.AgentRole]string)
-		}
-		current.Contributions[agent.AgentRoleConservativeAnalyst] = content
-
-		roundNumber := current.Number
-		state.RecordDecision(
-			agent.AgentRoleConservativeAnalyst,
-			agent.PhaseRiskDebate,
-			&roundNumber,
-			content,
-			&agent.DecisionLLMResponse{
-				Provider: c.providerName,
-				Response: &llm.CompletionResponse{
-					Content: content,
-					Model:   c.Model(),
-					Usage:   usage,
-				},
-			},
-		)
-	}
-
-	return nil
+	return executeRiskDebate(ctx, state, c.BaseDebater, agent.AgentRoleConservativeAnalyst, ConservativeRiskSystemPrompt, c.providerName)
 }

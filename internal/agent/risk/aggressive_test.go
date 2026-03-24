@@ -5,26 +5,11 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
-	"sync/atomic"
 	"testing"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/agent"
 	"github.com/PatrickFanella/get-rich-quick/internal/llm"
 )
-
-// mockProvider is a test double for llm.Provider.
-type mockProvider struct {
-	response *llm.CompletionResponse
-	err      error
-	calls    atomic.Int32
-	lastReq  llm.CompletionRequest
-}
-
-func (m *mockProvider) Complete(_ context.Context, req llm.CompletionRequest) (*llm.CompletionResponse, error) {
-	m.calls.Add(1)
-	m.lastReq = req
-	return m.response, m.err
-}
 
 func TestNewAggressiveRiskNilLogger(t *testing.T) {
 	a := NewAggressiveRisk(nil, "openai", "model", nil)
