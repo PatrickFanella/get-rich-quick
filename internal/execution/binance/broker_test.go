@@ -59,7 +59,6 @@ func TestBrokerSubmitOrder_MapsSupportedOrderTypes(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -216,7 +215,6 @@ func TestBrokerGetOrderStatus_MapsBinanceStatuses(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -434,7 +432,6 @@ func TestBrokerGetAccountBalance_RejectsInvalidResponseFields(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
