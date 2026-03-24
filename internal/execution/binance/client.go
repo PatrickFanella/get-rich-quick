@@ -256,7 +256,7 @@ func (c *Client) buildRequestTarget(method, requestPath string, params url.Value
 		return "", nil, err
 	}
 
-	if method == http.MethodGet {
+	if signed || method == http.MethodGet {
 		requestURL, err := c.buildURL(requestPath, encodedParams)
 		return requestURL, nil, err
 	}
@@ -280,7 +280,8 @@ func (c *Client) encodeParams(params url.Values, signed bool) (string, error) {
 
 	prepared.Del("signature")
 	if prepared.Get("timestamp") == "" {
-		prepared.Set("timestamp", strconv.FormatInt(c.nowFunc()().UnixMilli(), 10))
+		now := c.nowFunc()
+		prepared.Set("timestamp", strconv.FormatInt(now().UnixMilli(), 10))
 	}
 	if prepared.Get("recvWindow") == "" && c.recvWindow > 0 {
 		prepared.Set("recvWindow", strconv.FormatInt(c.recvWindow.Milliseconds(), 10))

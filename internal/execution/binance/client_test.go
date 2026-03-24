@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 )
@@ -74,22 +73,18 @@ func TestClientSignedPost_AddsAuthDefaultsAndSignature(t *testing.T) {
 		path        string
 		contentType string
 		apiKey      string
-		body        url.Values
+		query       url.Values
+		handlerErr  string
 	}
 
 	requests := make(chan requestDetails, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		payload, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatalf("ReadAll() error = %v", err)
-		}
-
 		requests <- requestDetails{
 			method:      r.Method,
 			path:        r.URL.Path,
 			contentType: r.Header.Get("Content-Type"),
 			apiKey:      r.Header.Get(binanceAPIKeyHeader),
-			body:        mustParseQuery(t, string(payload)),
+			query:       r.URL.Query(),
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -118,40 +113,120 @@ func TestClientSignedPost_AddsAuthDefaultsAndSignature(t *testing.T) {
 
 	select {
 	case request := <-requests:
+		if request.handlerErr != "" {
+			t.Fatalf("handler error = %s", request.handlerErr)
+		}
 		if request.method != http.MethodPost {
 			t.Fatalf("request method = %s, want %s", request.method, http.MethodPost)
 		}
 		if request.path != "/api/v3/order" {
 			t.Fatalf("request path = %s, want %s", request.path, "/api/v3/order")
 		}
-		if request.contentType != "application/x-www-form-urlencoded" {
-			t.Fatalf("Content-Type = %q, want %q", request.contentType, "application/x-www-form-urlencoded")
+		if request.contentType != "" {
+			t.Fatalf("Content-Type = %q, want empty", request.contentType)
 		}
 		if request.apiKey != "test-key" {
 			t.Fatalf("%s = %q, want %q", binanceAPIKeyHeader, request.apiKey, "test-key")
 		}
-		if request.body.Get("symbol") != "BTCUSDT" {
-			t.Fatalf("symbol = %q, want %q", request.body.Get("symbol"), "BTCUSDT")
+		if request.query.Get("symbol") != "BTCUSDT" {
+			t.Fatalf("symbol = %q, want %q", request.query.Get("symbol"), "BTCUSDT")
 		}
-		if request.body.Get("side") != "BUY" {
-			t.Fatalf("side = %q, want %q", request.body.Get("side"), "BUY")
+		if request.query.Get("side") != "BUY" {
+			t.Fatalf("side = %q, want %q", request.query.Get("side"), "BUY")
 		}
-		if request.body.Get("type") != "MARKET" {
-			t.Fatalf("type = %q, want %q", request.body.Get("type"), "MARKET")
+		if request.query.Get("type") != "MARKET" {
+			t.Fatalf("type = %q, want %q", request.query.Get("type"), "MARKET")
 		}
-		if request.body.Get("timestamp") != "1700000000123" {
-			t.Fatalf("timestamp = %q, want %q", request.body.Get("timestamp"), "1700000000123")
+		if request.query.Get("timestamp") != "1700000000123" {
+			t.Fatalf("timestamp = %q, want %q", request.query.Get("timestamp"), "1700000000123")
 		}
-		if request.body.Get("recvWindow") != "10000" {
-			t.Fatalf("recvWindow = %q, want %q", request.body.Get("recvWindow"), "10000")
+		if request.query.Get("recvWindow") != "10000" {
+			t.Fatalf("recvWindow = %q, want %q", request.query.Get("recvWindow"), "10000")
 		}
 
-		unsigned := cloneValues(request.body)
+		unsigned := cloneValues(request.query)
 		unsigned.Del("signature")
 
 		wantSignature := computeSignature("test-secret", unsigned.Encode())
-		if request.body.Get("signature") != wantSignature {
-			t.Fatalf("signature = %q, want %q", request.body.Get("signature"), wantSignature)
+		if request.query.Get("signature") != wantSignature {
+			t.Fatalf("signature = %q, want %q", request.query.Get("signature"), wantSignature)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("request details were not captured")
+	}
+}
+
+func TestClientSignedGet_AddsAuthDefaultsAndSignature(t *testing.T) {
+	t.Parallel()
+
+	type requestDetails struct {
+		method     string
+		path       string
+		apiKey     string
+		query      url.Values
+		handlerErr string
+	}
+
+	requests := make(chan requestDetails, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests <- requestDetails{
+			method: r.Method,
+			path:   r.URL.Path,
+			apiKey: r.Header.Get(binanceAPIKeyHeader),
+			query:  r.URL.Query(),
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"balances":[]}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", "test-secret", true, discardLogger())
+	client.SetBaseURL(server.URL)
+	client.now = func() time.Time {
+		return time.UnixMilli(1700000000456)
+	}
+
+	body, err := client.SignedGet(context.Background(), "/api/v3/account", url.Values{
+		"omitZeroBalances": []string{"true"},
+	})
+	if err != nil {
+		t.Fatalf("SignedGet() error = %v", err)
+	}
+	if got := string(body); got != `{"balances":[]}` {
+		t.Fatalf("SignedGet() body = %q, want %q", got, `{"balances":[]}`)
+	}
+
+	select {
+	case request := <-requests:
+		if request.handlerErr != "" {
+			t.Fatalf("handler error = %s", request.handlerErr)
+		}
+		if request.method != http.MethodGet {
+			t.Fatalf("request method = %s, want %s", request.method, http.MethodGet)
+		}
+		if request.path != "/api/v3/account" {
+			t.Fatalf("request path = %s, want %s", request.path, "/api/v3/account")
+		}
+		if request.apiKey != "test-key" {
+			t.Fatalf("%s = %q, want %q", binanceAPIKeyHeader, request.apiKey, "test-key")
+		}
+		if request.query.Get("omitZeroBalances") != "true" {
+			t.Fatalf("omitZeroBalances = %q, want %q", request.query.Get("omitZeroBalances"), "true")
+		}
+		if request.query.Get("timestamp") != "1700000000456" {
+			t.Fatalf("timestamp = %q, want %q", request.query.Get("timestamp"), "1700000000456")
+		}
+		if request.query.Get("recvWindow") != "5000" {
+			t.Fatalf("recvWindow = %q, want %q", request.query.Get("recvWindow"), "5000")
+		}
+
+		unsigned := cloneValues(request.query)
+		unsigned.Del("signature")
+
+		wantSignature := computeSignature("test-secret", unsigned.Encode())
+		if request.query.Get("signature") != wantSignature {
+			t.Fatalf("signature = %q, want %q", request.query.Get("signature"), wantSignature)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("request details were not captured")
@@ -170,17 +245,6 @@ func TestClientSignedGet_RejectsMissingCredentials(t *testing.T) {
 	if err.Error() != "binance: api key is required" {
 		t.Fatalf("SignedGet() error = %v, want api key validation", err)
 	}
-}
-
-func mustParseQuery(t *testing.T, raw string) url.Values {
-	t.Helper()
-
-	values, err := url.ParseQuery(strings.TrimSpace(raw))
-	if err != nil {
-		t.Fatalf("ParseQuery() error = %v", err)
-	}
-
-	return values
 }
 
 func computeSignature(secret, payload string) string {
