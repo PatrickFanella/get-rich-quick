@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"sync"
@@ -301,7 +302,7 @@ func TestSchedulerStartIsIdempotentWhenAlreadyStarted(t *testing.T) {
 		switch {
 		case err == nil:
 			successCount++
-		case err.Error() == "scheduler: already started":
+		case errors.Is(err, ErrAlreadyStarted):
 			alreadyStartedCount++
 		default:
 			t.Fatalf("unexpected Start() error: %v", err)

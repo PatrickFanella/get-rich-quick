@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -19,6 +20,8 @@ import (
 
 const defaultStrategyPageSize = 100
 const defaultJobTimeout = 10 * time.Minute
+
+var ErrAlreadyStarted = errors.New("scheduler: already started")
 
 type pipelineExecutor interface {
 	Execute(ctx context.Context, strategyID uuid.UUID, ticker string) (*agent.PipelineState, error)
@@ -98,7 +101,7 @@ func (s *Scheduler) Start() error {
 	defer s.mu.Unlock()
 	if s.cron != nil {
 		cancel()
-		return fmt.Errorf("scheduler: already started")
+		return ErrAlreadyStarted
 	}
 
 	s.cron = engine
@@ -116,12 +119,12 @@ func (s *Scheduler) Start() error {
 			s.runStrategy(strategy)
 		})
 		if err != nil {
-			cancel := s.cancel
+			cancelFunc := s.cancel
 			s.cron = nil
 			s.ctx = nil
 			s.cancel = nil
-			if cancel != nil {
-				cancel()
+			if cancelFunc != nil {
+				cancelFunc()
 			}
 			return fmt.Errorf("scheduler: register strategy %s schedule %q: %w", strategy.ID, spec, err)
 		}
