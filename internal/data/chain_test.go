@@ -25,7 +25,7 @@ type stubProvider struct {
 	fundErr   error
 	news      []data.NewsArticle
 	newsErr   error
-	sentiment data.SocialSentiment
+	sentiment []data.SocialSentiment
 	sentErr   error
 }
 
@@ -41,7 +41,7 @@ func (s *stubProvider) GetNews(_ context.Context, _ string, _, _ time.Time) ([]d
 	return s.news, s.newsErr
 }
 
-func (s *stubProvider) GetSocialSentiment(_ context.Context, _ string) (data.SocialSentiment, error) {
+func (s *stubProvider) GetSocialSentiment(_ context.Context, _ string, _, _ time.Time) ([]data.SocialSentiment, error) {
 	return s.sentiment, s.sentErr
 }
 
@@ -156,18 +156,18 @@ func TestProviderChainGetNewsNoProviders(t *testing.T) {
 }
 
 func TestProviderChainGetSocialSentimentFallback(t *testing.T) {
-	want := data.SocialSentiment{Ticker: "BTC", Score: 0.8}
+	want := []data.SocialSentiment{{Ticker: "BTC", Score: 0.8, MeasuredAt: time.Now()}}
 	chain := data.NewProviderChain(
 		discardLogger(),
 		&stubProvider{sentErr: errProviderFailed},
 		&stubProvider{sentiment: want},
 	)
 
-	got, err := chain.GetSocialSentiment(context.Background(), "BTC")
+	got, err := chain.GetSocialSentiment(context.Background(), "BTC", time.Now().Add(-time.Hour), time.Now())
 	if err != nil {
 		t.Fatalf("GetSocialSentiment() error = %v", err)
 	}
-	if got.Ticker != want.Ticker || got.Score != want.Score {
+	if len(got) != len(want) || got[0].Ticker != want[0].Ticker || got[0].Score != want[0].Score {
 		t.Fatalf("GetSocialSentiment() = %v, want %v", got, want)
 	}
 }
@@ -175,7 +175,7 @@ func TestProviderChainGetSocialSentimentFallback(t *testing.T) {
 func TestProviderChainGetSocialSentimentNoProviders(t *testing.T) {
 	chain := data.NewProviderChain(discardLogger())
 
-	_, err := chain.GetSocialSentiment(context.Background(), "BTC")
+	_, err := chain.GetSocialSentiment(context.Background(), "BTC", time.Now().Add(-time.Hour), time.Now())
 	if !errors.Is(err, data.ErrNoProviders) {
 		t.Fatalf("GetSocialSentiment() error = %v, want ErrNoProviders", err)
 	}

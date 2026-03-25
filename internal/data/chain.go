@@ -79,8 +79,8 @@ func (c *ProviderChain) GetNews(ctx context.Context, ticker string, from, to tim
 }
 
 // GetSocialSentiment iterates providers and returns the first successful sentiment result.
-func (c *ProviderChain) GetSocialSentiment(ctx context.Context, ticker string) (SocialSentiment, error) {
-	return tryChain(c, "GetSocialSentiment", ticker, func(p DataProvider) (SocialSentiment, error) {
-		return p.GetSocialSentiment(ctx, ticker)
+func (c *ProviderChain) GetSocialSentiment(ctx context.Context, ticker string, from, to time.Time) ([]SocialSentiment, error) {
+	return tryChain(c, "GetSocialSentiment", ticker, func(p DataProvider) ([]SocialSentiment, error) {
+		return p.GetSocialSentiment(ctx, ticker, from, to)
 	})
 }
