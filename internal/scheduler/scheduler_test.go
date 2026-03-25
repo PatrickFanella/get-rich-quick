@@ -18,6 +18,8 @@ import (
 	"github.com/PatrickFanella/get-rich-quick/internal/risk"
 )
 
+const noJobTimeout time.Duration = 0
+
 type mockStrategyRepo struct {
 	mu         sync.Mutex
 	strategies []domain.Strategy
@@ -329,7 +331,7 @@ func TestSchedulerStopCancelsRunningJobs(t *testing.T) {
 	}
 	s := NewScheduler(repo, &mockPipeline{}, riskEngine, testLogger())
 	s.newCron = func() cronEngine { return fakeCron }
-	s.jobTimeout = 0
+	s.jobTimeout = noJobTimeout
 
 	if err := s.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
