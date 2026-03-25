@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -131,6 +132,50 @@ func TestInjector_NoMemoriesLeavesMessagesUnchanged(t *testing.T) {
 	}
 }
 
+func TestInjector_GetMemoryContext_BlankTickerSkipsSearch(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockInjectorMemoryRepo{
+		results: []domain.AgentMemory{
+			{
+				AgentRole:      domain.AgentRoleTrader,
+				Situation:      "should not be used",
+				Recommendation: "should not be used",
+			},
+		},
+	}
+	injector := NewInjector(repo, discardLogger())
+
+	memoryContext, err := injector.GetMemoryContext(context.Background(), domain.AgentRoleTrader, "   \t  ", 2)
+	if err != nil {
+		t.Fatalf("GetMemoryContext() error = %v, want nil", err)
+	}
+	if memoryContext != "" {
+		t.Fatalf("GetMemoryContext() = %q, want empty string", memoryContext)
+	}
+	if repo.searchCalls != 0 {
+		t.Fatalf("Search() calls = %d, want 0 for blank ticker", repo.searchCalls)
+	}
+}
+
+func TestInjector_GetMemoryContext_NonPositiveLimitSkipsSearch(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockInjectorMemoryRepo{}
+	injector := NewInjector(repo, discardLogger())
+
+	memoryContext, err := injector.GetMemoryContext(context.Background(), domain.AgentRoleTrader, "AAPL", 0)
+	if err != nil {
+		t.Fatalf("GetMemoryContext() error = %v, want nil", err)
+	}
+	if memoryContext != "" {
+		t.Fatalf("GetMemoryContext() = %q, want empty string", memoryContext)
+	}
+	if repo.searchCalls != 0 {
+		t.Fatalf("Search() calls = %d, want 0 for non-positive limit", repo.searchCalls)
+	}
+}
+
 func TestInjector_GetMemoryContextReturnsSearchError(t *testing.T) {
 	t.Parallel()
 
@@ -140,5 +185,27 @@ func TestInjector_GetMemoryContextReturnsSearchError(t *testing.T) {
 	_, err := injector.GetMemoryContext(context.Background(), domain.AgentRoleTrader, "TSLA", 1)
 	if err == nil {
 		t.Fatal("GetMemoryContext() error = nil, want search error")
+	}
+	if !strings.Contains(err.Error(), `role trader ticker "TSLA" limit 1`) {
+		t.Fatalf("GetMemoryContext() error = %q, want wrapped context", err)
+	}
+}
+
+func TestInjector_InjectIntoMessages_NoSystemMessageLeavesMessagesUnchanged(t *testing.T) {
+	t.Parallel()
+
+	injector := NewInjector(&mockInjectorMemoryRepo{}, discardLogger())
+	messages := []llm.Message{
+		{Role: "user", Content: "Analyze NVDA."},
+		{Role: "assistant", Content: "Need more context."},
+	}
+
+	got := injector.InjectIntoMessages(messages, "## Relevant Past Experience\n- Situation: Example, Lesson: Example")
+	if !reflect.DeepEqual(got, messages) {
+		t.Fatalf("InjectIntoMessages() = %#v, want unchanged %#v", got, messages)
+	}
+
+	if len(got) > 0 && &got[0] != &messages[0] {
+		t.Fatal("InjectIntoMessages() copied messages without a system message")
 	}
 }

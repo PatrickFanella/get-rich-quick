@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -32,11 +33,16 @@ func NewInjector(memoryRepo repository.MemoryRepository, logger *slog.Logger) *I
 // GetMemoryContext retrieves relevant memories for the given role and ticker and
 // formats them for inclusion in an agent prompt.
 func (i *Injector) GetMemoryContext(ctx context.Context, role domain.AgentRole, ticker string, limit int) (string, error) {
+	ticker = strings.TrimSpace(ticker)
+	if ticker == "" || limit <= 0 {
+		return "", nil
+	}
+
 	memories, err := i.memoryRepo.Search(ctx, ticker, repository.MemorySearchFilter{
 		AgentRole: role,
 	}, limit, 0)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("search memories for role %s ticker %q limit %d: %w", role, ticker, limit, err)
 	}
 
 	if len(memories) == 0 {
@@ -62,18 +68,25 @@ func (i *Injector) InjectIntoMessages(messages []llm.Message, memoryContext stri
 		return messages
 	}
 
-	out := append([]llm.Message(nil), messages...)
-	for idx := range out {
-		if out[idx].Role != "system" {
+	systemIdx := -1
+	for idx := range messages {
+		if messages[idx].Role != "system" {
 			continue
 		}
+		systemIdx = idx
+		break
+	}
 
-		if out[idx].Content == "" {
-			out[idx].Content = memoryContext
-		} else {
-			out[idx].Content += "\n\n" + memoryContext
-		}
-		return out
+	if systemIdx == -1 {
+		i.logger.Warn("memory injector: no system message found; skipping memory injection")
+		return messages
+	}
+
+	out := append([]llm.Message(nil), messages...)
+	if out[systemIdx].Content == "" {
+		out[systemIdx].Content = memoryContext
+	} else {
+		out[systemIdx].Content += "\n\n" + memoryContext
 	}
 
 	return out
