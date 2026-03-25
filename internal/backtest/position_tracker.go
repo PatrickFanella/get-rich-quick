@@ -156,6 +156,10 @@ func (t *PositionTracker) UpdateMarketPrice(ticker string, price float64) error 
 
 // RecordEquity appends and returns an equity-curve point using current mark prices.
 func (t *PositionTracker) RecordEquity(timestamp time.Time) EquityPoint {
+	if t == nil {
+		return EquityPoint{}
+	}
+
 	point := EquityPoint{
 		Timestamp:   timestamp,
 		Cash:        t.cash,
@@ -164,16 +168,12 @@ func (t *PositionTracker) RecordEquity(timestamp time.Time) EquityPoint {
 
 	for _, position := range t.positions {
 		price := trackerCurrentPrice(position)
-		point.MarketValue += price * position.Quantity
+		marketValue := trackerMarketValue(position, price)
+		point.MarketValue += marketValue
 		point.UnrealizedPnL += trackerUnrealizedPnL(position, price)
-		if position.Side == domain.PositionSideLong {
-			point.Equity += price * position.Quantity
-			continue
-		}
-		point.Equity -= price * position.Quantity
 	}
 
-	point.Equity += t.cash
+	point.Equity = t.cash + point.MarketValue
 	point.TotalPnL = point.Equity - t.initialCash
 	t.equityCurve = append(t.equityCurve, point)
 
@@ -203,7 +203,7 @@ func (t *PositionTracker) Positions() []TrackedPosition {
 			AvgEntry:      position.AvgEntry,
 			CostBasis:     position.AvgEntry * position.Quantity,
 			CurrentPrice:  price,
-			MarketValue:   price * position.Quantity,
+			MarketValue:   trackerMarketValue(position, price),
 			UnrealizedPnL: trackerUnrealizedPnL(position, price),
 			RealizedPnL:   position.RealizedPnL,
 			OpenedAt:      position.OpenedAt,
@@ -250,7 +250,7 @@ func newTrackedPosition(ticker string, side domain.PositionSide, quantity float6
 func normalizeTrackerTicker(ticker string) (string, error) {
 	normalized := strings.ToUpper(strings.TrimSpace(ticker))
 	if normalized == "" {
-		return "", errors.New("backtest: trade ticker is required")
+		return "", errors.New("backtest: ticker is required")
 	}
 	return normalized, nil
 }
@@ -281,6 +281,13 @@ func trackerCurrentPrice(position *domain.Position) float64 {
 		return *position.CurrentPrice
 	}
 	return position.AvgEntry
+}
+
+func trackerMarketValue(position *domain.Position, price float64) float64 {
+	if position.Side == domain.PositionSideShort {
+		return -price * position.Quantity
+	}
+	return price * position.Quantity
 }
 
 func trackerUnrealizedPnL(position *domain.Position, price float64) float64 {

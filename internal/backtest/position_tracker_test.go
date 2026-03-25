@@ -172,12 +172,45 @@ func TestPositionTrackerHandlesReversalAndAllocatesFees(t *testing.T) {
 	assertFloatEqual(t, position.Quantity, 1, "position.Quantity")
 	assertFloatEqual(t, position.AvgEntry, 109, "position.AvgEntry")
 	assertFloatEqual(t, position.RealizedPnL, 16, "position.RealizedPnL")
+	assertFloatEqual(t, position.MarketValue, -105, "position.MarketValue")
 	assertFloatEqual(t, position.UnrealizedPnL, 4, "position.UnrealizedPnL")
 	assertFloatEqual(t, point.Cash, 1125, "point.Cash")
+	assertFloatEqual(t, point.MarketValue, -105, "point.MarketValue")
 	assertFloatEqual(t, point.RealizedPnL, 16, "point.RealizedPnL")
 	assertFloatEqual(t, point.UnrealizedPnL, 4, "point.UnrealizedPnL")
 	assertFloatEqual(t, point.Equity, 1020, "point.Equity")
 	assertFloatEqual(t, point.TotalPnL, 20, "point.TotalPnL")
+}
+
+func TestPositionTrackerRecordEquityNilReceiverReturnsZeroPoint(t *testing.T) {
+	var tracker *PositionTracker
+
+	point := tracker.RecordEquity(time.Date(2026, 3, 1, 9, 30, 0, 0, time.UTC))
+
+	assertFloatEqual(t, point.Cash, 0, "point.Cash")
+	assertFloatEqual(t, point.MarketValue, 0, "point.MarketValue")
+	assertFloatEqual(t, point.Equity, 0, "point.Equity")
+	assertFloatEqual(t, point.RealizedPnL, 0, "point.RealizedPnL")
+	assertFloatEqual(t, point.UnrealizedPnL, 0, "point.UnrealizedPnL")
+	assertFloatEqual(t, point.TotalPnL, 0, "point.TotalPnL")
+	if !point.Timestamp.IsZero() {
+		t.Fatalf("point.Timestamp = %s, want zero time", point.Timestamp)
+	}
+}
+
+func TestPositionTrackerUpdateMarketPriceRejectsBlankTicker(t *testing.T) {
+	tracker, err := NewPositionTracker(1000)
+	if err != nil {
+		t.Fatalf("NewPositionTracker() error = %v", err)
+	}
+
+	err = tracker.UpdateMarketPrice("   ", 100)
+	if err == nil {
+		t.Fatal("UpdateMarketPrice() error = nil, want non-nil")
+	}
+	if err.Error() != "backtest: ticker is required" {
+		t.Fatalf("UpdateMarketPrice() error = %q, want %q", err.Error(), "backtest: ticker is required")
+	}
 }
 
 func assertFloatEqual(t *testing.T, got float64, want float64, label string) {
