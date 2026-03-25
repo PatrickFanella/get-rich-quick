@@ -5,10 +5,12 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/robfig/cron/v3"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/agent"
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
@@ -68,25 +70,19 @@ type pipelineCall struct {
 }
 
 type mockPipeline struct {
-	mu      sync.Mutex
-	calls   []pipelineCall
-	callsCh chan pipelineCall
-	err     error
+	mu    sync.Mutex
+	calls []pipelineCall
+	err   error
+	ctxs  []context.Context
 }
 
-func (m *mockPipeline) Execute(_ context.Context, strategyID uuid.UUID, ticker string) (*agent.PipelineState, error) {
+func (m *mockPipeline) Execute(ctx context.Context, strategyID uuid.UUID, ticker string) (*agent.PipelineState, error) {
 	call := pipelineCall{strategyID: strategyID, ticker: ticker}
 
 	m.mu.Lock()
 	m.calls = append(m.calls, call)
+	m.ctxs = append(m.ctxs, ctx)
 	m.mu.Unlock()
-
-	if m.callsCh != nil {
-		select {
-		case m.callsCh <- call:
-		default:
-		}
-	}
 
 	return &agent.PipelineState{}, m.err
 }
@@ -97,9 +93,21 @@ func (m *mockPipeline) callCount() int {
 	return len(m.calls)
 }
 
+func (m *mockPipeline) firstContext() (context.Context, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.ctxs) == 0 {
+		return nil, false
+	}
+	return m.ctxs[0], true
+}
+
 type mockRiskEngine struct {
 	killSwitchActive bool
 	killSwitchErr    error
+	blockKillSwitch  bool
+	enteredCh        chan struct{}
+	enteredOnce      sync.Once
 }
 
 func (m *mockRiskEngine) CheckPreTrade(context.Context, *domain.Order, risk.Portfolio) (bool, string, error) {
@@ -118,7 +126,16 @@ func (m *mockRiskEngine) TripCircuitBreaker(context.Context, string) error { ret
 
 func (m *mockRiskEngine) ResetCircuitBreaker(context.Context) error { return nil }
 
-func (m *mockRiskEngine) IsKillSwitchActive(context.Context) (bool, error) {
+func (m *mockRiskEngine) IsKillSwitchActive(ctx context.Context) (bool, error) {
+	m.enteredOnce.Do(func() {
+		if m.enteredCh != nil {
+			close(m.enteredCh)
+		}
+	})
+	if m.blockKillSwitch {
+		<-ctx.Done()
+		return false, ctx.Err()
+	}
 	return m.killSwitchActive, m.killSwitchErr
 }
 
@@ -127,6 +144,49 @@ func (m *mockRiskEngine) ActivateKillSwitch(context.Context, string) error { ret
 func (m *mockRiskEngine) DeactivateKillSwitch(context.Context) error { return nil }
 
 func (m *mockRiskEngine) UpdateMetrics(context.Context, float64, float64, int) error { return nil }
+
+type fakeCronEngine struct {
+	mu      sync.Mutex
+	jobs    []func()
+	started atomic.Bool
+	wg      sync.WaitGroup
+}
+
+func (f *fakeCronEngine) AddFunc(_ string, cmd func()) (cron.EntryID, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.jobs = append(f.jobs, cmd)
+	return cron.EntryID(len(f.jobs)), nil
+}
+
+func (f *fakeCronEngine) Start() {
+	f.started.Store(true)
+}
+
+func (f *fakeCronEngine) Stop() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		f.wg.Wait()
+		cancel()
+	}()
+	return ctx
+}
+
+func (f *fakeCronEngine) Run(index int) {
+	f.mu.Lock()
+	job := f.jobs[index]
+	f.mu.Unlock()
+
+	f.wg.Add(1)
+	defer f.wg.Done()
+	job()
+}
+
+func (f *fakeCronEngine) jobCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.jobs)
+}
 
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -140,13 +200,15 @@ func TestSchedulerStartTriggersPipelineExecution(t *testing.T) {
 				ID:           strategyID,
 				Ticker:       "BTCUSD",
 				MarketType:   domain.MarketTypeCrypto,
-				ScheduleCron: "@every 1s",
+				ScheduleCron: "@every 10s",
 				IsActive:     true,
 			},
 		},
 	}
-	pipeline := &mockPipeline{callsCh: make(chan pipelineCall, 1)}
+	fakeCron := &fakeCronEngine{}
+	pipeline := &mockPipeline{}
 	s := NewScheduler(repo, pipeline, &mockRiskEngine{}, testLogger())
+	s.newCron = func() cronEngine { return fakeCron }
 
 	if err := s.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -160,17 +222,31 @@ func TestSchedulerStartTriggersPipelineExecution(t *testing.T) {
 	if filter.IsActive == nil || !*filter.IsActive {
 		t.Fatalf("expected active strategy filter, got %+v", filter)
 	}
+	if !fakeCron.started.Load() {
+		t.Fatal("expected cron engine to be started")
+	}
+	if got := fakeCron.jobCount(); got != 1 {
+		t.Fatalf("registered jobs = %d, want 1", got)
+	}
 
-	select {
-	case call := <-pipeline.callsCh:
-		if call.strategyID != strategyID {
-			t.Fatalf("pipeline strategyID = %s, want %s", call.strategyID, strategyID)
-		}
-		if call.ticker != "BTCUSD" {
-			t.Fatalf("pipeline ticker = %q, want %q", call.ticker, "BTCUSD")
-		}
-	case <-time.After(2500 * time.Millisecond):
-		t.Fatal("timed out waiting for scheduled pipeline execution")
+	fakeCron.Run(0)
+
+	if got := pipeline.callCount(); got != 1 {
+		t.Fatalf("pipeline calls = %d, want 1", got)
+	}
+	call := pipeline.calls[0]
+	if call.strategyID != strategyID {
+		t.Fatalf("pipeline strategyID = %s, want %s", call.strategyID, strategyID)
+	}
+	if call.ticker != "BTCUSD" {
+		t.Fatalf("pipeline ticker = %q, want %q", call.ticker, "BTCUSD")
+	}
+	ctx, ok := pipeline.firstContext()
+	if !ok {
+		t.Fatal("expected pipeline context to be recorded")
+	}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		t.Fatal("expected pipeline context to carry a deadline")
 	}
 }
 
@@ -186,6 +262,107 @@ func TestSchedulerRunStrategySkipsWhenKillSwitchActive(t *testing.T) {
 
 	if got := pipeline.callCount(); got != 0 {
 		t.Fatalf("pipeline calls = %d, want 0", got)
+	}
+}
+
+func TestSchedulerStartIsIdempotentWhenAlreadyStarted(t *testing.T) {
+	repo := &mockStrategyRepo{
+		strategies: []domain.Strategy{
+			{
+				ID:           uuid.New(),
+				Ticker:       "BTCUSD",
+				MarketType:   domain.MarketTypeCrypto,
+				ScheduleCron: "@every 10s",
+				IsActive:     true,
+			},
+		},
+	}
+	s := NewScheduler(repo, &mockPipeline{}, &mockRiskEngine{}, testLogger())
+	s.newCron = func() cronEngine { return &fakeCronEngine{} }
+
+	var wg sync.WaitGroup
+	results := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results <- s.Start()
+		}()
+	}
+	wg.Wait()
+	close(results)
+	defer s.Stop()
+
+	var successCount, alreadyStartedCount int
+	for err := range results {
+		switch {
+		case err == nil:
+			successCount++
+		case err.Error() == "scheduler: already started":
+			alreadyStartedCount++
+		default:
+			t.Fatalf("unexpected Start() error: %v", err)
+		}
+	}
+
+	if successCount != 1 || alreadyStartedCount != 1 {
+		t.Fatalf("successCount=%d alreadyStartedCount=%d, want 1 and 1", successCount, alreadyStartedCount)
+	}
+}
+
+func TestSchedulerStopCancelsRunningJobs(t *testing.T) {
+	repo := &mockStrategyRepo{
+		strategies: []domain.Strategy{
+			{
+				ID:           uuid.New(),
+				Ticker:       "BTCUSD",
+				MarketType:   domain.MarketTypeCrypto,
+				ScheduleCron: "@every 10s",
+				IsActive:     true,
+			},
+		},
+	}
+	fakeCron := &fakeCronEngine{}
+	riskEngine := &mockRiskEngine{
+		blockKillSwitch: true,
+		enteredCh:       make(chan struct{}),
+	}
+	s := NewScheduler(repo, &mockPipeline{}, riskEngine, testLogger())
+	s.newCron = func() cronEngine { return fakeCron }
+	s.jobTimeout = 0
+
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		fakeCron.Run(0)
+		close(done)
+	}()
+
+	select {
+	case <-riskEngine.enteredCh:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for job to start")
+	}
+
+	stopDone := make(chan struct{})
+	go func() {
+		s.Stop()
+		close(stopDone)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for running job to stop")
+	}
+
+	select {
+	case <-stopDone:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for Stop() to return")
 	}
 }
 
