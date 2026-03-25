@@ -217,12 +217,6 @@ func (s *DataService) DownloadHistoricalOHLCV(
 	if toUTC.Before(fromUTC) {
 		return nil, fmt.Errorf("data: invalid historical range %s > %s", fromUTC, toUTC)
 	}
-// GetSocialSentiment returns social sentiment snapshots using the market-type
-// chain and caches results by query window.
-func (s *DataService) GetSocialSentiment(ctx context.Context, marketType domain.MarketType, ticker string, from, to time.Time) ([]SocialSentiment, error) {
-	fromUTC := from.UTC()
-	toUTC := to.UTC()
-
 	providerName, chain, err := s.resolveChain(marketType)
 	if err != nil {
 		return nil, err
@@ -322,6 +316,19 @@ func (s *DataService) ListHistoricalOHLCV(
 	}
 
 	return result, nil
+}
+
+// GetSocialSentiment returns social sentiment snapshots using the market-type
+// chain and caches results by query window.
+func (s *DataService) GetSocialSentiment(ctx context.Context, marketType domain.MarketType, ticker string, from, to time.Time) ([]SocialSentiment, error) {
+	fromUTC := from.UTC()
+	toUTC := to.UTC()
+
+	providerName, chain, err := s.resolveChain(marketType)
+	if err != nil {
+		return nil, err
+	}
+
 	key := repository.MarketDataCacheKey{
 		Ticker:    ticker,
 		Provider:  providerName,

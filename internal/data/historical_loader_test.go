@@ -66,8 +66,8 @@ func (s *historicalStubProvider) GetNews(context.Context, string, time.Time, tim
 	return nil, ErrNotImplemented
 }
 
-func (s *historicalStubProvider) GetSocialSentiment(context.Context, string) (SocialSentiment, error) {
-	return SocialSentiment{}, ErrNotImplemented
+func (s *historicalStubProvider) GetSocialSentiment(context.Context, string, time.Time, time.Time) ([]SocialSentiment, error) {
+	return nil, ErrNotImplemented
 }
 
 type fakeHistoricalOHLCVRepo struct {
