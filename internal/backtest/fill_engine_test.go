@@ -227,7 +227,7 @@ func TestSimulateFill_ZeroQuantityReturnsError(t *testing.T) {
 func TestSimulateFill_ZeroCloseReturnsError(t *testing.T) {
 	t.Parallel()
 	eng, _ := NewFillEngine(FillConfig{Slippage: FixedSlippage{}})
-	order := &domain.Order{Quantity: 10, OrderType: domain.OrderTypeMarket}
+	order := &domain.Order{Quantity: 10, OrderType: domain.OrderTypeMarket, Side: domain.OrderSideBuy}
 	_, err := eng.SimulateFill(order, testBar(0, 0, 0, 1000))
 	if !errors.Is(err, ErrInvalidBar) {
 		t.Fatalf("err = %v, want %v", err, ErrInvalidBar)
@@ -237,10 +237,30 @@ func TestSimulateFill_ZeroCloseReturnsError(t *testing.T) {
 func TestSimulateFill_UnsupportedOrderType(t *testing.T) {
 	t.Parallel()
 	eng, _ := NewFillEngine(FillConfig{Slippage: FixedSlippage{}})
-	order := &domain.Order{Quantity: 10, OrderType: domain.OrderTypeStop}
+	order := &domain.Order{Quantity: 10, OrderType: domain.OrderTypeStop, Side: domain.OrderSideBuy}
 	_, err := eng.SimulateFill(order, testBar(100, 105, 95, 1000))
 	if !errors.Is(err, ErrUnsupportedOrderType) {
 		t.Fatalf("err = %v, want %v", err, ErrUnsupportedOrderType)
+	}
+}
+
+func TestSimulateFill_InvalidSideReturnsError(t *testing.T) {
+	t.Parallel()
+	eng, _ := NewFillEngine(FillConfig{Slippage: FixedSlippage{}})
+	order := &domain.Order{Quantity: 10, OrderType: domain.OrderTypeMarket, Side: "invalid"}
+	_, err := eng.SimulateFill(order, testBar(100, 105, 95, 1000))
+	if !errors.Is(err, ErrInvalidSide) {
+		t.Fatalf("err = %v, want %v", err, ErrInvalidSide)
+	}
+}
+
+func TestSimulateFill_EmptySideReturnsError(t *testing.T) {
+	t.Parallel()
+	eng, _ := NewFillEngine(FillConfig{Slippage: FixedSlippage{}})
+	order := &domain.Order{Quantity: 10, OrderType: domain.OrderTypeMarket}
+	_, err := eng.SimulateFill(order, testBar(100, 105, 95, 1000))
+	if !errors.Is(err, ErrInvalidSide) {
+		t.Fatalf("err = %v, want %v", err, ErrInvalidSide)
 	}
 }
 
@@ -761,4 +781,75 @@ func TestSimulateFill_IntegrationBuyMarketWithAllFeatures(t *testing.T) {
 	floatClose(t, res.Commission, 2.0, 1e-9)
 	// exchangeFee = 104.052 * 100 * 0.0003 = 3.12156
 	floatClose(t, res.ExchangeFee, expectedPrice*100*0.0003, 1e-6)
+}
+
+// ---------- Spread-aware limit marketability tests ----------
+
+func TestSimulateFill_LimitBuyWithSpreadNoFillWhenAskAboveLimit(t *testing.T) {
+	t.Parallel()
+	// Bar low = 99, but with a 200 bps spread the ask at low = 99 * (1 + 100/10000) = 99.99
+	// A buy limit at 99.98 should NOT fill because the effective ask never drops below the limit.
+	eng, _ := NewFillEngine(FillConfig{
+		Slippage: ProportionalSlippage{BasisPoints: 0},
+		Spread:   FixedSpread{SpreadBps: 200},
+	})
+	bar := testBar(100, 105, 99, 10000) // low = 99
+	order := &domain.Order{
+		Side:       domain.OrderSideBuy,
+		OrderType:  domain.OrderTypeLimit,
+		Quantity:   10,
+		LimitPrice: fp(99.98), // below ask at low (99.99)
+	}
+
+	_, err := eng.SimulateFill(order, bar)
+	if !errors.Is(err, ErrNoFill) {
+		t.Fatalf("err = %v, want %v", err, ErrNoFill)
+	}
+}
+
+func TestSimulateFill_LimitSellWithSpreadNoFillWhenBidBelowLimit(t *testing.T) {
+	t.Parallel()
+	// Bar high = 101, with 200 bps spread the bid at high = 101 * (1 - 100/10000) = 99.99
+	// A sell limit at 100.00 should NOT fill because the effective bid never reaches the limit.
+	eng, _ := NewFillEngine(FillConfig{
+		Slippage: ProportionalSlippage{BasisPoints: 0},
+		Spread:   FixedSpread{SpreadBps: 200},
+	})
+	bar := testBar(100, 101, 95, 10000) // high = 101
+	order := &domain.Order{
+		Side:       domain.OrderSideSell,
+		OrderType:  domain.OrderTypeLimit,
+		Quantity:   10,
+		LimitPrice: fp(100.00), // above bid at high (99.99)
+	}
+
+	_, err := eng.SimulateFill(order, bar)
+	if !errors.Is(err, ErrNoFill) {
+		t.Fatalf("err = %v, want %v", err, ErrNoFill)
+	}
+}
+
+func TestSimulateFill_LimitBuyWithSpreadFillsWhenAskBelowLimit(t *testing.T) {
+	t.Parallel()
+	// Bar low = 99, with 200 bps spread the ask at low = 99 * (1 + 100/10000) = 99.99
+	// A buy limit at 100.00 should fill since the effective ask (99.99) is below the limit.
+	eng, _ := NewFillEngine(FillConfig{
+		Slippage: ProportionalSlippage{BasisPoints: 0},
+		Spread:   FixedSpread{SpreadBps: 200},
+	})
+	bar := testBar(100, 105, 99, 10000) // low = 99
+	order := &domain.Order{
+		Side:       domain.OrderSideBuy,
+		OrderType:  domain.OrderTypeLimit,
+		Quantity:   10,
+		LimitPrice: fp(100.00), // above ask at low (99.99)
+	}
+
+	res, err := eng.SimulateFill(order, bar)
+	if err != nil {
+		t.Fatalf("SimulateFill() error = %v", err)
+	}
+	if !res.Filled {
+		t.Fatal("expected Filled = true")
+	}
 }

@@ -38,6 +38,9 @@ var (
 
 	// ErrNoFill indicates the order could not be filled at the current bar.
 	ErrNoFill = errors.New("fill: order not filled")
+
+	// ErrInvalidSide indicates the order has an unsupported or empty side.
+	ErrInvalidSide = errors.New("fill: invalid order side")
 )
 
 // SlippageModel computes a slippage-adjusted fill price given a reference
@@ -48,7 +51,7 @@ type SlippageModel interface {
 	AdjustedPrice(price float64, side domain.OrderSide, bar domain.OHLCV) float64
 }
 
-// FixedSlippage applies a constant amount of slippage per unit of price.
+// FixedSlippage applies a constant absolute price adjustment as slippage.
 // Buy orders pay price + Amount; sell orders receive price − Amount (floored
 // at minFillPrice).
 type FixedSlippage struct {
@@ -141,10 +144,10 @@ type FillResult struct {
 	Partial      bool    // true if only part of the order was filled
 	FillPrice    float64 // average fill price after slippage and spread
 	FillQuantity float64 // quantity filled (may be less than order quantity)
-	Slippage     float64 // price impact from slippage model
+	Slippage     float64 // total slippage cost in quote currency (|fillPrice - refPrice| * FillQuantity)
 	Commission   float64 // total commission charged
 	ExchangeFee  float64 // total exchange fee charged
-	TotalCost    float64 // notional + commission + exchange fee (for buys)
+	TotalCost    float64 // net cash impact: notional + fees for buys, notional - fees for sells
 }
 
 // FillConfig holds the configurable components of a FillEngine.
@@ -188,6 +191,9 @@ func (e *FillEngine) SimulateFill(order *domain.Order, bar domain.OHLCV) (FillRe
 	}
 	if order.Quantity <= 0 {
 		return FillResult{}, ErrInvalidQuantity
+	}
+	if !order.Side.IsValid() {
+		return FillResult{}, fmt.Errorf("%w: %q", ErrInvalidSide, order.Side)
 	}
 	if bar.Close <= 0 {
 		return FillResult{}, ErrInvalidBar
@@ -255,14 +261,31 @@ func (e *FillEngine) referencePrice(side domain.OrderSide, bar domain.OHLCV) flo
 }
 
 // limitMarketable returns true if a limit order would be fillable within the
-// bar's price range.
+// bar's price range. When a spread model is configured, the effective bid/ask
+// bounds are used instead of the raw bar low/high.
 func (e *FillEngine) limitMarketable(side domain.OrderSide, limit float64, bar domain.OHLCV) bool {
 	if side == domain.OrderSideBuy {
-		// Buy limit fills when the bar's low is at or below the limit.
-		return bar.Low <= limit
+		// Buy limit fills when the effective low is at or below the limit.
+		effectiveLow := bar.Low
+		if e.config.Spread != nil {
+			// Apply spread to the bar's low to get the effective ask at the low.
+			lowBar := bar
+			lowBar.Close = bar.Low
+			_, ask := e.config.Spread.BidAsk(lowBar)
+			effectiveLow = ask
+		}
+		return effectiveLow <= limit
 	}
-	// Sell limit fills when the bar's high is at or above the limit.
-	return bar.High >= limit
+	// Sell limit fills when the effective high is at or above the limit.
+	effectiveHigh := bar.High
+	if e.config.Spread != nil {
+		// Apply spread to the bar's high to get the effective bid at the high.
+		highBar := bar
+		highBar.Close = bar.High
+		bid, _ := e.config.Spread.BidAsk(highBar)
+		effectiveHigh = bid
+	}
+	return effectiveHigh >= limit
 }
 
 // capQuantity applies the MaxVolumePct partial fill logic.
