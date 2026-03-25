@@ -2,6 +2,7 @@ package risk
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
@@ -250,6 +251,35 @@ func TestCheckPositionLimits_ExceedsMarketExposure(t *testing.T) {
 	}
 }
 
+func TestCheckPositionLimits_MarketExposurePushedOverByQuantity(t *testing.T) {
+	t.Parallel()
+
+	engine := newTestEngine()
+	// The caller computes post-trade market exposure (0.49 + 0.02 = 0.51)
+	// and passes it in MarketExposurePct.
+	portfolio := Portfolio{
+		TotalExposurePct:    0.50,
+		ConcurrentPositions: 3,
+		PositionExposureBySymbol: map[string]float64{
+			"AAPL": 0.10,
+		},
+		MarketExposurePct: map[domain.MarketType]float64{
+			domain.MarketTypeStock: 0.51, // Post-trade: was 0.49, +0.02 pushed over 0.50 limit.
+		},
+	}
+
+	approved, reason, err := engine.CheckPositionLimits(context.Background(), "AAPL", 0.02, portfolio)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if approved {
+		t.Fatal("expected rejected when post-trade market exposure exceeds limit")
+	}
+	if reason == "" {
+		t.Fatal("expected non-empty reason")
+	}
+}
+
 func TestCheckPositionLimits_ExceedsPolymarketExposure(t *testing.T) {
 	t.Parallel()
 
@@ -297,6 +327,61 @@ func TestCheckPositionLimits_ExistingPositionBypassesConcurrentCheck(t *testing.
 	}
 	if !approved {
 		t.Fatalf("expected approved for existing position, got rejected: %s", reason)
+	}
+}
+
+func TestCheckPositionLimits_InvalidInputs(t *testing.T) {
+	t.Parallel()
+
+	engine := newTestEngine()
+	portfolio := Portfolio{TotalExposurePct: 0.10, ConcurrentPositions: 1}
+
+	// Empty ticker.
+	approved, reason, err := engine.CheckPositionLimits(context.Background(), "", 0.05, portfolio)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if approved {
+		t.Fatal("expected rejected for empty ticker")
+	}
+	if reason == "" {
+		t.Fatal("expected non-empty reason for empty ticker")
+	}
+
+	// Zero quantity.
+	approved, reason, err = engine.CheckPositionLimits(context.Background(), "AAPL", 0, portfolio)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if approved {
+		t.Fatal("expected rejected for zero quantity")
+	}
+
+	// Negative quantity.
+	approved, reason, err = engine.CheckPositionLimits(context.Background(), "AAPL", -0.05, portfolio)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if approved {
+		t.Fatal("expected rejected for negative quantity")
+	}
+
+	// NaN quantity.
+	approved, reason, err = engine.CheckPositionLimits(context.Background(), "AAPL", math.NaN(), portfolio)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if approved {
+		t.Fatal("expected rejected for NaN quantity")
+	}
+
+	// Inf quantity.
+	approved, reason, err = engine.CheckPositionLimits(context.Background(), "AAPL", math.Inf(1), portfolio)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if approved {
+		t.Fatal("expected rejected for Inf quantity")
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"sync"
 	"time"
 
@@ -58,14 +59,16 @@ func NewRiskEngine(limits PositionLimits, positionRepo repository.PositionReposi
 // CheckPreTrade evaluates whether an order should be allowed before submission.
 func (e *RiskEngineImpl) CheckPreTrade(ctx context.Context, order *domain.Order, portfolio Portfolio) (bool, string, error) {
 	e.state.mu.RLock()
-	defer e.state.mu.RUnlock()
+	ks := e.state.ks
+	cb := e.state.cb
+	e.state.mu.RUnlock()
 
-	if e.state.ks.Active {
-		return false, fmt.Sprintf("kill switch is active: %s", e.state.ks.Reason), nil
+	if ks.Active {
+		return false, fmt.Sprintf("kill switch is active: %s", ks.Reason), nil
 	}
 
-	if e.state.cb.State == CircuitBreakerPhaseTripped {
-		return false, fmt.Sprintf("circuit breaker tripped: %s", e.state.cb.Reason), nil
+	if cb.State == CircuitBreakerPhaseTripped {
+		return false, fmt.Sprintf("circuit breaker tripped: %s", cb.Reason), nil
 	}
 
 	if order == nil {
@@ -89,39 +92,50 @@ func (e *RiskEngineImpl) CheckPreTrade(ctx context.Context, order *domain.Order,
 // The quantity parameter represents the additional position exposure as a fraction of
 // the portfolio (e.g. 0.10 = 10%).
 func (e *RiskEngineImpl) CheckPositionLimits(ctx context.Context, ticker string, quantity float64, portfolio Portfolio) (bool, string, error) {
+	if ticker == "" {
+		return false, "ticker is required", nil
+	}
+	if quantity <= 0 || math.IsNaN(quantity) || math.IsInf(quantity, 0) {
+		return false, "quantity must be a positive finite number", nil
+	}
+
 	e.state.mu.RLock()
-	defer e.state.mu.RUnlock()
+	limits := e.limits
+	e.state.mu.RUnlock()
 
 	// Check max per-position size.
 	currentExposure := portfolio.PositionExposureBySymbol[ticker]
-	if currentExposure+quantity > e.limits.MaxPerPositionPct {
+	if currentExposure+quantity > limits.MaxPerPositionPct {
 		return false, fmt.Sprintf(
 			"position size %.2f%% for %s exceeds max %.2f%%",
-			(currentExposure+quantity)*100, ticker, e.limits.MaxPerPositionPct*100,
+			(currentExposure+quantity)*100, ticker, limits.MaxPerPositionPct*100,
 		), nil
 	}
 
 	// Check max total exposure.
-	if portfolio.TotalExposurePct+quantity > e.limits.MaxTotalPct {
+	if portfolio.TotalExposurePct+quantity > limits.MaxTotalPct {
 		return false, fmt.Sprintf(
 			"total exposure %.2f%% exceeds max %.2f%%",
-			(portfolio.TotalExposurePct+quantity)*100, e.limits.MaxTotalPct*100,
+			(portfolio.TotalExposurePct+quantity)*100, limits.MaxTotalPct*100,
 		), nil
 	}
 
 	// Check max concurrent positions (only if opening a new position).
 	if _, exists := portfolio.PositionExposureBySymbol[ticker]; !exists {
-		if portfolio.ConcurrentPositions >= e.limits.MaxConcurrent {
+		if portfolio.ConcurrentPositions >= limits.MaxConcurrent {
 			return false, fmt.Sprintf(
 				"concurrent positions %d reached max %d",
-				portfolio.ConcurrentPositions, e.limits.MaxConcurrent,
+				portfolio.ConcurrentPositions, limits.MaxConcurrent,
 			), nil
 		}
 	}
 
 	// Check per-market exposure limits.
+	// MarketExposurePct values are expected to reflect post-trade exposure
+	// as computed by the caller, since the ticker-to-market mapping is not
+	// available within this function.
 	for market, exposure := range portfolio.MarketExposurePct {
-		limit := e.limits.MaxPerMarketPct
+		limit := limits.MaxPerMarketPct
 		if market == domain.MarketTypePolymarket {
 			limit = polymarketMaxExposurePct
 		}
