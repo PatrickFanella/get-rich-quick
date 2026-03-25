@@ -60,6 +60,24 @@ type KillSwitchStatus struct {
 	ActivatedAt *time.Time            `json:"activated_at,omitempty"`
 }
 
+// CircuitBreakerConfig holds thresholds and timing for the circuit breaker.
+type CircuitBreakerConfig struct {
+	MaxDailyLossPct      float64       // Trip when daily loss exceeds this (e.g. 0.03 = 3%).
+	MaxDrawdownPct       float64       // Trip when total drawdown exceeds this (e.g. 0.10 = 10%).
+	MaxConsecutiveLosses int           // Trip when consecutive losses exceed this count.
+	CooldownDuration     time.Duration // After tripping, auto-reset after this duration.
+}
+
+// DefaultCircuitBreakerConfig returns the default circuit breaker configuration.
+func DefaultCircuitBreakerConfig() CircuitBreakerConfig {
+	return CircuitBreakerConfig{
+		MaxDailyLossPct:      0.03,
+		MaxDrawdownPct:       0.10,
+		MaxConsecutiveLosses: 5,
+		CooldownDuration:     15 * time.Minute,
+	}
+}
+
 // PositionLimits defines portfolio-level and per-market exposure constraints.
 type PositionLimits struct {
 	MaxPerPositionPct float64 `json:"max_per_position_pct"`

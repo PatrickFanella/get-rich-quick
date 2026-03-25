@@ -4,12 +4,13 @@ import (
 	"context"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
 )
 
 func newTestEngine() *RiskEngineImpl {
-	return NewRiskEngine(DefaultPositionLimits(), nil, nil)
+	return NewRiskEngine(DefaultPositionLimits(), DefaultCircuitBreakerConfig(), nil, nil)
 }
 
 func TestCheckPreTrade_Approved(t *testing.T) {
@@ -518,5 +519,192 @@ func TestDefaultPositionLimits(t *testing.T) {
 	}
 	if limits.MaxPerMarketPct != 0.50 {
 		t.Fatalf("expected 0.50, got %f", limits.MaxPerMarketPct)
+	}
+}
+
+func TestUpdateMetrics_DailyLossTripsBreaker(t *testing.T) {
+	t.Parallel()
+
+	engine := newTestEngine()
+	ctx := context.Background()
+
+	// Loss of 4% exceeds the 3% threshold.
+	err := engine.UpdateMetrics(ctx, -0.04, 0.0, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	status, _ := engine.GetStatus(ctx)
+	if status.CircuitBreaker.State != CircuitBreakerPhaseTripped {
+		t.Fatalf("expected tripped, got %q", status.CircuitBreaker.State)
+	}
+	if status.CircuitBreaker.Reason == "" {
+		t.Fatal("expected non-empty reason")
+	}
+}
+
+func TestUpdateMetrics_DailyLossBelowThreshold(t *testing.T) {
+	t.Parallel()
+
+	engine := newTestEngine()
+	ctx := context.Background()
+
+	// Loss of 2% is within the 3% threshold.
+	err := engine.UpdateMetrics(ctx, -0.02, 0.0, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	status, _ := engine.GetStatus(ctx)
+	if status.CircuitBreaker.State != CircuitBreakerPhaseOpen {
+		t.Fatalf("expected open, got %q", status.CircuitBreaker.State)
+	}
+}
+
+func TestUpdateMetrics_DrawdownTripsBreaker(t *testing.T) {
+	t.Parallel()
+
+	engine := newTestEngine()
+	ctx := context.Background()
+
+	// Drawdown of 12% exceeds the 10% threshold.
+	err := engine.UpdateMetrics(ctx, 0.0, 0.12, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	status, _ := engine.GetStatus(ctx)
+	if status.CircuitBreaker.State != CircuitBreakerPhaseTripped {
+		t.Fatalf("expected tripped, got %q", status.CircuitBreaker.State)
+	}
+	if status.CircuitBreaker.Reason == "" {
+		t.Fatal("expected non-empty reason")
+	}
+}
+
+func TestUpdateMetrics_ConsecutiveLossesTripsBreaker(t *testing.T) {
+	t.Parallel()
+
+	engine := newTestEngine()
+	ctx := context.Background()
+
+	// 6 consecutive losses exceeds the threshold of 5.
+	err := engine.UpdateMetrics(ctx, 0.0, 0.0, 6)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	status, _ := engine.GetStatus(ctx)
+	if status.CircuitBreaker.State != CircuitBreakerPhaseTripped {
+		t.Fatalf("expected tripped, got %q", status.CircuitBreaker.State)
+	}
+	if status.CircuitBreaker.Reason == "" {
+		t.Fatal("expected non-empty reason")
+	}
+}
+
+func TestUpdateMetrics_DoesNotTripWhenAlreadyTripped(t *testing.T) {
+	t.Parallel()
+
+	engine := newTestEngine()
+	ctx := context.Background()
+
+	// Trip manually first.
+	if err := engine.TripCircuitBreaker(ctx, "manual"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// UpdateMetrics should not overwrite the existing trip.
+	err := engine.UpdateMetrics(ctx, -0.10, 0.0, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	status, _ := engine.GetStatus(ctx)
+	if status.CircuitBreaker.Reason != "manual" {
+		t.Fatalf("expected original reason 'manual', got %q", status.CircuitBreaker.Reason)
+	}
+}
+
+func TestCooldownAutoResets(t *testing.T) {
+	t.Parallel()
+
+	engine := newTestEngine()
+	ctx := context.Background()
+
+	// Use a controllable clock.
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	engine.nowFunc = func() time.Time { return now }
+
+	// Trip the circuit breaker; cooldown = 15 minutes by default.
+	if err := engine.TripCircuitBreaker(ctx, "loss limit"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Still tripped before cooldown expires.
+	now = now.Add(14 * time.Minute)
+	status, _ := engine.GetStatus(ctx)
+	if status.CircuitBreaker.State != CircuitBreakerPhaseTripped {
+		t.Fatalf("expected tripped during cooldown, got %q", status.CircuitBreaker.State)
+	}
+
+	// After cooldown expires, should auto-reset.
+	now = now.Add(2 * time.Minute) // total 16 min > 15 min cooldown
+	status, _ = engine.GetStatus(ctx)
+	if status.CircuitBreaker.State != CircuitBreakerPhaseOpen {
+		t.Fatalf("expected open after cooldown, got %q", status.CircuitBreaker.State)
+	}
+}
+
+func TestCooldownAutoResets_CheckPreTrade(t *testing.T) {
+	t.Parallel()
+
+	engine := newTestEngine()
+	ctx := context.Background()
+
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	engine.nowFunc = func() time.Time { return now }
+
+	if err := engine.TripCircuitBreaker(ctx, "loss limit"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	order := &domain.Order{Ticker: "AAPL", Quantity: 10}
+
+	// Rejected before cooldown.
+	approved, _, err := engine.CheckPreTrade(ctx, order, Portfolio{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if approved {
+		t.Fatal("expected rejected during cooldown")
+	}
+
+	// After cooldown, should be approved.
+	now = now.Add(16 * time.Minute)
+	approved, reason, err := engine.CheckPreTrade(ctx, order, Portfolio{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !approved {
+		t.Fatalf("expected approved after cooldown, got rejected: %s", reason)
+	}
+}
+
+func TestDefaultCircuitBreakerConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultCircuitBreakerConfig()
+	if cfg.MaxDailyLossPct != 0.03 {
+		t.Fatalf("expected 0.03, got %f", cfg.MaxDailyLossPct)
+	}
+	if cfg.MaxDrawdownPct != 0.10 {
+		t.Fatalf("expected 0.10, got %f", cfg.MaxDrawdownPct)
+	}
+	if cfg.MaxConsecutiveLosses != 5 {
+		t.Fatalf("expected 5, got %d", cfg.MaxConsecutiveLosses)
+	}
+	if cfg.CooldownDuration != 15*time.Minute {
+		t.Fatalf("expected 15m, got %v", cfg.CooldownDuration)
 	}
 }

@@ -35,20 +35,24 @@ type engineState struct {
 // RiskEngineImpl is the concrete implementation of RiskEngine.
 type RiskEngineImpl struct {
 	limits       PositionLimits
+	cbConfig     CircuitBreakerConfig
 	positionRepo repository.PositionRepository
 	logger       *slog.Logger
 	state        engineState
+	nowFunc      func() time.Time // for testability; defaults to time.Now
 }
 
 // NewRiskEngine creates a new RiskEngineImpl.
-func NewRiskEngine(limits PositionLimits, positionRepo repository.PositionRepository, logger *slog.Logger) *RiskEngineImpl {
+func NewRiskEngine(limits PositionLimits, cbConfig CircuitBreakerConfig, positionRepo repository.PositionRepository, logger *slog.Logger) *RiskEngineImpl {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &RiskEngineImpl{
 		limits:       limits,
+		cbConfig:     cbConfig,
 		positionRepo: positionRepo,
 		logger:       logger,
+		nowFunc:      time.Now,
 		state: engineState{
 			cb: CircuitBreakerStatus{State: CircuitBreakerPhaseOpen},
 			ks: KillSwitchStatus{Active: false},
@@ -56,12 +60,29 @@ func NewRiskEngine(limits PositionLimits, positionRepo repository.PositionReposi
 	}
 }
 
+// checkCooldownLocked checks if the circuit breaker cooldown has expired and
+// auto-resets to open. Must be called with e.state.mu held for writing.
+func (e *RiskEngineImpl) checkCooldownLocked(ctx context.Context) {
+	if e.state.cb.State != CircuitBreakerPhaseTripped {
+		return
+	}
+	if e.state.cb.CooldownEnd == nil {
+		return
+	}
+	if e.nowFunc().Before(*e.state.cb.CooldownEnd) {
+		return
+	}
+	e.state.cb = CircuitBreakerStatus{State: CircuitBreakerPhaseOpen}
+	e.logger.InfoContext(ctx, "circuit breaker auto-reset after cooldown")
+}
+
 // CheckPreTrade evaluates whether an order should be allowed before submission.
 func (e *RiskEngineImpl) CheckPreTrade(ctx context.Context, order *domain.Order, portfolio Portfolio) (bool, string, error) {
-	e.state.mu.RLock()
+	e.state.mu.Lock()
+	e.checkCooldownLocked(ctx)
 	ks := e.state.ks
 	cb := e.state.cb
-	e.state.mu.RUnlock()
+	e.state.mu.Unlock()
 
 	if ks.Active {
 		return false, fmt.Sprintf("kill switch is active: %s", ks.Reason), nil
@@ -155,9 +176,10 @@ func (e *RiskEngineImpl) CheckPositionLimits(ctx context.Context, ticker string,
 }
 
 // GetStatus returns the current engine state.
-func (e *RiskEngineImpl) GetStatus(_ context.Context) (EngineStatus, error) {
-	e.state.mu.RLock()
-	defer e.state.mu.RUnlock()
+func (e *RiskEngineImpl) GetStatus(ctx context.Context) (EngineStatus, error) {
+	e.state.mu.Lock()
+	e.checkCooldownLocked(ctx)
+	defer e.state.mu.Unlock()
 
 	status := domain.RiskStatusNormal
 	if e.state.cb.State == CircuitBreakerPhaseTripped {
@@ -180,13 +202,18 @@ func (e *RiskEngineImpl) TripCircuitBreaker(ctx context.Context, reason string) 
 	e.state.mu.Lock()
 	defer e.state.mu.Unlock()
 
-	now := time.Now()
+	now := e.nowFunc()
+	cooldownEnd := now.Add(e.cbConfig.CooldownDuration)
 	e.state.cb = CircuitBreakerStatus{
-		State:     CircuitBreakerPhaseTripped,
-		Reason:    reason,
-		TrippedAt: &now,
+		State:       CircuitBreakerPhaseTripped,
+		Reason:      reason,
+		TrippedAt:   &now,
+		CooldownEnd: &cooldownEnd,
 	}
-	e.logger.WarnContext(ctx, "circuit breaker tripped", slog.String("reason", reason))
+	e.logger.WarnContext(ctx, "circuit breaker tripped",
+		slog.String("reason", reason),
+		slog.Time("cooldown_end", cooldownEnd),
+	)
 	return nil
 }
 
@@ -229,5 +256,44 @@ func (e *RiskEngineImpl) DeactivateKillSwitch(ctx context.Context) error {
 
 	e.state.ks = KillSwitchStatus{Active: false}
 	e.logger.InfoContext(ctx, "kill switch deactivated")
+	return nil
+}
+
+// UpdateMetrics evaluates post-trade metrics and auto-trips the circuit breaker
+// when any threshold is exceeded. dailyPnL is a signed fraction (negative = loss),
+// totalDrawdown is a positive fraction representing decline from peak, and
+// consecutiveLosses is the running count of consecutive losing trades.
+func (e *RiskEngineImpl) UpdateMetrics(ctx context.Context, dailyPnL, totalDrawdown float64, consecutiveLosses int) error {
+	e.state.mu.Lock()
+	e.checkCooldownLocked(ctx)
+
+	// Only auto-trip if currently open.
+	if e.state.cb.State != CircuitBreakerPhaseOpen {
+		e.state.mu.Unlock()
+		return nil
+	}
+	e.state.mu.Unlock()
+
+	if dailyPnL < -e.cbConfig.MaxDailyLossPct {
+		return e.TripCircuitBreaker(ctx, fmt.Sprintf(
+			"daily loss %.2f%% exceeds max %.2f%%",
+			-dailyPnL*100, e.cbConfig.MaxDailyLossPct*100,
+		))
+	}
+
+	if totalDrawdown > e.cbConfig.MaxDrawdownPct {
+		return e.TripCircuitBreaker(ctx, fmt.Sprintf(
+			"drawdown %.2f%% exceeds max %.2f%%",
+			totalDrawdown*100, e.cbConfig.MaxDrawdownPct*100,
+		))
+	}
+
+	if consecutiveLosses > e.cbConfig.MaxConsecutiveLosses {
+		return e.TripCircuitBreaker(ctx, fmt.Sprintf(
+			"consecutive losses %d exceeds max %d",
+			consecutiveLosses, e.cbConfig.MaxConsecutiveLosses,
+		))
+	}
+
 	return nil
 }
