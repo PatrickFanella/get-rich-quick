@@ -40,7 +40,7 @@ type TradingPlan struct {
 type SizingConfig struct {
 	Method       PositionSizingMethod
 	RiskPct      float64
-	ATRMultipier float64
+	ATRMultiplier float64
 	WinRate      float64
 	WinLossRatio float64
 	FractionPct  float64
@@ -133,7 +133,7 @@ func (m *OrderManager) ProcessSignal(
 		AccountValue:  balance.Equity,
 		RiskPct:       m.sizingConfig.RiskPct,
 		ATR:           math.Abs(plan.EntryPrice - plan.StopLoss),
-		Multiplier:    m.sizingConfig.ATRMultipier,
+		Multiplier:    m.sizingConfig.ATRMultiplier,
 		WinRate:       m.sizingConfig.WinRate,
 		WinLossRatio:  m.sizingConfig.WinLossRatio,
 		FractionPct:   m.sizingConfig.FractionPct,
