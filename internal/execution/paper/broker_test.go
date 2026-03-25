@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
+	"github.com/PatrickFanella/get-rich-quick/internal/execution"
 )
 
 // extremeSlippageBps represents 200% slippage (20000 bps) for sell-side clamp coverage.
@@ -208,6 +209,129 @@ func TestPaperBrokerSubmitOrder_ClampsExtremeSellSlippage(t *testing.T) {
 	if *order.FilledAvgPrice <= 0 {
 		t.Fatalf("SubmitOrder() FilledAvgPrice = %v, want > 0", *order.FilledAvgPrice)
 	}
+}
+
+func TestPaperBrokerCancelOrder_CancelsSubmittedOrder(t *testing.T) {
+	t.Parallel()
+
+	broker := NewPaperBroker(1000, 0, 0)
+	order := &domain.Order{
+		Ticker:     "AAPL",
+		Side:       domain.OrderSideBuy,
+		OrderType:  domain.OrderTypeLimit,
+		Quantity:   1,
+		LimitPrice: floatPtr(100),
+	}
+
+	externalID, err := broker.SubmitOrder(context.Background(), order)
+	if err != nil {
+		t.Fatalf("SubmitOrder() error = %v", err)
+	}
+	if order.Status != domain.OrderStatusSubmitted {
+		t.Fatalf("SubmitOrder() status = %q, want %q", order.Status, domain.OrderStatusSubmitted)
+	}
+
+	if err := broker.CancelOrder(context.Background(), " "+externalID+" "); err != nil {
+		t.Fatalf("CancelOrder() error = %v", err)
+	}
+
+	status, err := broker.GetOrderStatus(context.Background(), externalID)
+	if err != nil {
+		t.Fatalf("GetOrderStatus() error = %v", err)
+	}
+	if status != domain.OrderStatusCancelled {
+		t.Fatalf("GetOrderStatus() = %q, want %q", status, domain.OrderStatusCancelled)
+	}
+}
+
+func TestPaperBrokerGetOrderStatus_ReturnsTrackedStatus(t *testing.T) {
+	t.Parallel()
+
+	broker := NewPaperBroker(1000, 0, 0)
+	broker.orders["paper-42"] = &domain.Order{
+		ExternalID: "paper-42",
+		Status:     domain.OrderStatusPartial,
+	}
+
+	status, err := broker.GetOrderStatus(context.Background(), " paper-42 ")
+	if err != nil {
+		t.Fatalf("GetOrderStatus() error = %v", err)
+	}
+	if status != domain.OrderStatusPartial {
+		t.Fatalf("GetOrderStatus() = %q, want %q", status, domain.OrderStatusPartial)
+	}
+}
+
+func TestPaperBrokerGetPositions_ReturnsClonedSortedPositions(t *testing.T) {
+	t.Parallel()
+
+	broker := NewPaperBroker(1000, 0, 0)
+	broker.positions["MSFT"] = &domain.Position{
+		Ticker:       "MSFT",
+		Side:         domain.PositionSideLong,
+		Quantity:     2,
+		AvgEntry:     250,
+		CurrentPrice: floatPtr(255),
+	}
+	broker.positions["AAPL"] = &domain.Position{
+		Ticker:       "AAPL",
+		Side:         domain.PositionSideLong,
+		Quantity:     1,
+		AvgEntry:     100,
+		CurrentPrice: floatPtr(105),
+	}
+
+	positions, err := broker.GetPositions(context.Background())
+	if err != nil {
+		t.Fatalf("GetPositions() error = %v", err)
+	}
+	if len(positions) != 2 {
+		t.Fatalf("GetPositions() len = %d, want %d", len(positions), 2)
+	}
+	if positions[0].Ticker != "AAPL" || positions[1].Ticker != "MSFT" {
+		t.Fatalf("GetPositions() tickers = [%q %q], want [\"AAPL\" \"MSFT\"]", positions[0].Ticker, positions[1].Ticker)
+	}
+
+	positions[0].Quantity = 99
+	*positions[0].CurrentPrice = 999
+
+	refetched, err := broker.GetPositions(context.Background())
+	if err != nil {
+		t.Fatalf("GetPositions() second call error = %v", err)
+	}
+	assertFloatClose(t, refetched[0].Quantity, 1, 1e-9)
+	assertFloatClose(t, *refetched[0].CurrentPrice, 105, 1e-9)
+}
+
+func TestPaperBrokerGetAccountBalance_ReturnsSnapshot(t *testing.T) {
+	t.Parallel()
+
+	broker := NewPaperBroker(1000, 0, 0)
+	broker.balance = execution.Balance{
+		Currency:    "USD",
+		Cash:        850,
+		BuyingPower: 850,
+		Equity:      910,
+	}
+
+	balance, err := broker.GetAccountBalance(context.Background())
+	if err != nil {
+		t.Fatalf("GetAccountBalance() error = %v", err)
+	}
+	if balance.Currency != "USD" {
+		t.Fatalf("GetAccountBalance() currency = %q, want %q", balance.Currency, "USD")
+	}
+	assertFloatClose(t, balance.Cash, 850, 1e-9)
+	assertFloatClose(t, balance.BuyingPower, 850, 1e-9)
+	assertFloatClose(t, balance.Equity, 910, 1e-9)
+
+	balance.Cash = 1
+
+	refetched, err := broker.GetAccountBalance(context.Background())
+	if err != nil {
+		t.Fatalf("GetAccountBalance() second call error = %v", err)
+	}
+	assertFloatClose(t, refetched.Cash, 850, 1e-9)
 }
 
 func assertFloatClose(t *testing.T, got float64, want float64, epsilon float64) {
