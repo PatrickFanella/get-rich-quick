@@ -5,12 +5,19 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
 	"github.com/PatrickFanella/get-rich-quick/internal/repository"
 )
+
+// defaultKillSwitchFilePath is the default file path checked for the kill switch file flag.
+const defaultKillSwitchFilePath = "/tmp/tradingagent_kill"
+
+// killSwitchEnvVar is the environment variable checked for the kill switch.
+const killSwitchEnvVar = "TRADING_AGENT_KILL"
 
 // polymarketMaxExposurePct is the stricter per-market limit for Polymarket.
 const polymarketMaxExposurePct = 0.05
@@ -34,12 +41,29 @@ type engineState struct {
 
 // RiskEngineImpl is the concrete implementation of RiskEngine.
 type RiskEngineImpl struct {
-	limits       PositionLimits
-	cbConfig     CircuitBreakerConfig
-	positionRepo repository.PositionRepository
-	logger       *slog.Logger
-	state        engineState
-	nowFunc      func() time.Time // for testability; defaults to time.Now
+	limits             PositionLimits
+	cbConfig           CircuitBreakerConfig
+	positionRepo       repository.PositionRepository
+	logger             *slog.Logger
+	state              engineState
+	nowFunc            func() time.Time          // for testability; defaults to time.Now
+	killSwitchFilePath string                    // file flag path; defaults to defaultKillSwitchFilePath
+	fileExistsFunc     func(string) bool         // for testability; defaults to defaultFileExists
+	getEnvFunc         func(string) string       // for testability; defaults to os.Getenv
+}
+
+// defaultFileExists checks whether the given path exists on the filesystem.
+// For safety-critical kill switch behavior, any error other than "not exists"
+// (e.g., permission denied, transient I/O error) is treated as if the file exists.
+func defaultFileExists(path string) bool {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true
+	}
+	if os.IsNotExist(err) {
+		return false
+	}
+	return true
 }
 
 // NewRiskEngine creates a new RiskEngineImpl.
@@ -48,11 +72,14 @@ func NewRiskEngine(limits PositionLimits, cbConfig CircuitBreakerConfig, positio
 		logger = slog.Default()
 	}
 	return &RiskEngineImpl{
-		limits:       limits,
-		cbConfig:     cbConfig,
-		positionRepo: positionRepo,
-		logger:       logger,
-		nowFunc:      time.Now,
+		limits:             limits,
+		cbConfig:           cbConfig,
+		positionRepo:       positionRepo,
+		logger:             logger,
+		nowFunc:            time.Now,
+		killSwitchFilePath: defaultKillSwitchFilePath,
+		fileExistsFunc:     defaultFileExists,
+		getEnvFunc:         os.Getenv,
 		state: engineState{
 			cb: CircuitBreakerStatus{State: CircuitBreakerPhaseOpen},
 			ks: KillSwitchStatus{Active: false},
@@ -98,11 +125,29 @@ func (e *RiskEngineImpl) tripLocked(reason string) bool {
 	return true
 }
 
+// isKillSwitchActiveUnlocked checks all three kill switch mechanisms:
+// API toggle, file flag, and environment variable. The caller must pass the
+// current API toggle state (read under proper locking). Returns whether any
+// mechanism is active and the list of active mechanisms.
+func (e *RiskEngineImpl) isKillSwitchActiveUnlocked(apiKS KillSwitchStatus) (bool, []KillSwitchMechanism) {
+	var mechanisms []KillSwitchMechanism
+	if apiKS.Active {
+		mechanisms = append(mechanisms, KillSwitchMechanismAPI)
+	}
+	if e.fileExistsFunc(e.killSwitchFilePath) {
+		mechanisms = append(mechanisms, KillSwitchMechanismFile)
+	}
+	if e.getEnvFunc(killSwitchEnvVar) == "true" {
+		mechanisms = append(mechanisms, KillSwitchMechanismEnvVar)
+	}
+	return len(mechanisms) > 0, mechanisms
+}
+
 // CheckPreTrade evaluates whether an order should be allowed before submission.
 func (e *RiskEngineImpl) CheckPreTrade(ctx context.Context, order *domain.Order, portfolio Portfolio) (bool, string, error) {
 	e.state.mu.Lock()
 	cooldownReset := e.checkCooldownLocked()
-	ks := e.state.ks
+	apiKS := e.state.ks
 	cb := e.state.cb
 	e.state.mu.Unlock()
 
@@ -110,8 +155,13 @@ func (e *RiskEngineImpl) CheckPreTrade(ctx context.Context, order *domain.Order,
 		e.logger.InfoContext(ctx, "circuit breaker auto-reset after cooldown")
 	}
 
-	if ks.Active {
-		return false, fmt.Sprintf("kill switch is active: %s", ks.Reason), nil
+	ksActive, _ := e.isKillSwitchActiveUnlocked(apiKS)
+	if ksActive {
+		reason := apiKS.Reason
+		if reason == "" {
+			reason = "external mechanism"
+		}
+		return false, fmt.Sprintf("kill switch is active: %s", reason), nil
 	}
 
 	if cb.State == CircuitBreakerPhaseTripped {
@@ -205,22 +255,36 @@ func (e *RiskEngineImpl) CheckPositionLimits(ctx context.Context, ticker string,
 func (e *RiskEngineImpl) GetStatus(ctx context.Context) (EngineStatus, error) {
 	e.state.mu.Lock()
 	cooldownReset := e.checkCooldownLocked()
+	apiKS := e.state.ks
+	cb := e.state.cb
+	limits := e.limits
+	e.state.mu.Unlock()
+
+	ksActive, mechanisms := e.isKillSwitchActiveUnlocked(apiKS)
+	ks := KillSwitchStatus{
+		Active:      ksActive,
+		Reason:      apiKS.Reason,
+		Mechanisms:  mechanisms,
+		ActivatedAt: apiKS.ActivatedAt,
+	}
+	if ksActive && ks.Reason == "" {
+		ks.Reason = "external mechanism"
+	}
 
 	status := domain.RiskStatusNormal
-	if e.state.cb.State == CircuitBreakerPhaseTripped {
+	if cb.State == CircuitBreakerPhaseTripped {
 		status = domain.RiskStatusBreached
-	} else if e.state.ks.Active {
+	} else if ksActive {
 		status = domain.RiskStatusWarning
 	}
 
 	es := EngineStatus{
 		RiskStatus:     status,
-		CircuitBreaker: e.state.cb,
-		KillSwitch:     e.state.ks,
-		PositionLimits: e.limits,
+		CircuitBreaker: cb,
+		KillSwitch:     ks,
+		PositionLimits: limits,
 		UpdatedAt:      time.Now(),
 	}
-	e.state.mu.Unlock()
 
 	if cooldownReset {
 		e.logger.InfoContext(ctx, "circuit breaker auto-reset after cooldown")
@@ -259,35 +323,46 @@ func (e *RiskEngineImpl) ResetCircuitBreaker(ctx context.Context) error {
 	return nil
 }
 
-// IsKillSwitchActive returns whether the kill switch is active.
+// IsKillSwitchActive returns whether any kill switch mechanism is active
+// (API toggle, file flag, or environment variable).
 func (e *RiskEngineImpl) IsKillSwitchActive(_ context.Context) (bool, error) {
 	e.state.mu.RLock()
-	defer e.state.mu.RUnlock()
-	return e.state.ks.Active, nil
+	apiKS := e.state.ks
+	e.state.mu.RUnlock()
+
+	active, _ := e.isKillSwitchActiveUnlocked(apiKS)
+	return active, nil
 }
 
-// ActivateKillSwitch activates the kill switch.
+// ActivateKillSwitch activates the kill switch via the API toggle mechanism.
 func (e *RiskEngineImpl) ActivateKillSwitch(ctx context.Context, reason string) error {
 	e.state.mu.Lock()
 	defer e.state.mu.Unlock()
 
-	now := time.Now()
+	now := e.nowFunc()
 	e.state.ks = KillSwitchStatus{
 		Active:      true,
 		Reason:      reason,
+		Mechanisms:  []KillSwitchMechanism{KillSwitchMechanismAPI},
 		ActivatedAt: &now,
 	}
-	e.logger.WarnContext(ctx, "kill switch activated", slog.String("reason", reason))
+	e.logger.WarnContext(ctx, "kill switch activated",
+		slog.String("reason", reason),
+		slog.String("mechanism", KillSwitchMechanismAPI.String()),
+	)
 	return nil
 }
 
-// DeactivateKillSwitch deactivates the kill switch.
+// DeactivateKillSwitch deactivates the API toggle mechanism of the kill switch.
+// Note: file flag and env var mechanisms are not affected by this call.
 func (e *RiskEngineImpl) DeactivateKillSwitch(ctx context.Context) error {
 	e.state.mu.Lock()
 	defer e.state.mu.Unlock()
 
 	e.state.ks = KillSwitchStatus{Active: false}
-	e.logger.InfoContext(ctx, "kill switch deactivated")
+	e.logger.InfoContext(ctx, "kill switch deactivated",
+		slog.String("mechanism", KillSwitchMechanismAPI.String()),
+	)
 	return nil
 }
 

@@ -10,7 +10,11 @@ import (
 )
 
 func newTestEngine() *RiskEngineImpl {
-	return NewRiskEngine(DefaultPositionLimits(), DefaultCircuitBreakerConfig(), nil, nil)
+	e := NewRiskEngine(DefaultPositionLimits(), DefaultCircuitBreakerConfig(), nil, nil)
+	// Disable file and env mechanisms by default so existing tests are unaffected.
+	e.fileExistsFunc = func(string) bool { return false }
+	e.getEnvFunc = func(string) string { return "" }
+	return e
 }
 
 func TestCheckPreTrade_Approved(t *testing.T) {
@@ -706,5 +710,295 @@ func TestDefaultCircuitBreakerConfig(t *testing.T) {
 	}
 	if cfg.CooldownDuration != 15*time.Minute {
 		t.Fatalf("expected 15m, got %v", cfg.CooldownDuration)
+	}
+}
+
+func TestKillSwitch_APIToggle(t *testing.T) {
+	t.Parallel()
+
+	engine := newTestEngine()
+	ctx := context.Background()
+
+	// Initially inactive.
+	active, err := engine.IsKillSwitchActive(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if active {
+		t.Fatal("expected kill switch inactive initially")
+	}
+
+	// Activate via API toggle.
+	if err := engine.ActivateKillSwitch(ctx, "emergency halt"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	active, err = engine.IsKillSwitchActive(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !active {
+		t.Fatal("expected kill switch active after API activation")
+	}
+
+	// Verify mechanism is recorded.
+	status, err := engine.GetStatus(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !status.KillSwitch.Active {
+		t.Fatal("expected kill switch active in status")
+	}
+	if len(status.KillSwitch.Mechanisms) != 1 || status.KillSwitch.Mechanisms[0] != KillSwitchMechanismAPI {
+		t.Fatalf("expected [api_toggle] mechanism, got %v", status.KillSwitch.Mechanisms)
+	}
+	if status.KillSwitch.Reason != "emergency halt" {
+		t.Fatalf("expected reason 'emergency halt', got %q", status.KillSwitch.Reason)
+	}
+
+	// Deactivate via API toggle.
+	if err := engine.DeactivateKillSwitch(ctx); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	active, err = engine.IsKillSwitchActive(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if active {
+		t.Fatal("expected kill switch inactive after API deactivation")
+	}
+}
+
+func TestKillSwitch_FileFlagDetection(t *testing.T) {
+	t.Parallel()
+
+	engine := newTestEngine()
+	ctx := context.Background()
+
+	// Simulate file flag present.
+	engine.fileExistsFunc = func(path string) bool {
+		return path == defaultKillSwitchFilePath
+	}
+
+	active, err := engine.IsKillSwitchActive(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !active {
+		t.Fatal("expected kill switch active when file flag present")
+	}
+
+	// Verify mechanism is reported in status.
+	status, err := engine.GetStatus(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !status.KillSwitch.Active {
+		t.Fatal("expected kill switch active in status")
+	}
+	foundFile := false
+	for _, m := range status.KillSwitch.Mechanisms {
+		if m == KillSwitchMechanismFile {
+			foundFile = true
+		}
+	}
+	if !foundFile {
+		t.Fatalf("expected file_flag mechanism, got %v", status.KillSwitch.Mechanisms)
+	}
+
+	// Simulate file flag removed.
+	engine.fileExistsFunc = func(string) bool { return false }
+
+	active, err = engine.IsKillSwitchActive(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if active {
+		t.Fatal("expected kill switch inactive when file flag removed")
+	}
+}
+
+func TestKillSwitch_EnvVarDetection(t *testing.T) {
+	t.Parallel()
+
+	engine := newTestEngine()
+	ctx := context.Background()
+
+	// Simulate env var set.
+	engine.getEnvFunc = func(key string) string {
+		if key == killSwitchEnvVar {
+			return "true"
+		}
+		return ""
+	}
+
+	active, err := engine.IsKillSwitchActive(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !active {
+		t.Fatal("expected kill switch active when env var set")
+	}
+
+	// Verify mechanism is reported in status.
+	status, err := engine.GetStatus(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !status.KillSwitch.Active {
+		t.Fatal("expected kill switch active in status")
+	}
+	foundEnv := false
+	for _, m := range status.KillSwitch.Mechanisms {
+		if m == KillSwitchMechanismEnvVar {
+			foundEnv = true
+		}
+	}
+	if !foundEnv {
+		t.Fatalf("expected env_var mechanism, got %v", status.KillSwitch.Mechanisms)
+	}
+
+	// Non-"true" value should not activate.
+	engine.getEnvFunc = func(key string) string {
+		if key == killSwitchEnvVar {
+			return "false"
+		}
+		return ""
+	}
+	active, err = engine.IsKillSwitchActive(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if active {
+		t.Fatal("expected kill switch inactive when env var is not 'true'")
+	}
+}
+
+func TestKillSwitch_AnyMechanismBlocksTrading(t *testing.T) {
+	t.Parallel()
+
+	order := &domain.Order{Ticker: "AAPL", Quantity: 10}
+	portfolio := Portfolio{}
+	ctx := context.Background()
+
+	tests := []struct {
+		name       string
+		setupAPI   bool
+		setupFile  bool
+		setupEnv   bool
+		wantActive bool
+	}{
+		{"no mechanisms", false, false, false, false},
+		{"API only", true, false, false, true},
+		{"file only", false, true, false, true},
+		{"env only", false, false, true, true},
+		{"API and file", true, true, false, true},
+		{"API and env", true, false, true, true},
+		{"file and env", false, true, true, true},
+		{"all three", true, true, true, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			engine := newTestEngine()
+			if tt.setupAPI {
+				if err := engine.ActivateKillSwitch(ctx, "api halt"); err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}
+			engine.fileExistsFunc = func(string) bool { return tt.setupFile }
+			engine.getEnvFunc = func(string) string {
+				if tt.setupEnv {
+					return "true"
+				}
+				return ""
+			}
+
+			// IsKillSwitchActive should reflect the combined state.
+			active, err := engine.IsKillSwitchActive(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if active != tt.wantActive {
+				t.Fatalf("IsKillSwitchActive = %v, want %v", active, tt.wantActive)
+			}
+
+			// CheckPreTrade should block when any mechanism is active.
+			approved, reason, err := engine.CheckPreTrade(ctx, order, portfolio)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.wantActive {
+				if approved {
+					t.Fatal("expected trade rejected when kill switch active")
+				}
+				if reason == "" {
+					t.Fatal("expected non-empty reason when kill switch active")
+				}
+			} else {
+				if !approved {
+					t.Fatalf("expected trade approved, got rejected: %s", reason)
+				}
+			}
+		})
+	}
+}
+
+func TestKillSwitch_FileFlagCustomPath(t *testing.T) {
+	t.Parallel()
+
+	engine := newTestEngine()
+	ctx := context.Background()
+
+	customPath := "/var/run/kill_trading"
+	engine.killSwitchFilePath = customPath
+	engine.fileExistsFunc = func(path string) bool {
+		return path == customPath
+	}
+
+	active, err := engine.IsKillSwitchActive(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !active {
+		t.Fatal("expected kill switch active with custom file path")
+	}
+}
+
+func TestKillSwitch_DeactivateAPIDoesNotAffectFileOrEnv(t *testing.T) {
+	t.Parallel()
+
+	engine := newTestEngine()
+	ctx := context.Background()
+
+	// Activate API and simulate file flag.
+	if err := engine.ActivateKillSwitch(ctx, "api halt"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	engine.fileExistsFunc = func(string) bool { return true }
+
+	// Deactivate API toggle.
+	if err := engine.DeactivateKillSwitch(ctx); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Kill switch should still be active due to file flag.
+	active, err := engine.IsKillSwitchActive(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !active {
+		t.Fatal("expected kill switch still active due to file flag after API deactivation")
+	}
+
+	// Trade should still be blocked.
+	order := &domain.Order{Ticker: "AAPL", Quantity: 10}
+	approved, _, err := engine.CheckPreTrade(ctx, order, Portfolio{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if approved {
+		t.Fatal("expected trade rejected when file flag still active")
 	}
 }
