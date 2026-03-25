@@ -235,7 +235,8 @@ func stripFinalSignalCodeFences(s string) string {
 
 // validateFinalSignal checks that the parsed signal has valid field values.
 func validateFinalSignal(signal *FinalSignalOutput) error {
-	switch strings.ToUpper(signal.Action) {
+	action := strings.ToUpper(signal.Action)
+	switch action {
 	case "BUY", "SELL", "HOLD":
 		// valid
 	case "":
@@ -250,6 +251,26 @@ func validateFinalSignal(signal *FinalSignalOutput) error {
 
 	if strings.TrimSpace(signal.Reasoning) == "" {
 		return fmt.Errorf("final signal missing required field: reasoning")
+	}
+
+	// Validate position parameters based on action.
+	// BUY/SELL require positive adjusted_position_size and adjusted_stop_loss.
+	// HOLD must have both at zero since no position is taken.
+	switch action {
+	case "BUY", "SELL":
+		if signal.AdjustedPositionSize <= 0 {
+			return fmt.Errorf("final signal %s requires adjusted_position_size > 0, got %v", action, signal.AdjustedPositionSize)
+		}
+		if signal.AdjustedStopLoss <= 0 {
+			return fmt.Errorf("final signal %s requires adjusted_stop_loss > 0, got %v", action, signal.AdjustedStopLoss)
+		}
+	case "HOLD":
+		if signal.AdjustedPositionSize != 0 {
+			return fmt.Errorf("final signal HOLD requires adjusted_position_size = 0, got %v", signal.AdjustedPositionSize)
+		}
+		if signal.AdjustedStopLoss != 0 {
+			return fmt.Errorf("final signal HOLD requires adjusted_stop_loss = 0, got %v", signal.AdjustedStopLoss)
+		}
 	}
 
 	return nil

@@ -488,7 +488,7 @@ func TestParseFinalSignalMissingAction(t *testing.T) {
 	}
 }
 
-func TestParseFinalSignalConvictionOutOfRange(t *testing.T) {
+func TestParseFinalSignalConfidenceOutOfRange(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
@@ -517,15 +517,32 @@ func TestParseFinalSignalConvictionOutOfRange(t *testing.T) {
 }
 
 func TestParseFinalSignalAllActions(t *testing.T) {
-	for _, action := range []string{"BUY", "SELL", "HOLD"} {
-		t.Run(action, func(t *testing.T) {
-			input := `{"action": "` + action + `", "confidence": 5, "adjusted_position_size": 0, "adjusted_stop_loss": 0, "reasoning": "test"}`
-			signal, err := ParseFinalSignal(input)
+	tests := []struct {
+		action string
+		input  string
+	}{
+		{
+			action: "BUY",
+			input:  `{"action": "BUY", "confidence": 5, "adjusted_position_size": 50, "adjusted_stop_loss": 240, "reasoning": "test"}`,
+		},
+		{
+			action: "SELL",
+			input:  `{"action": "SELL", "confidence": 5, "adjusted_position_size": 50, "adjusted_stop_loss": 240, "reasoning": "test"}`,
+		},
+		{
+			action: "HOLD",
+			input:  `{"action": "HOLD", "confidence": 5, "adjusted_position_size": 0, "adjusted_stop_loss": 0, "reasoning": "test"}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.action, func(t *testing.T) {
+			signal, err := ParseFinalSignal(tc.input)
 			if err != nil {
-				t.Fatalf("ParseFinalSignal() error = %v for action %q", err, action)
+				t.Fatalf("ParseFinalSignal() error = %v for action %q", err, tc.action)
 			}
-			if signal.Action != action {
-				t.Fatalf("Action = %q, want %q", signal.Action, action)
+			if signal.Action != tc.action {
+				t.Fatalf("Action = %q, want %q", signal.Action, tc.action)
 			}
 		})
 	}
@@ -628,6 +645,54 @@ func TestRiskManagerExecuteSellSignalAdjustsTradingPlan(t *testing.T) {
 	}
 	if state.TradingPlan.StopLoss != 265.00 {
 		t.Fatalf("TradingPlan.StopLoss = %v, want 265", state.TradingPlan.StopLoss)
+	}
+}
+
+func TestParseFinalSignalBuyZeroPositionSize(t *testing.T) {
+	input := `{"action": "BUY", "confidence": 7, "adjusted_position_size": 0, "adjusted_stop_loss": 240, "reasoning": "test"}`
+
+	_, err := ParseFinalSignal(input)
+	if err == nil {
+		t.Fatal("ParseFinalSignal() error = nil, want non-nil for BUY with zero position size")
+	}
+	if got := err.Error(); !strings.Contains(got, "adjusted_position_size > 0") {
+		t.Fatalf("error = %q, want it to contain %q", got, "adjusted_position_size > 0")
+	}
+}
+
+func TestParseFinalSignalSellZeroStopLoss(t *testing.T) {
+	input := `{"action": "SELL", "confidence": 7, "adjusted_position_size": 50, "adjusted_stop_loss": 0, "reasoning": "test"}`
+
+	_, err := ParseFinalSignal(input)
+	if err == nil {
+		t.Fatal("ParseFinalSignal() error = nil, want non-nil for SELL with zero stop loss")
+	}
+	if got := err.Error(); !strings.Contains(got, "adjusted_stop_loss > 0") {
+		t.Fatalf("error = %q, want it to contain %q", got, "adjusted_stop_loss > 0")
+	}
+}
+
+func TestParseFinalSignalHoldNonZeroPositionSize(t *testing.T) {
+	input := `{"action": "HOLD", "confidence": 5, "adjusted_position_size": 50, "adjusted_stop_loss": 0, "reasoning": "test"}`
+
+	_, err := ParseFinalSignal(input)
+	if err == nil {
+		t.Fatal("ParseFinalSignal() error = nil, want non-nil for HOLD with non-zero position size")
+	}
+	if got := err.Error(); !strings.Contains(got, "adjusted_position_size = 0") {
+		t.Fatalf("error = %q, want it to contain %q", got, "adjusted_position_size = 0")
+	}
+}
+
+func TestParseFinalSignalHoldNonZeroStopLoss(t *testing.T) {
+	input := `{"action": "HOLD", "confidence": 5, "adjusted_position_size": 0, "adjusted_stop_loss": 240, "reasoning": "test"}`
+
+	_, err := ParseFinalSignal(input)
+	if err == nil {
+		t.Fatal("ParseFinalSignal() error = nil, want non-nil for HOLD with non-zero stop loss")
+	}
+	if got := err.Error(); !strings.Contains(got, "adjusted_stop_loss = 0") {
+		t.Fatalf("error = %q, want it to contain %q", got, "adjusted_stop_loss = 0")
 	}
 }
 
