@@ -218,16 +218,14 @@ func recordCacheMiss(ctx context.Context) {
 }
 
 func cacheKey(request CompletionRequest, version string) (string, error) {
-	prompt, err := json.Marshal(request.Messages)
+	reqBytes, err := json.Marshal(request)
 	if err != nil {
 		return "", err
 	}
 
 	var key bytes.Buffer
-	key.Grow(len(prompt) + len(request.Model) + len(version) + 2)
-	key.Write(prompt)
-	key.WriteByte('\n')
-	key.WriteString(request.Model)
+	key.Grow(len(reqBytes) + len(version) + 1)
+	key.Write(reqBytes)
 	key.WriteByte('\n')
 	key.WriteString(version)
 

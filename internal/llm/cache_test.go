@@ -141,3 +141,41 @@ func TestCacheProviderVersionInvalidatesEntries(t *testing.T) {
 		t.Fatalf("underlying calls = %d, want 2", mock.calls.Load())
 	}
 }
+
+func TestCacheProviderRequestOptionsInvalidateEntries(t *testing.T) {
+	t.Parallel()
+
+	mock := newMockProvider([]*llm.CompletionResponse{{
+		Content: "variant",
+		Model:   "gpt-5-mini",
+	}}, []error{nil})
+
+	cacheProvider, err := llm.NewCacheProvider(mock, llm.NewMemoryResponseCache(), "prompt-v1")
+	if err != nil {
+		t.Fatalf("NewCacheProvider() error = %v", err)
+	}
+
+	base := llm.CompletionRequest{
+		Model:       "gpt-5-mini",
+		Temperature: 0.1,
+		MaxTokens:   100,
+		Messages: []llm.Message{
+			{Role: "system", Content: "sys"},
+			{Role: "user", Content: "prompt"},
+		},
+		ResponseFormat: &llm.ResponseFormat{Type: llm.ResponseFormatJSONObject},
+	}
+	variant := base
+	variant.Temperature = 0.9
+
+	if _, err := cacheProvider.Complete(context.Background(), base); err != nil {
+		t.Fatalf("Complete(base) error = %v", err)
+	}
+	if _, err := cacheProvider.Complete(context.Background(), variant); err != nil {
+		t.Fatalf("Complete(variant) error = %v", err)
+	}
+
+	if mock.calls.Load() != 2 {
+		t.Fatalf("underlying calls = %d, want 2", mock.calls.Load())
+	}
+}

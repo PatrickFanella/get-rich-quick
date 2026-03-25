@@ -68,7 +68,7 @@ type PipelineState struct {
 	TradingPlan    TradingPlan           `json:"trading_plan"`
 	RiskDebate     RiskDebateState       `json:"risk_debate"`
 	FinalSignal    FinalSignal           `json:"final_signal"`
-	LLMCacheStats  llm.CacheStats        `json:"llm_cache_stats,omitempty"`
+	LLMCacheStats  llm.CacheStats        `json:"llm_cache_stats"`
 	// Errors holds internal errors encountered during pipeline execution.
 	// It is intentionally excluded from JSON output via `json:"-"`.
 	Errors []error `json:"-"`
