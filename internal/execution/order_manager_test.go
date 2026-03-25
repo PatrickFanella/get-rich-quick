@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -404,6 +403,7 @@ func newTestOrderManager(
 
 	return execution.NewOrderManager(
 		broker,
+		"paper",
 		riskEng,
 		positionRepo,
 		orderRepo,
@@ -484,6 +484,9 @@ func TestProcessSignal_HappyPath(t *testing.T) {
 	}
 	if order.Side != domain.OrderSideBuy {
 		t.Errorf("expected side buy, got %s", order.Side)
+	}
+	if order.Broker != "paper" {
+		t.Errorf("expected broker 'paper', got %q", order.Broker)
 	}
 
 	// Verify order was updated (submitted, then filled).
@@ -619,6 +622,61 @@ func TestProcessSignal_RiskCheckRejection(t *testing.T) {
 
 	if reason, ok := details["reason"].(string); !ok || reason != "exceeds max position size" {
 		t.Errorf("expected reason 'exceeds max position size', got %v", details["reason"])
+	}
+}
+
+func TestProcessSignal_PreTradeRejection(t *testing.T) {
+	broker := &mockBroker{}
+	riskEng := &mockRiskEngine{
+		checkPreTradeFn: func(ctx context.Context, order *domain.Order, portfolio risk.Portfolio) (bool, string, error) {
+			return false, "circuit breaker tripped", nil
+		},
+	}
+	orderRepo := &mockOrderRepo{}
+	positionRepo := &mockPositionRepo{}
+	tradeRepo := &mockTradeRepo{}
+	auditRepo := &mockAuditLogRepo{}
+
+	mgr := newTestOrderManager(broker, riskEng, orderRepo, positionRepo, tradeRepo, auditRepo)
+
+	err := mgr.ProcessSignal(
+		context.Background(),
+		defaultSignal(),
+		defaultPlan(),
+		uuid.New(),
+		uuid.New(),
+	)
+
+	if err == nil {
+		t.Fatal("ProcessSignal() expected error when pre-trade check rejects")
+	}
+
+	// Order should have been created (pending) then updated to rejected.
+	if len(orderRepo.orders) != 1 {
+		t.Fatalf("expected 1 order created, got %d", len(orderRepo.orders))
+	}
+
+	if len(orderRepo.updates) < 1 {
+		t.Fatalf("expected at least 1 order update, got %d", len(orderRepo.updates))
+	}
+
+	lastUpdate := orderRepo.updates[len(orderRepo.updates)-1]
+	if lastUpdate.Status != domain.OrderStatusRejected {
+		t.Errorf("expected rejected status, got %s", lastUpdate.Status)
+	}
+
+	// Verify audit log has order_created and pre_trade_rejected.
+	types := auditEventTypes(auditRepo.entries)
+	wantTypes := []string{"order_created", "pre_trade_rejected"}
+
+	if len(types) != len(wantTypes) {
+		t.Fatalf("expected %d audit entries, got %d: %v", len(wantTypes), len(types), types)
+	}
+
+	for i, want := range wantTypes {
+		if types[i] != want {
+			t.Errorf("audit[%d] = %q, want %q", i, types[i], want)
+		}
 	}
 }
 
@@ -874,6 +932,7 @@ func TestProcessSignal_LimitOrder(t *testing.T) {
 func TestNewOrderManager_NilLogger(t *testing.T) {
 	mgr := execution.NewOrderManager(
 		&mockBroker{},
+		"paper",
 		&mockRiskEngine{},
 		&mockPositionRepo{},
 		&mockOrderRepo{},
@@ -887,7 +946,3 @@ func TestNewOrderManager_NilLogger(t *testing.T) {
 		t.Fatal("expected non-nil OrderManager")
 	}
 }
-
-// Verify that unused variable is not accidentally retained.
-var _ execution.Balance
-var _ time.Time

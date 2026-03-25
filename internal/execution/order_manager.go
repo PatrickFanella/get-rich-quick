@@ -51,6 +51,7 @@ type SizingConfig struct {
 // Signal → Risk Check → Size → Create → Submit → Track → Update Position → Audit.
 type OrderManager struct {
 	broker       Broker
+	brokerName   string
 	riskEngine   risk.RiskEngine
 	positionRepo repository.PositionRepository
 	orderRepo    repository.OrderRepository
@@ -64,6 +65,7 @@ type OrderManager struct {
 // NewOrderManager constructs an OrderManager with the given dependencies.
 func NewOrderManager(
 	broker Broker,
+	brokerName string,
 	riskEngine risk.RiskEngine,
 	positionRepo repository.PositionRepository,
 	orderRepo repository.OrderRepository,
@@ -78,6 +80,7 @@ func NewOrderManager(
 
 	return &OrderManager{
 		broker:       broker,
+		brokerName:   brokerName,
 		riskEngine:   riskEngine,
 		positionRepo: positionRepo,
 		orderRepo:    orderRepo,
@@ -147,8 +150,16 @@ func (m *OrderManager) ProcessSignal(
 	}
 
 	// 3. Check position limits via risk engine.
+	// Convert the position size (in units) into additional portfolio exposure (0–1 fraction)
+	// for the risk engine. This aligns with RiskEngine.CheckPositionLimits expectations.
+	if balance.Equity <= 0 {
+		return fmt.Errorf("order_manager: account equity is zero or negative for %s", plan.Ticker)
+	}
+
+	additionalExposurePct := (quantity * plan.EntryPrice) / balance.Equity
+
 	portfolio := risk.Portfolio{}
-	approved, reason, err := m.riskEngine.CheckPositionLimits(ctx, plan.Ticker, quantity, portfolio)
+	approved, reason, err := m.riskEngine.CheckPositionLimits(ctx, plan.Ticker, additionalExposurePct, portfolio)
 	if err != nil {
 		return fmt.Errorf("order_manager: check position limits: %w", err)
 	}
@@ -183,6 +194,7 @@ func (m *OrderManager) ProcessSignal(
 		OrderType:     orderType,
 		Quantity:      quantity,
 		Status:        domain.OrderStatusPending,
+		Broker:        m.brokerName,
 		CreatedAt:     now,
 	}
 
@@ -209,7 +221,28 @@ func (m *OrderManager) ProcessSignal(
 		m.logger.ErrorContext(ctx, "audit log failed", "error", auditErr)
 	}
 
-	// 5. Submit to broker (status = submitted).
+	// 5. Pre-trade risk check (circuit breaker + order validation).
+	approved, reason, err = m.riskEngine.CheckPreTrade(ctx, order, portfolio)
+	if err != nil {
+		return fmt.Errorf("order_manager: pre-trade check: %w", err)
+	}
+
+	if !approved {
+		order.Status = domain.OrderStatusRejected
+		if updateErr := m.orderRepo.Update(ctx, order); updateErr != nil {
+			m.logger.ErrorContext(ctx, "failed to update rejected order", "error", updateErr)
+		}
+
+		if auditErr := m.audit(ctx, "pre_trade_rejected", "order", &order.ID, map[string]any{
+			"reason": reason,
+		}); auditErr != nil {
+			m.logger.ErrorContext(ctx, "audit log failed", "error", auditErr)
+		}
+
+		return fmt.Errorf("order_manager: pre-trade check rejected for %s: %s", plan.Ticker, reason)
+	}
+
+	// 6. Submit to broker (status = submitted).
 	externalID, err := m.broker.SubmitOrder(ctx, order)
 	if err != nil {
 		order.Status = domain.OrderStatusRejected
@@ -241,7 +274,7 @@ func (m *OrderManager) ProcessSignal(
 		m.logger.ErrorContext(ctx, "audit log failed", "error", auditErr)
 	}
 
-	// 6. Check order status and handle fill.
+	// 7. Check order status and handle fill.
 	status, err := m.broker.GetOrderStatus(ctx, externalID)
 	if err != nil {
 		return fmt.Errorf("order_manager: get order status: %w", err)
@@ -340,6 +373,16 @@ func (m *OrderManager) handleFill(
 	trade.PositionID = &position.ID
 
 	if err := m.tradeRepo.Create(ctx, trade); err != nil {
+		// Audit the incomplete fill so it can be reconciled later.
+		if auditErr := m.audit(ctx, "order_fill_incomplete", "order", &order.ID, map[string]any{
+			"fill_price":  fillPrice,
+			"quantity":    order.FilledQuantity,
+			"position_id": position.ID,
+			"error":       err.Error(),
+		}); auditErr != nil {
+			m.logger.ErrorContext(ctx, "audit log failed", "error", auditErr)
+		}
+
 		return fmt.Errorf("order_manager: create trade: %w", err)
 	}
 
