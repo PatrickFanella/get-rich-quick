@@ -29,6 +29,7 @@ type Pipeline struct {
 	events    chan<- PipelineEvent
 	logger    *slog.Logger
 	config    PipelineConfig
+	now       func() time.Time
 }
 
 // NewPipeline constructs a Pipeline with the supplied dependencies. Default
@@ -54,7 +55,18 @@ func NewPipeline(
 		events:    events,
 		logger:    logger,
 		config:    config,
+		now:       time.Now,
 	}
+}
+
+// SetNowFunc overrides the pipeline time source, allowing backtests to inject a
+// simulated clock instead of wall-clock time.
+func (p *Pipeline) SetNowFunc(now func() time.Time) {
+	if p == nil || now == nil {
+		return
+	}
+
+	p.now = now
 }
 
 // RegisterNode adds a node to the phase group determined by node.Phase().
@@ -187,7 +199,7 @@ func (p *Pipeline) executeAnalysisPhase(ctx context.Context, state *PipelineStat
 					Ticker:        state.Ticker,
 					AgentRole:     node.Role(),
 					Phase:         PhaseAnalysis,
-					OccurredAt:    time.Now().UTC(),
+					OccurredAt:    p.currentTime().UTC(),
 				}
 				// Non-blocking send: drop the event rather than let the goroutine
 				// stall if the channel is full or the phase context is cancelled.
@@ -246,7 +258,7 @@ func (p *Pipeline) executeTradingPhase(ctx context.Context, state *PipelineState
 			Ticker:        state.Ticker,
 			AgentRole:     traderNode.Role(),
 			Phase:         PhaseTrading,
-			OccurredAt:    time.Now().UTC(),
+			OccurredAt:    p.currentTime().UTC(),
 		}
 		select {
 		case p.events <- event:
@@ -319,7 +331,7 @@ func (p *Pipeline) Execute(ctx context.Context, strategyID uuid.UUID, ticker str
 		defer cancel()
 	}
 
-	now := time.Now().UTC()
+	now := p.currentTime().UTC()
 	run := &domain.PipelineRun{
 		ID:         uuid.New(),
 		StrategyID: strategyID,
@@ -346,7 +358,7 @@ func (p *Pipeline) Execute(ctx context.Context, strategyID uuid.UUID, ticker str
 		PipelineRunID: run.ID,
 		StrategyID:    strategyID,
 		Ticker:        ticker,
-		OccurredAt:    time.Now().UTC(),
+		OccurredAt:    p.currentTime().UTC(),
 	})
 
 	// Execute phases in order.
@@ -367,7 +379,7 @@ func (p *Pipeline) Execute(ctx context.Context, strategyID uuid.UUID, ticker str
 				slog.Any("error", err),
 			)
 
-			completedAt := time.Now().UTC()
+			completedAt := p.currentTime().UTC()
 			_ = p.persister.RecordRunComplete(ctx, run.ID, run.TradeDate, domain.PipelineStatusFailed, completedAt, err.Error())
 
 			p.emitEvent(PipelineEvent{
@@ -376,7 +388,7 @@ func (p *Pipeline) Execute(ctx context.Context, strategyID uuid.UUID, ticker str
 				StrategyID:    strategyID,
 				Ticker:        ticker,
 				Error:         err.Error(),
-				OccurredAt:    time.Now().UTC(),
+				OccurredAt:    p.currentTime().UTC(),
 			})
 
 			return state, err
@@ -384,7 +396,7 @@ func (p *Pipeline) Execute(ctx context.Context, strategyID uuid.UUID, ticker str
 	}
 
 	// All phases succeeded – mark the run as completed.
-	completedAt := time.Now().UTC()
+	completedAt := p.currentTime().UTC()
 	_ = p.persister.RecordRunComplete(ctx, run.ID, run.TradeDate, domain.PipelineStatusCompleted, completedAt, "")
 
 	p.emitEvent(PipelineEvent{
@@ -392,7 +404,7 @@ func (p *Pipeline) Execute(ctx context.Context, strategyID uuid.UUID, ticker str
 		PipelineRunID: run.ID,
 		StrategyID:    strategyID,
 		Ticker:        ticker,
-		OccurredAt:    time.Now().UTC(),
+		OccurredAt:    p.currentTime().UTC(),
 	})
 
 	return state, nil
@@ -413,6 +425,14 @@ func (p *Pipeline) emitEvent(event PipelineEvent) {
 			slog.String("type", string(event.Type)),
 		)
 	}
+}
+
+func (p *Pipeline) currentTime() time.Time {
+	if p == nil || p.now == nil {
+		return time.Now()
+	}
+
+	return p.now()
 }
 
 func (p *Pipeline) decisionPayload(state *PipelineState, node Node, roundNumber *int) (string, *DecisionLLMResponse, error) {

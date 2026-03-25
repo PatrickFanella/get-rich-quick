@@ -38,13 +38,13 @@ type TradingPlan struct {
 
 // SizingConfig holds the parameters used to size positions.
 type SizingConfig struct {
-	Method       PositionSizingMethod
-	RiskPct      float64
+	Method        PositionSizingMethod
+	RiskPct       float64
 	ATRMultiplier float64
-	WinRate      float64
-	WinLossRatio float64
-	FractionPct  float64
-	HalfKelly    bool
+	WinRate       float64
+	WinLossRatio  float64
+	FractionPct   float64
+	HalfKelly     bool
 }
 
 // OrderManager orchestrates the full order lifecycle:
@@ -90,6 +90,16 @@ func NewOrderManager(
 		logger:       logger,
 		nowFunc:      time.Now,
 	}
+}
+
+// SetNowFunc overrides the order manager time source, allowing callers to
+// drive all execution timestamps from a simulated backtest clock.
+func (m *OrderManager) SetNowFunc(now func() time.Time) {
+	if m == nil || now == nil {
+		return
+	}
+
+	m.nowFunc = now
 }
 
 // ProcessSignal executes the full order lifecycle for a trading signal.

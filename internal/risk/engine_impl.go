@@ -46,10 +46,10 @@ type RiskEngineImpl struct {
 	positionRepo       repository.PositionRepository
 	logger             *slog.Logger
 	state              engineState
-	nowFunc            func() time.Time          // for testability; defaults to time.Now
-	killSwitchFilePath string                    // file flag path; defaults to defaultKillSwitchFilePath
-	fileExistsFunc     func(string) bool         // for testability; defaults to defaultFileExists
-	getEnvFunc         func(string) string       // for testability; defaults to os.Getenv
+	nowFunc            func() time.Time    // for testability; defaults to time.Now
+	killSwitchFilePath string              // file flag path; defaults to defaultKillSwitchFilePath
+	fileExistsFunc     func(string) bool   // for testability; defaults to defaultFileExists
+	getEnvFunc         func(string) string // for testability; defaults to os.Getenv
 }
 
 // defaultFileExists checks whether the given path exists on the filesystem.
@@ -85,6 +85,16 @@ func NewRiskEngine(limits PositionLimits, cbConfig CircuitBreakerConfig, positio
 			ks: KillSwitchStatus{Active: false},
 		},
 	}
+}
+
+// SetNowFunc overrides the risk engine time source, allowing backtests to
+// evaluate cooldowns and status timestamps against simulated time.
+func (e *RiskEngineImpl) SetNowFunc(now func() time.Time) {
+	if e == nil || now == nil {
+		return
+	}
+
+	e.nowFunc = now
 }
 
 // checkCooldownLocked checks if the circuit breaker cooldown has expired and
@@ -283,7 +293,7 @@ func (e *RiskEngineImpl) GetStatus(ctx context.Context) (EngineStatus, error) {
 		CircuitBreaker: cb,
 		KillSwitch:     ks,
 		PositionLimits: limits,
-		UpdatedAt:      time.Now(),
+		UpdatedAt:      e.nowFunc(),
 	}
 
 	if cooldownReset {
