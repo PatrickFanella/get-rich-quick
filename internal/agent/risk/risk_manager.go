@@ -201,7 +201,7 @@ func ParseFinalSignal(content string) (*FinalSignalOutput, error) {
 		return nil, err
 	}
 
-	// Normalise action to uppercase.
+	// Normalize action to uppercase.
 	signal.Action = strings.ToUpper(signal.Action)
 
 	return &signal, nil

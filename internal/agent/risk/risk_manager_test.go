@@ -539,7 +539,7 @@ func TestParseFinalSignalLowercaseActionNormalized(t *testing.T) {
 		t.Fatalf("ParseFinalSignal() error = %v, want nil", err)
 	}
 	if signal.Action != "BUY" {
-		t.Fatalf("Action = %q, want %q (normalised to uppercase)", signal.Action, "BUY")
+		t.Fatalf("Action = %q, want %q (normalized to uppercase)", signal.Action, "BUY")
 	}
 }
 
