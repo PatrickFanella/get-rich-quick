@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ const (
 	cacheDataTypeOHLCV        = "ohlcv"
 	cacheDataTypeFundamentals = "fundamentals"
 	cacheDataTypeNews         = "news"
+	cacheDataTypeSocial       = "social_sentiment"
 )
 
 var ErrUnsupportedMarketType = errors.New("data: unsupported market type")
@@ -178,17 +180,53 @@ func (s *DataService) GetNews(ctx context.Context, marketType domain.MarketType,
 	}
 
 	if cached, ok := s.loadCachedNews(ctx, key); ok {
-		return cached, nil
+		return normalizeNewsArticles(cached, fromUTC, toUTC), nil
 	}
 
 	articles, err := chain.GetNews(ctx, ticker, from, to)
 	if err != nil {
 		return nil, err
 	}
+	articles = normalizeNewsArticles(articles, fromUTC, toUTC)
 
 	s.storeCached(ctx, key, articles, 30*time.Minute)
 
 	return articles, nil
+}
+
+// GetSocialSentiment returns social sentiment snapshots using the market-type
+// chain and caches results by query window.
+func (s *DataService) GetSocialSentiment(ctx context.Context, marketType domain.MarketType, ticker string, from, to time.Time) ([]SocialSentiment, error) {
+	fromUTC := from.UTC()
+	toUTC := to.UTC()
+
+	providerName, chain, err := s.resolveChain(marketType)
+	if err != nil {
+		return nil, err
+	}
+
+	key := repository.MarketDataCacheKey{
+		Ticker:    ticker,
+		Provider:  providerName,
+		DataType:  cacheDataTypeSocial,
+		Timeframe: newsCacheWindow(fromUTC, toUTC),
+		DateFrom:  &fromUTC,
+		DateTo:    &toUTC,
+	}
+
+	if cached, ok := s.loadCachedSocialSentiment(ctx, key); ok {
+		return normalizeSocialSentiment(cached, fromUTC, toUTC), nil
+	}
+
+	snapshots, err := chain.GetSocialSentiment(ctx, ticker, from, to)
+	if err != nil {
+		return nil, err
+	}
+	snapshots = normalizeSocialSentiment(snapshots, fromUTC, toUTC)
+
+	s.storeCached(ctx, key, snapshots, 30*time.Minute)
+
+	return snapshots, nil
 }
 
 func (s *DataService) resolveChain(marketType domain.MarketType) (string, DataProvider, error) {
@@ -215,6 +253,11 @@ func (s *DataService) loadCachedFundamentals(ctx context.Context, key repository
 func (s *DataService) loadCachedNews(ctx context.Context, key repository.MarketDataCacheKey) ([]NewsArticle, bool) {
 	var news []NewsArticle
 	return news, s.loadCached(ctx, key, &news)
+}
+
+func (s *DataService) loadCachedSocialSentiment(ctx context.Context, key repository.MarketDataCacheKey) ([]SocialSentiment, bool) {
+	var snapshots []SocialSentiment
+	return snapshots, s.loadCached(ctx, key, &snapshots)
 }
 
 func (s *DataService) loadCached(ctx context.Context, key repository.MarketDataCacheKey, dest any) bool {
@@ -315,4 +358,52 @@ func ohlcvCacheTimeframe(timeframe Timeframe, from, to time.Time) string {
 
 func newsCacheWindow(from, to time.Time) string {
 	return from.UTC().Format(time.RFC3339Nano) + "|" + to.UTC().Format(time.RFC3339Nano)
+}
+
+func normalizeNewsArticles(articles []NewsArticle, from, to time.Time) []NewsArticle {
+	return filterAndSortByWindow(articles, from, to,
+		func(article NewsArticle) time.Time { return article.PublishedAt },
+		func(article *NewsArticle, timestamp time.Time) { article.PublishedAt = timestamp },
+	)
+}
+
+func normalizeSocialSentiment(snapshots []SocialSentiment, from, to time.Time) []SocialSentiment {
+	return filterAndSortByWindow(snapshots, from, to,
+		func(snapshot SocialSentiment) time.Time { return snapshot.MeasuredAt },
+		func(snapshot *SocialSentiment, timestamp time.Time) { snapshot.MeasuredAt = timestamp },
+	)
+}
+
+func filterAndSortByWindow[T any](items []T, from, to time.Time, timestamp func(T) time.Time, setTimestamp func(*T, time.Time)) []T {
+	if len(items) == 0 {
+		return nil
+	}
+
+	fromUTC := from.UTC()
+	toUTC := to.UTC()
+	filtered := make([]T, 0, len(items))
+	for _, item := range items {
+		at := timestamp(item)
+		if at.IsZero() {
+			continue
+		}
+
+		at = at.UTC()
+		if at.Before(fromUTC) || at.After(toUTC) {
+			continue
+		}
+
+		setTimestamp(&item, at)
+		filtered = append(filtered, item)
+	}
+
+	sort.SliceStable(filtered, func(i, j int) bool {
+		return timestamp(filtered[i]).Before(timestamp(filtered[j]))
+	})
+
+	if len(filtered) == 0 {
+		return nil
+	}
+
+	return filtered
 }

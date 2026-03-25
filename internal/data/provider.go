@@ -25,6 +25,7 @@ type DataProvider interface {
 	// GetNews returns news articles for the given ticker between from and to.
 	GetNews(ctx context.Context, ticker string, from, to time.Time) ([]NewsArticle, error)
 
-	// GetSocialSentiment returns aggregated social-media sentiment for a ticker.
-	GetSocialSentiment(ctx context.Context, ticker string) (SocialSentiment, error)
+	// GetSocialSentiment returns social-media sentiment snapshots for a ticker
+	// between from and to (inclusive).
+	GetSocialSentiment(ctx context.Context, ticker string, from, to time.Time) ([]SocialSentiment, error)
 }

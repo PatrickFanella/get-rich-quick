@@ -845,7 +845,7 @@ func TestProviderGetSocialSentimentReturnsErrNotImplemented(t *testing.T) {
 
 	provider := NewProvider(&Client{})
 
-	_, socialErr := provider.GetSocialSentiment(context.Background(), "AAPL")
+	_, socialErr := provider.GetSocialSentiment(context.Background(), "AAPL", time.Now().Add(-time.Hour), time.Now())
 	if !errors.Is(socialErr, data.ErrNotImplemented) {
 		t.Fatalf("GetSocialSentiment() error = %v, want ErrNotImplemented", socialErr)
 	}

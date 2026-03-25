@@ -341,7 +341,7 @@ func TestProviderUnsupportedMethodsReturnErrNotImplemented(t *testing.T) {
 		t.Fatalf("GetNews() error = %v, want ErrNotImplemented", newsErr)
 	}
 
-	_, socialErr := provider.GetSocialSentiment(context.Background(), "BTCUSDT")
+	_, socialErr := provider.GetSocialSentiment(context.Background(), "BTCUSDT", time.Now().Add(-time.Hour), time.Now())
 	if !errors.Is(socialErr, data.ErrNotImplemented) {
 		t.Fatalf("GetSocialSentiment() error = %v, want ErrNotImplemented", socialErr)
 	}

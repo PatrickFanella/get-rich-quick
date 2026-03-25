@@ -150,12 +150,12 @@ func (p *Provider) GetNews(_ context.Context, _ string, _, _ time.Time) ([]data.
 }
 
 // GetSocialSentiment is not supported by the Binance provider yet.
-func (p *Provider) GetSocialSentiment(_ context.Context, _ string) (data.SocialSentiment, error) {
+func (p *Provider) GetSocialSentiment(_ context.Context, _ string, _, _ time.Time) ([]data.SocialSentiment, error) {
 	if p == nil {
-		return data.SocialSentiment{}, errors.New("binance: provider is nil")
+		return nil, errors.New("binance: provider is nil")
 	}
 
-	return data.SocialSentiment{}, fmt.Errorf("binance: GetSocialSentiment: %w", data.ErrNotImplemented)
+	return nil, fmt.Errorf("binance: GetSocialSentiment: %w", data.ErrNotImplemented)
 }
 
 func (p *Provider) getKlinesPage(ctx context.Context, ticker string, mapping timeframeMapping, from, to time.Time) ([]domain.OHLCV, error) {

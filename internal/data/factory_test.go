@@ -29,6 +29,9 @@ type serviceStubProvider struct {
 	news              []NewsArticle
 	newsErr           error
 	newsCalls         int
+	sentiment         []SocialSentiment
+	sentimentErr      error
+	sentimentCalls    int
 }
 
 func (s *serviceStubProvider) GetOHLCV(_ context.Context, _ string, _ Timeframe, _, _ time.Time) ([]domain.OHLCV, error) {
@@ -46,8 +49,9 @@ func (s *serviceStubProvider) GetNews(_ context.Context, _ string, _, _ time.Tim
 	return s.news, s.newsErr
 }
 
-func (s *serviceStubProvider) GetSocialSentiment(_ context.Context, _ string) (SocialSentiment, error) {
-	return SocialSentiment{}, ErrNotImplemented
+func (s *serviceStubProvider) GetSocialSentiment(_ context.Context, _ string, _, _ time.Time) ([]SocialSentiment, error) {
+	s.sentimentCalls++
+	return s.sentiment, s.sentimentErr
 }
 
 type fakeMarketDataCacheRepo struct {
@@ -356,6 +360,164 @@ func TestDataServiceGetNewsCacheMissCallsChainAndCachesResult(t *testing.T) {
 	}
 	if cacheRepo.setData.DataType != cacheDataTypeNews {
 		t.Fatalf("cache data type = %q, want %q", cacheRepo.setData.DataType, cacheDataTypeNews)
+	}
+	if cacheRepo.setData.Timeframe != newsCacheWindow(from, to) {
+		t.Fatalf("cache timeframe = %q, want %q", cacheRepo.setData.Timeframe, newsCacheWindow(from, to))
+	}
+	if !cacheRepo.setData.ExpiresAt.Equal(now.Add(30 * time.Minute)) {
+		t.Fatalf("cache expires_at = %s, want %s", cacheRepo.setData.ExpiresAt, now.Add(30*time.Minute))
+	}
+}
+
+func TestDataServiceGetNewsFiltersAndSortsPointInTimeResults(t *testing.T) {
+	now := time.Date(2026, 3, 22, 17, 0, 0, 0, time.UTC)
+	from := now.Add(-2 * time.Hour)
+	to := now
+	provider := &serviceStubProvider{
+		news: []NewsArticle{
+			{Title: "future", PublishedAt: to.Add(time.Minute)},
+			{Title: "inside-late", PublishedAt: to.Add(-10 * time.Minute)},
+			{Title: "zero"},
+			{Title: "inside-early", PublishedAt: from.Add(5 * time.Minute)},
+			{Title: "before", PublishedAt: from.Add(-time.Second)},
+		},
+	}
+	cacheRepo := &fakeMarketDataCacheRepo{}
+	service := &DataService{
+		stockChain: provider,
+		cacheRepo:  cacheRepo,
+		logger:     discardLogger(),
+		now:        func() time.Time { return now },
+	}
+
+	got, err := service.GetNews(context.Background(), domain.MarketTypeStock, "AAPL", from, to)
+	if err != nil {
+		t.Fatalf("GetNews() error = %v", err)
+	}
+
+	want := []NewsArticle{
+		{Title: "inside-early", PublishedAt: from.Add(5 * time.Minute)},
+		{Title: "inside-late", PublishedAt: to.Add(-10 * time.Minute)},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("GetNews() len = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i].Title != want[i].Title || !got[i].PublishedAt.Equal(want[i].PublishedAt) {
+			t.Fatalf("GetNews()[%d] = %#v, want %#v", i, got[i], want[i])
+		}
+	}
+	if cacheRepo.setData == nil {
+		t.Fatal("cache Set() data = nil, want value")
+	}
+
+	var cached []NewsArticle
+	if err := json.Unmarshal(cacheRepo.setData.Data, &cached); err != nil {
+		t.Fatalf("json.Unmarshal(cache data) error = %v", err)
+	}
+	if len(cached) != len(want) {
+		t.Fatalf("cached data len = %d, want %d", len(cached), len(want))
+	}
+	for i := range want {
+		if cached[i].Title != want[i].Title || !cached[i].PublishedAt.Equal(want[i].PublishedAt) {
+			t.Fatalf("cached data[%d] = %#v, want %#v", i, cached[i], want[i])
+		}
+	}
+}
+
+func TestDataServiceGetSocialSentimentCacheHitReturnsCachedData(t *testing.T) {
+	from := time.Date(2026, 3, 21, 14, 30, 0, 0, time.UTC)
+	to := time.Date(2026, 3, 22, 9, 45, 0, 0, time.UTC)
+	want := []SocialSentiment{
+		{Ticker: "AAPL", Score: 0.4, MeasuredAt: from},
+	}
+	payload, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	provider := &serviceStubProvider{
+		sentimentErr: errors.New("provider should not be called"),
+	}
+	cacheRepo := &fakeMarketDataCacheRepo{
+		getResult: &domain.MarketData{Data: payload},
+	}
+	service := &DataService{
+		stockChain: provider,
+		cacheRepo:  cacheRepo,
+		logger:     discardLogger(),
+		now:        func() time.Time { return to },
+	}
+
+	got, err := service.GetSocialSentiment(context.Background(), domain.MarketTypeStock, "AAPL", from, to)
+	if err != nil {
+		t.Fatalf("GetSocialSentiment() error = %v", err)
+	}
+	if len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("GetSocialSentiment() = %#v, want %#v", got, want)
+	}
+	if provider.sentimentCalls != 0 {
+		t.Fatalf("provider GetSocialSentiment calls = %d, want 0", provider.sentimentCalls)
+	}
+	if len(cacheRepo.getKeys) != 1 {
+		t.Fatalf("cache Get() keys = %d, want 1", len(cacheRepo.getKeys))
+	}
+	if cacheRepo.getKeys[0].DataType != cacheDataTypeSocial {
+		t.Fatalf("cache key data type = %q, want %q", cacheRepo.getKeys[0].DataType, cacheDataTypeSocial)
+	}
+	if cacheRepo.getKeys[0].Timeframe != newsCacheWindow(from, to) {
+		t.Fatalf("cache key timeframe = %q, want %q", cacheRepo.getKeys[0].Timeframe, newsCacheWindow(from, to))
+	}
+}
+
+func TestDataServiceGetSocialSentimentCacheMissCallsChainAndCachesResult(t *testing.T) {
+	now := time.Date(2026, 3, 22, 17, 0, 0, 0, time.UTC)
+	from := now.Add(-2 * time.Hour)
+	to := now
+	provider := &serviceStubProvider{
+		sentiment: []SocialSentiment{
+			{Ticker: "AAPL", Score: 0.8, MeasuredAt: to.Add(time.Minute)},
+			{Ticker: "AAPL", Score: 0.2, MeasuredAt: from.Add(15 * time.Minute)},
+			{Ticker: "AAPL", Score: 0.6, MeasuredAt: to.Add(-10 * time.Minute)},
+			{Ticker: "AAPL", Score: 0.5},
+		},
+	}
+	cacheRepo := &fakeMarketDataCacheRepo{}
+	service := &DataService{
+		stockChain: provider,
+		cacheRepo:  cacheRepo,
+		logger:     discardLogger(),
+		now:        func() time.Time { return now },
+	}
+
+	got, err := service.GetSocialSentiment(context.Background(), domain.MarketTypeStock, "AAPL", from, to)
+	if err != nil {
+		t.Fatalf("GetSocialSentiment() error = %v", err)
+	}
+
+	want := []SocialSentiment{
+		{Ticker: "AAPL", Score: 0.2, MeasuredAt: from.Add(15 * time.Minute)},
+		{Ticker: "AAPL", Score: 0.6, MeasuredAt: to.Add(-10 * time.Minute)},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("GetSocialSentiment() len = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("GetSocialSentiment()[%d] = %#v, want %#v", i, got[i], want[i])
+		}
+	}
+	if provider.sentimentCalls != 1 {
+		t.Fatalf("provider GetSocialSentiment calls = %d, want 1", provider.sentimentCalls)
+	}
+	if cacheRepo.setCalls != 1 {
+		t.Fatalf("cache Set() calls = %d, want 1", cacheRepo.setCalls)
+	}
+	if cacheRepo.setData == nil {
+		t.Fatal("cache Set() data = nil, want value")
+	}
+	if cacheRepo.setData.DataType != cacheDataTypeSocial {
+		t.Fatalf("cache data type = %q, want %q", cacheRepo.setData.DataType, cacheDataTypeSocial)
 	}
 	if cacheRepo.setData.Timeframe != newsCacheWindow(from, to) {
 		t.Fatalf("cache timeframe = %q, want %q", cacheRepo.setData.Timeframe, newsCacheWindow(from, to))
