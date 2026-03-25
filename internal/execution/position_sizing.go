@@ -24,7 +24,7 @@ type PositionSizingParams struct {
 
 // ATRPositionSize calculates the number of shares based on ATR stop distance.
 func ATRPositionSize(accountValue, riskPct, atr, multiplier float64) float64 {
-	if atr <= 0 || multiplier <= 0 {
+	if accountValue <= 0 || riskPct <= 0 || atr <= 0 || multiplier <= 0 {
 		return 0
 	}
 
@@ -33,7 +33,7 @@ func ATRPositionSize(accountValue, riskPct, atr, multiplier float64) float64 {
 
 // KellyPositionSize calculates the account value allocation using the Kelly criterion.
 func KellyPositionSize(accountValue, winRate, winLossRatio float64) float64 {
-	if winLossRatio <= 0 {
+	if accountValue <= 0 || winRate < 0 || winRate > 1 || winLossRatio <= 0 {
 		return 0
 	}
 
@@ -47,7 +47,7 @@ func KellyPositionSize(accountValue, winRate, winLossRatio float64) float64 {
 
 // FixedFractionalSize calculates the number of shares to buy using a fixed account fraction.
 func FixedFractionalSize(accountValue, fractionPct, pricePerShare float64) float64 {
-	if pricePerShare <= 0 {
+	if accountValue <= 0 || fractionPct <= 0 || pricePerShare <= 0 {
 		return 0
 	}
 

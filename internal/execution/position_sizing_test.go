@@ -1,6 +1,7 @@
 package execution_test
 
 import (
+	"math"
 	"testing"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/execution"
@@ -12,9 +13,7 @@ func TestATRPositionSize(t *testing.T) {
 	got := execution.ATRPositionSize(100000, 0.02, 5, 2)
 	want := 200.0
 
-	if got != want {
-		t.Fatalf("ATRPositionSize() = %v, want %v", got, want)
-	}
+	assertFloatClose(t, got, want)
 }
 
 func TestKellyPositionSize(t *testing.T) {
@@ -23,9 +22,7 @@ func TestKellyPositionSize(t *testing.T) {
 	got := execution.KellyPositionSize(100000, 0.60, 2)
 	want := 40000.0
 
-	if got != want {
-		t.Fatalf("KellyPositionSize() = %v, want %v", got, want)
-	}
+	assertFloatClose(t, got, want)
 }
 
 func TestFixedFractionalSize(t *testing.T) {
@@ -34,8 +31,48 @@ func TestFixedFractionalSize(t *testing.T) {
 	got := execution.FixedFractionalSize(100000, 0.10, 50)
 	want := 200.0
 
-	if got != want {
-		t.Fatalf("FixedFractionalSize() = %v, want %v", got, want)
+	assertFloatClose(t, got, want)
+}
+
+func TestPositionSizingReturnsZeroForInvalidInputs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		got  float64
+	}{
+		{
+			name: "atr with non-positive account value",
+			got:  execution.ATRPositionSize(0, 0.02, 5, 2),
+		},
+		{
+			name: "atr with non-positive risk percent",
+			got:  execution.ATRPositionSize(100000, -0.02, 5, 2),
+		},
+		{
+			name: "kelly with out of range win rate",
+			got:  execution.KellyPositionSize(100000, 1.2, 2),
+		},
+		{
+			name: "kelly with negative expectation",
+			got:  execution.KellyPositionSize(100000, 0.30, 2),
+		},
+		{
+			name: "fixed fractional with non-positive account value",
+			got:  execution.FixedFractionalSize(-100000, 0.10, 50),
+		},
+		{
+			name: "fixed fractional with non-positive fraction",
+			got:  execution.FixedFractionalSize(100000, 0, 50),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.got != 0 {
+				t.Fatalf("%s = %v, want 0", tc.name, tc.got)
+			}
+		})
 	}
 }
 
@@ -94,12 +131,18 @@ func TestCalculatePositionSize(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
 			got := execution.CalculatePositionSize(tc.method, tc.params)
-			if got != tc.want {
-				t.Fatalf("CalculatePositionSize(%q) = %v, want %v", tc.name, got, tc.want)
-			}
+			assertFloatClose(t, got, tc.want)
 		})
+	}
+}
+
+func assertFloatClose(t *testing.T, got, want float64) {
+	t.Helper()
+
+	const tolerance = 1e-9
+
+	if math.Abs(got-want) > tolerance {
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }
