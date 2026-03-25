@@ -294,10 +294,13 @@ func TestComputeOutcome_Profit(t *testing.T) {
 		t.Fatal("computeOutcome() returned empty string")
 	}
 
-	for _, want := range []string{"profit", "50.00", "5.00%", "d "} {
+	for _, want := range []string{"profit", "50.00", "5.00%"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("computeOutcome() = %q, want substring %q", out, want)
 		}
+	}
+	if strings.Contains(out, "still open") {
+		t.Errorf("computeOutcome() = %q, should not contain 'still open' for closed position", out)
 	}
 }
 
