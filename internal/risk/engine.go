@@ -21,4 +21,5 @@ type RiskEngine interface {
 	IsKillSwitchActive(ctx context.Context) (bool, error)
 	ActivateKillSwitch(ctx context.Context, reason string) error
 	DeactivateKillSwitch(ctx context.Context) error
+	UpdateMetrics(ctx context.Context, dailyPnL, totalDrawdown float64, consecutiveLosses int) error
 }
