@@ -825,7 +825,7 @@ func TestKillSwitch_EnvVarDetection(t *testing.T) {
 
 	// Simulate env var set.
 	engine.getEnvFunc = func(key string) string {
-		if key == "TRADING_AGENT_KILL" {
+		if key == killSwitchEnvVar {
 			return "true"
 		}
 		return ""
@@ -859,7 +859,7 @@ func TestKillSwitch_EnvVarDetection(t *testing.T) {
 
 	// Non-"true" value should not activate.
 	engine.getEnvFunc = func(key string) string {
-		if key == "TRADING_AGENT_KILL" {
+		if key == killSwitchEnvVar {
 			return "false"
 		}
 		return ""

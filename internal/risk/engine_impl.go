@@ -53,9 +53,17 @@ type RiskEngineImpl struct {
 }
 
 // defaultFileExists checks whether the given path exists on the filesystem.
+// For safety-critical kill switch behavior, any error other than "not exists"
+// (e.g., permission denied, transient I/O error) is treated as if the file exists.
 func defaultFileExists(path string) bool {
 	_, err := os.Stat(path)
-	return err == nil
+	if err == nil {
+		return true
+	}
+	if os.IsNotExist(err) {
+		return false
+	}
+	return true
 }
 
 // NewRiskEngine creates a new RiskEngineImpl.
@@ -331,7 +339,7 @@ func (e *RiskEngineImpl) ActivateKillSwitch(ctx context.Context, reason string) 
 	e.state.mu.Lock()
 	defer e.state.mu.Unlock()
 
-	now := time.Now()
+	now := e.nowFunc()
 	e.state.ks = KillSwitchStatus{
 		Active:      true,
 		Reason:      reason,
