@@ -476,7 +476,7 @@ func TestRiskDebateContextCanceled(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Cancel context after first round completes.
+	// Cancel context during the first round's aggressive call.
 	agg := &stubNode{
 		name:    "aggressive_risk",
 		role:    agent.AgentRoleAggressiveRisk,
@@ -515,8 +515,8 @@ func TestRiskDebateContextCanceled(t *testing.T) {
 		t.Fatal("Execute() error = nil, want non-nil")
 	}
 
-	// Round 1 should complete (aggressive + conservative + neutral), then
-	// context check before round 2 should fail.
+	// Execution must not start a second round; cancellation during the first
+	// round should prevent round 2 (and its manager) from running.
 	if got := len(state.RiskDebate.Rounds); got != 1 {
 		t.Fatalf("rounds = %d, want 1 (context should stop before round 2)", got)
 	}
