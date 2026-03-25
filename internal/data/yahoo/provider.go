@@ -220,12 +220,12 @@ func (p *Provider) GetNews(_ context.Context, _ string, _, _ time.Time) ([]data.
 }
 
 // GetSocialSentiment is not supported by the Yahoo provider yet.
-func (p *Provider) GetSocialSentiment(_ context.Context, _ string) (data.SocialSentiment, error) {
+func (p *Provider) GetSocialSentiment(_ context.Context, _ string, _, _ time.Time) ([]data.SocialSentiment, error) {
 	if p == nil {
-		return data.SocialSentiment{}, errors.New("yahoo: provider is nil")
+		return nil, errors.New("yahoo: provider is nil")
 	}
 
-	return data.SocialSentiment{}, fmt.Errorf("yahoo: GetSocialSentiment: %w", data.ErrNotImplemented)
+	return nil, fmt.Errorf("yahoo: GetSocialSentiment: %w", data.ErrNotImplemented)
 }
 
 func mapTimeframe(timeframe data.Timeframe) (timeframeMapping, error) {

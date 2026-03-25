@@ -225,12 +225,12 @@ func (p *Provider) GetNews(ctx context.Context, ticker string, from, to time.Tim
 }
 
 // GetSocialSentiment is not supported by the Polygon provider yet.
-func (p *Provider) GetSocialSentiment(_ context.Context, _ string) (data.SocialSentiment, error) {
+func (p *Provider) GetSocialSentiment(_ context.Context, _ string, _, _ time.Time) ([]data.SocialSentiment, error) {
 	if p == nil {
-		return data.SocialSentiment{}, errors.New("polygon: provider is nil")
+		return nil, errors.New("polygon: provider is nil")
 	}
 
-	return data.SocialSentiment{}, fmt.Errorf("polygon: GetSocialSentiment: %w", data.ErrNotImplemented)
+	return nil, fmt.Errorf("polygon: GetSocialSentiment: %w", data.ErrNotImplemented)
 }
 
 func mapTimeframe(timeframe data.Timeframe) (timeframeMapping, error) {
