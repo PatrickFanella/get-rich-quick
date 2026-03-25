@@ -118,9 +118,9 @@ func (s *Scheduler) Start() error {
 			s.runStrategy(strategy)
 		})
 		if err != nil {
-			_, cancelFunc := s.clearStateLocked()
-			if cancelFunc != nil {
-				cancelFunc()
+			_, cancel := s.clearStateLocked()
+			if cancel != nil {
+				cancel()
 			}
 			return fmt.Errorf("scheduler: register strategy %s schedule %q: %w", strategy.ID, spec, err)
 		}
