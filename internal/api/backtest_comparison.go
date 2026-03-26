@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -18,7 +19,7 @@ import (
 const (
 	defaultBacktestComparisonLimit = 50
 	backtestComparisonPageSize     = 100
-	maxBacktestWindowSize          = int(^uint(0) >> 1)
+	maxBacktestWindowSize          = math.MaxInt
 )
 
 // BacktestComparisonAPI exposes filtered historical backtest queries and

@@ -134,7 +134,7 @@ func TestBacktestComparisonAPIRejectsInvalidRequests(t *testing.T) {
 
 	_, err = api.QueryHistoricalRuns(context.Background(), HistoricalBacktestRunsQuery{
 		Limit:  2,
-		Offset: int(^uint(0)>>1) - 1,
+		Offset: maxBacktestWindowSize - 1,
 	})
 	if err == nil || !strings.Contains(err.Error(), "limit + offset") {
 		t.Fatalf("expected limit+offset validation error, got %v", err)
