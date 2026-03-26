@@ -1,6 +1,7 @@
 package backtest
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -43,8 +44,8 @@ func TestGenerateEquityCurveReportTracksDrawdownsAndRecoveries(t *testing.T) {
 	assertFloatEqual(t, point.PeakEquity, 110, "Points[3].PeakEquity")
 	assertFloatEqual(t, point.DrawdownValue, 20, "Points[3].DrawdownValue")
 	assertFloatEqual(t, point.DrawdownPct, 20.0/110.0, "Points[3].DrawdownPct")
-	if point.DrawdownDuration != 2*time.Hour {
-		t.Fatalf("Points[3].DrawdownDuration = %s, want %s", point.DrawdownDuration, 2*time.Hour)
+	if point.DrawdownDuration.Duration() != 2*time.Hour {
+		t.Fatalf("Points[3].DrawdownDuration = %s, want %s", point.DrawdownDuration.Duration(), 2*time.Hour)
 	}
 
 	first := report.DrawdownPeriods[0]
@@ -65,8 +66,8 @@ func TestGenerateEquityCurveReportTracksDrawdownsAndRecoveries(t *testing.T) {
 	assertFloatEqual(t, *first.RecoveryEquity, 110, "DrawdownPeriods[0].RecoveryEquity")
 	assertFloatEqual(t, first.DepthValue, 20, "DrawdownPeriods[0].DepthValue")
 	assertFloatEqual(t, first.DepthPct, 20.0/110.0, "DrawdownPeriods[0].DepthPct")
-	if first.Duration != 4*time.Hour {
-		t.Fatalf("DrawdownPeriods[0].Duration = %s, want %s", first.Duration, 4*time.Hour)
+	if first.Duration.Duration() != 4*time.Hour {
+		t.Fatalf("DrawdownPeriods[0].Duration = %s, want %s", first.Duration.Duration(), 4*time.Hour)
 	}
 
 	second := report.DrawdownPeriods[1]
@@ -83,8 +84,8 @@ func TestGenerateEquityCurveReportTracksDrawdownsAndRecoveries(t *testing.T) {
 	assertFloatEqual(t, second.TroughEquity, 108, "DrawdownPeriods[1].TroughEquity")
 	assertFloatEqual(t, second.DepthValue, 12, "DrawdownPeriods[1].DepthValue")
 	assertFloatEqual(t, second.DepthPct, 0.1, "DrawdownPeriods[1].DepthPct")
-	if second.Duration != time.Hour {
-		t.Fatalf("DrawdownPeriods[1].Duration = %s, want %s", second.Duration, time.Hour)
+	if second.Duration.Duration() != time.Hour {
+		t.Fatalf("DrawdownPeriods[1].Duration = %s, want %s", second.Duration.Duration(), time.Hour)
 	}
 }
 
@@ -97,5 +98,34 @@ func TestGenerateEquityCurveReportHandlesEmptyCurve(t *testing.T) {
 	}
 	if len(report.DrawdownPeriods) != 0 {
 		t.Fatalf("len(DrawdownPeriods) = %d, want 0", len(report.DrawdownPeriods))
+	}
+}
+
+func TestGenerateEquityCurveReportJSONUsesEmptyArraysAndDurationStrings(t *testing.T) {
+	t.Parallel()
+
+	emptyReport := GenerateEquityCurveReport(nil)
+	emptyPayload, err := json.Marshal(emptyReport)
+	if err != nil {
+		t.Fatalf("json.Marshal(emptyReport) error = %v", err)
+	}
+	if string(emptyPayload) != `{"points":[],"drawdown_periods":[]}` {
+		t.Fatalf("json.Marshal(emptyReport) = %s, want %s", string(emptyPayload), `{"points":[],"drawdown_periods":[]}`)
+	}
+
+	start := time.Date(2026, 3, 1, 9, 30, 0, 0, time.UTC)
+	report := GenerateEquityCurveReport([]EquityPoint{
+		{Timestamp: start, Equity: 100},
+		{Timestamp: start.Add(time.Hour), Equity: 90},
+	})
+
+	payload, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("json.Marshal(report) error = %v", err)
+	}
+
+	expected := `{"points":[{"timestamp":"2026-03-01T09:30:00Z","cash":0,"market_value":0,"portfolio_value":100,"realized_pnl":0,"unrealized_pnl":0,"total_pnl":0,"peak_equity":100,"drawdown_value":0,"drawdown_pct":0,"drawdown_duration":"0s"},{"timestamp":"2026-03-01T10:30:00Z","cash":0,"market_value":0,"portfolio_value":90,"realized_pnl":0,"unrealized_pnl":0,"total_pnl":0,"peak_equity":100,"drawdown_value":10,"drawdown_pct":0.1,"drawdown_duration":"1h0m0s"}],"drawdown_periods":[{"start_timestamp":"2026-03-01T09:30:00Z","trough_timestamp":"2026-03-01T10:30:00Z","peak_equity":100,"trough_equity":90,"depth_value":10,"depth_pct":0.1,"duration":"1h0m0s"}]}`
+	if string(payload) != expected {
+		t.Fatalf("json.Marshal(report) = %s, want %s", string(payload), expected)
 	}
 }
