@@ -38,8 +38,8 @@ func TestComputeTradeAnalyticsHoldingPeriodsAndExtremes(t *testing.T) {
 	if a.HoldingPeriods.Median != 36*time.Hour {
 		t.Errorf("HoldingPeriods.Median = %v, want 36h", a.HoldingPeriods.Median)
 	}
-	if math.Abs(a.TradeFrequencyPerDay-0.4) > 1e-9 {
-		t.Errorf("TradeFrequencyPerDay = %f, want 0.4", a.TradeFrequencyPerDay)
+	if math.Abs(a.TradeFrequencyPerDay-0.5) > 1e-9 {
+		t.Errorf("TradeFrequencyPerDay = %f, want 0.5", a.TradeFrequencyPerDay)
 	}
 	if a.LargestSingleWin != 10 {
 		t.Errorf("LargestSingleWin = %f, want 10", a.LargestSingleWin)

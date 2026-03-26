@@ -178,7 +178,7 @@ func ComputeTradeAnalytics(trades []domain.Trade, periodStart, periodEnd time.Ti
 	}
 
 	if !periodStart.IsZero() && !periodEnd.IsZero() && !periodEnd.Before(periodStart) {
-		days := periodEnd.Sub(periodStart).Hours()/24 + 1
+		days := periodEnd.Sub(periodStart).Hours() / 24
 		if days > 0 {
 			analytics.TradeFrequencyPerDay = float64(analytics.ClosedTrades) / days
 		}
