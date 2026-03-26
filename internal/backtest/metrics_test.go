@@ -191,6 +191,26 @@ func TestComputeMetricsCalmarZeroWhenNoDrawdown(t *testing.T) {
 	}
 }
 
+func TestComputeMetricsCalmarZeroWhenEndingEquityNonPositive(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	curve := []EquityPoint{
+		{Timestamp: base, Equity: 100},
+		{Timestamp: base.Add(24 * time.Hour), Equity: 120},
+		{Timestamp: base.Add(48 * time.Hour), Equity: -10},
+		{Timestamp: base.Add(366 * 24 * time.Hour), Equity: -10},
+	}
+	m := ComputeMetrics(curve)
+
+	if m.MaxDrawdown <= 0 {
+		t.Errorf("MaxDrawdown = %f, want > 0", m.MaxDrawdown)
+	}
+	if m.CalmarRatio != 0 {
+		t.Errorf("CalmarRatio = %f, want 0 for non-positive equity ratio", m.CalmarRatio)
+	}
+}
+
 func TestComputeMetricsTimestamps(t *testing.T) {
 	t.Parallel()
 
