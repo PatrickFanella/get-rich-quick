@@ -192,11 +192,14 @@ func (s *Scheduler) Start() error {
 			s.runBacktest(config)
 		})
 		if err != nil {
-			_, cancel := s.clearStateLocked()
-			if cancel != nil {
-				cancel()
-			}
-			return fmt.Errorf("scheduler: register backtest %s schedule %q: %w", config.ID, spec, err)
+			s.logger.Error("scheduler: failed to register backtest schedule, skipping",
+				slog.String("backtest_config_id", config.ID.String()),
+				slog.String("strategy_id", config.StrategyID.String()),
+				slog.String("name", config.Name),
+				slog.String("schedule", spec),
+				slog.Any("error", err),
+			)
+			continue
 		}
 
 		registered++
