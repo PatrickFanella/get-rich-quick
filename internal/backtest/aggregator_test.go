@@ -124,9 +124,9 @@ func TestRunMulti_VaryingRuns(t *testing.T) {
 	assertFloat(t, "TotalReturn.Min", agg.TotalReturn.Min, 0.10)
 	assertFloat(t, "TotalReturn.Max", agg.TotalReturn.Max, 0.30)
 
-	// Population stddev of {0.10, 0.20, 0.30} = sqrt(2/300) ≈ 0.08165
-	if math.Abs(agg.TotalReturn.StdDev-0.08165) > 0.001 {
-		t.Errorf("TotalReturn.StdDev: got %f, want ~0.08165", agg.TotalReturn.StdDev)
+	// Sample stddev of {0.10, 0.20, 0.30} = 0.10
+	if math.Abs(agg.TotalReturn.StdDev-0.10) > 0.001 {
+		t.Errorf("TotalReturn.StdDev: got %f, want ~0.10", agg.TotalReturn.StdDev)
 	}
 
 	assertFloat(t, "SharpeRatio.Mean", agg.SharpeRatio.Mean, 2.0)
@@ -140,8 +140,8 @@ func TestMetricStats_ConfidenceInterval_95(t *testing.T) {
 	stats := computeStats([]float64{10, 20, 30})
 	lower, upper := stats.ConfidenceInterval(0.95)
 
-	// mean=20, sd=8.165, se=8.165/sqrt(3)=4.714, margin=4.303*4.714≈20.28
-	expectedMargin := 4.303 * (stats.StdDev / math.Sqrt(3))
+	// mean=20, sample sd=10, se=10/sqrt(3)=5.774, margin=4.303*5.774≈24.86
+	expectedMargin := 4.303 * (stats.StdDev / math.Sqrt(float64(stats.N)))
 	assertFloat(t, "lower", lower, stats.Mean-expectedMargin)
 	assertFloat(t, "upper", upper, stats.Mean+expectedMargin)
 }
@@ -170,7 +170,7 @@ func TestMetricStats_ConfidenceInterval_LargeN(t *testing.T) {
 	stats := computeStats(values)
 	lower, upper := stats.ConfidenceInterval(0.95)
 
-	se := stats.StdDev / math.Sqrt(50)
+	se := stats.StdDev / math.Sqrt(float64(stats.N))
 	expectedMargin := 1.960 * se
 	assertFloat(t, "lower", lower, stats.Mean-expectedMargin)
 	assertFloat(t, "upper", upper, stats.Mean+expectedMargin)

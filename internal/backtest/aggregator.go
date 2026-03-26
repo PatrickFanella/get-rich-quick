@@ -33,28 +33,28 @@ type MultiRunResult struct {
 // MetricStats holds descriptive statistics for a single metric across runs.
 type MetricStats struct {
 	Mean   float64
-	StdDev float64
+	StdDev float64 // sample standard deviation (n-1 denominator)
 	Min    float64
 	Max    float64
-	Values []float64
+	N      int       // effective sample size (finite values only)
+	Values []float64 // all raw values including non-finite
 }
 
 // ConfidenceInterval returns the lower and upper bounds of a confidence
 // interval using t-distribution critical values. Supported levels are
 // 0.90, 0.95, and 0.99. An unsupported level returns (NaN, NaN).
-// With fewer than 2 values the interval collapses to [Mean, Mean].
+// With fewer than 2 finite values the interval collapses to [Mean, Mean].
 func (s MetricStats) ConfidenceInterval(level float64) (lower, upper float64) {
-	n := len(s.Values)
-	if n < 2 {
+	if s.N < 2 {
 		return s.Mean, s.Mean
 	}
 
-	t, ok := tCritical(n-1, level)
+	t, ok := tCritical(s.N-1, level)
 	if !ok {
 		return math.NaN(), math.NaN()
 	}
 
-	se := s.StdDev / math.Sqrt(float64(n))
+	se := s.StdDev / math.Sqrt(float64(s.N))
 	margin := t * se
 	return s.Mean - margin, s.Mean + margin
 }
@@ -71,9 +71,11 @@ type AggregatedMetrics struct {
 	ProfitFactor    MetricStats
 	AvgWinLossRatio MetricStats
 	Volatility      MetricStats
+	StartEquity     MetricStats
 	EndEquity       MetricStats
 	RealizedPnL     MetricStats
 	UnrealizedPnL   MetricStats
+	TotalBars       MetricStats
 }
 
 // RunMulti executes cfg.RunFunc the specified number of times and aggregates
@@ -93,6 +95,9 @@ func RunMulti(ctx context.Context, cfg MultiRunConfig) (*MultiRunResult, error) 
 		result, err := cfg.RunFunc(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("aggregator: run %d failed: %w", i+1, err)
+		}
+		if result == nil {
+			return nil, fmt.Errorf("aggregator: run %d returned nil result", i+1)
 		}
 
 		individual = append(individual, result.Metrics)
@@ -126,9 +131,11 @@ func aggregateMetrics(metrics []Metrics) AggregatedMetrics {
 	profitFactor := make([]float64, n)
 	avgWinLoss := make([]float64, n)
 	volatility := make([]float64, n)
+	startEquity := make([]float64, n)
 	endEquity := make([]float64, n)
 	realizedPnL := make([]float64, n)
 	unrealizedPnL := make([]float64, n)
+	totalBars := make([]float64, n)
 
 	for i, m := range metrics {
 		totalReturn[i] = m.TotalReturn
@@ -140,9 +147,11 @@ func aggregateMetrics(metrics []Metrics) AggregatedMetrics {
 		profitFactor[i] = m.ProfitFactor
 		avgWinLoss[i] = m.AvgWinLossRatio
 		volatility[i] = m.Volatility
+		startEquity[i] = m.StartEquity
 		endEquity[i] = m.EndEquity
 		realizedPnL[i] = m.RealizedPnL
 		unrealizedPnL[i] = m.UnrealizedPnL
+		totalBars[i] = float64(m.TotalBars)
 	}
 
 	return AggregatedMetrics{
@@ -155,9 +164,11 @@ func aggregateMetrics(metrics []Metrics) AggregatedMetrics {
 		ProfitFactor:    computeStats(profitFactor),
 		AvgWinLossRatio: computeStats(avgWinLoss),
 		Volatility:      computeStats(volatility),
+		StartEquity:     computeStats(startEquity),
 		EndEquity:       computeStats(endEquity),
 		RealizedPnL:     computeStats(realizedPnL),
 		UnrealizedPnL:   computeStats(unrealizedPnL),
+		TotalBars:       computeStats(totalBars),
 	}
 }
 
@@ -181,12 +192,13 @@ func computeStats(values []float64) MetricStats {
 			StdDev: math.NaN(),
 			Min:    math.NaN(),
 			Max:    math.NaN(),
+			N:      0,
 			Values: values,
 		}
 	}
 
 	avg := mean(finite)
-	sd := stddev(finite, avg)
+	sd := sampleStddev(finite, avg)
 
 	minVal := finite[0]
 	maxVal := finite[0]
@@ -204,8 +216,23 @@ func computeStats(values []float64) MetricStats {
 		StdDev: sd,
 		Min:    minVal,
 		Max:    maxVal,
+		N:      len(finite),
 		Values: values,
 	}
+}
+
+// sampleStddev computes the sample standard deviation (Bessel-corrected,
+// n-1 denominator) given a pre-computed mean. Returns 0 when len < 2.
+func sampleStddev(values []float64, avg float64) float64 {
+	if len(values) < 2 {
+		return 0
+	}
+	var sumSq float64
+	for _, v := range values {
+		d := v - avg
+		sumSq += d * d
+	}
+	return math.Sqrt(sumSq / float64(len(values)-1))
 }
 
 // tKey identifies a (degrees-of-freedom, confidence-level) pair in the
