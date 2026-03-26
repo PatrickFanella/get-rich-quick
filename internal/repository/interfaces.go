@@ -24,6 +24,14 @@ type BacktestConfigFilter struct {
 	CreatedBefore *time.Time
 }
 
+// BacktestRunFilter defines supported filters when listing persisted backtest runs.
+type BacktestRunFilter struct {
+	BacktestConfigID *uuid.UUID
+	PromptVersion    string
+	RunAfter         *time.Time
+	RunBefore        *time.Time
+}
+
 // PipelineRunFilter defines supported filters when listing pipeline runs.
 type PipelineRunFilter struct {
 	StrategyID    *uuid.UUID
@@ -147,6 +155,13 @@ type BacktestConfigRepository interface {
 	List(ctx context.Context, filter BacktestConfigFilter, limit, offset int) ([]domain.BacktestConfig, error)
 	Update(ctx context.Context, config *domain.BacktestConfig) error
 	Delete(ctx context.Context, id uuid.UUID) error
+}
+
+// BacktestRunRepository provides access to persisted backtest run results.
+type BacktestRunRepository interface {
+	Create(ctx context.Context, run *domain.BacktestRun) error
+	Get(ctx context.Context, id uuid.UUID) (*domain.BacktestRun, error)
+	List(ctx context.Context, filter BacktestRunFilter, limit, offset int) ([]domain.BacktestRun, error)
 }
 
 // PipelineRunRepository provides access to pipeline runs.

@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -429,6 +430,125 @@ func TestBacktestConfigValidate(t *testing.T) {
 			}
 			if err == nil {
 				t.Fatal("BacktestConfig.Validate() expected error, got nil")
+			}
+		})
+	}
+}
+
+func TestBacktestRunValidate(t *testing.T) {
+	valid := &BacktestRun{
+		BacktestConfigID: uuid.New(),
+		Metrics:          json.RawMessage(`{"total_return":0.12}`),
+		TradeLog:         json.RawMessage(`[]`),
+		EquityCurve:      json.RawMessage(`[]`),
+		RunTimestamp:     time.Date(2024, 1, 3, 21, 0, 0, 0, time.UTC),
+		Duration:         37 * time.Minute,
+		PromptVersion:    "prompt-v1",
+	}
+
+	tests := []struct {
+		name string
+		run  *BacktestRun
+	}{
+		{name: "valid run", run: valid},
+		{name: "nil run", run: nil},
+		{name: "missing backtest config id", run: &BacktestRun{
+			Metrics:       valid.Metrics,
+			TradeLog:      valid.TradeLog,
+			EquityCurve:   valid.EquityCurve,
+			RunTimestamp:  valid.RunTimestamp,
+			Duration:      valid.Duration,
+			PromptVersion: valid.PromptVersion,
+		}},
+		{name: "missing metrics", run: &BacktestRun{
+			BacktestConfigID: valid.BacktestConfigID,
+			TradeLog:         valid.TradeLog,
+			EquityCurve:      valid.EquityCurve,
+			RunTimestamp:     valid.RunTimestamp,
+			Duration:         valid.Duration,
+			PromptVersion:    valid.PromptVersion,
+		}},
+		{name: "invalid metrics json", run: &BacktestRun{
+			BacktestConfigID: valid.BacktestConfigID,
+			Metrics:          json.RawMessage(`{"total_return":`),
+			TradeLog:         valid.TradeLog,
+			EquityCurve:      valid.EquityCurve,
+			RunTimestamp:     valid.RunTimestamp,
+			Duration:         valid.Duration,
+			PromptVersion:    valid.PromptVersion,
+		}},
+		{name: "missing trade log", run: &BacktestRun{
+			BacktestConfigID: valid.BacktestConfigID,
+			Metrics:          valid.Metrics,
+			EquityCurve:      valid.EquityCurve,
+			RunTimestamp:     valid.RunTimestamp,
+			Duration:         valid.Duration,
+			PromptVersion:    valid.PromptVersion,
+		}},
+		{name: "invalid trade log json", run: &BacktestRun{
+			BacktestConfigID: valid.BacktestConfigID,
+			Metrics:          valid.Metrics,
+			TradeLog:         json.RawMessage(`[}`),
+			EquityCurve:      valid.EquityCurve,
+			RunTimestamp:     valid.RunTimestamp,
+			Duration:         valid.Duration,
+			PromptVersion:    valid.PromptVersion,
+		}},
+		{name: "missing equity curve", run: &BacktestRun{
+			BacktestConfigID: valid.BacktestConfigID,
+			Metrics:          valid.Metrics,
+			TradeLog:         valid.TradeLog,
+			RunTimestamp:     valid.RunTimestamp,
+			Duration:         valid.Duration,
+			PromptVersion:    valid.PromptVersion,
+		}},
+		{name: "invalid equity curve json", run: &BacktestRun{
+			BacktestConfigID: valid.BacktestConfigID,
+			Metrics:          valid.Metrics,
+			TradeLog:         valid.TradeLog,
+			EquityCurve:      json.RawMessage(`[`),
+			RunTimestamp:     valid.RunTimestamp,
+			Duration:         valid.Duration,
+			PromptVersion:    valid.PromptVersion,
+		}},
+		{name: "missing run timestamp", run: &BacktestRun{
+			BacktestConfigID: valid.BacktestConfigID,
+			Metrics:          valid.Metrics,
+			TradeLog:         valid.TradeLog,
+			EquityCurve:      valid.EquityCurve,
+			Duration:         valid.Duration,
+			PromptVersion:    valid.PromptVersion,
+		}},
+		{name: "negative duration", run: &BacktestRun{
+			BacktestConfigID: valid.BacktestConfigID,
+			Metrics:          valid.Metrics,
+			TradeLog:         valid.TradeLog,
+			EquityCurve:      valid.EquityCurve,
+			RunTimestamp:     valid.RunTimestamp,
+			Duration:         -time.Second,
+			PromptVersion:    valid.PromptVersion,
+		}},
+		{name: "empty prompt version", run: &BacktestRun{
+			BacktestConfigID: valid.BacktestConfigID,
+			Metrics:          valid.Metrics,
+			TradeLog:         valid.TradeLog,
+			EquityCurve:      valid.EquityCurve,
+			RunTimestamp:     valid.RunTimestamp,
+			Duration:         valid.Duration,
+		}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.run.Validate()
+			if tc.name == "valid run" {
+				if err != nil {
+					t.Fatalf("BacktestRun.Validate() unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("BacktestRun.Validate() expected error, got nil")
 			}
 		})
 	}
