@@ -248,7 +248,7 @@ func normalizeBacktestQuery(query HistoricalBacktestRunsQuery) (int, int, error)
 		return 0, 0, fmt.Errorf("api: limit must be positive")
 	}
 	if query.Offset > maxBacktestWindowSize-limit {
-		return 0, 0, fmt.Errorf("api: limit + offset exceeds supported range")
+		return 0, 0, fmt.Errorf("api: limit + offset must not exceed %d", maxBacktestWindowSize)
 	}
 	return limit, query.Offset, nil
 }
