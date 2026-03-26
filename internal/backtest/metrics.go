@@ -13,20 +13,22 @@ const (
 
 // Metrics holds computed performance statistics derived from an equity curve.
 type Metrics struct {
-	TotalReturn    float64 // (final equity − initial equity) / initial equity
-	MaxDrawdown    float64 // worst peak-to-trough drawdown (positive value)
-	SharpeRatio    float64 // annualised risk-adjusted return (risk-free = 0)
-	SortinoRatio   float64 // annualised downside risk-adjusted return
-	WinRate        float64 // fraction of bars with positive returns
-	ProfitFactor   float64 // gross profits / gross losses (Inf when no losses)
-	Volatility     float64 // annualised standard deviation of returns
-	StartEquity    float64
-	EndEquity      float64
-	StartTime      time.Time
-	EndTime        time.Time
-	TotalBars      int
-	RealizedPnL    float64
-	UnrealizedPnL  float64
+	TotalReturn     float64 // (final equity − initial equity) / initial equity
+	MaxDrawdown     float64 // worst peak-to-trough drawdown (positive value)
+	CalmarRatio     float64 // annualised return / max drawdown
+	SharpeRatio     float64 // annualised risk-adjusted return (risk-free = 0)
+	SortinoRatio    float64 // annualised downside risk-adjusted return
+	WinRate         float64 // fraction of bars with positive returns
+	ProfitFactor    float64 // gross profits / gross losses (Inf when no losses)
+	AvgWinLossRatio float64 // average positive return / average absolute negative return
+	Volatility      float64 // annualised standard deviation of returns
+	StartEquity     float64
+	EndEquity       float64
+	StartTime       time.Time
+	EndTime         time.Time
+	TotalBars       int
+	RealizedPnL     float64
+	UnrealizedPnL   float64
 }
 
 // ComputeMetrics calculates performance metrics from an equity curve.
@@ -39,12 +41,12 @@ func ComputeMetrics(curve []EquityPoint) Metrics {
 	}
 
 	m := Metrics{
-		TotalBars:   len(curve),
-		StartEquity: curve[0].Equity,
-		EndEquity:   curve[len(curve)-1].Equity,
-		StartTime:   curve[0].Timestamp,
-		EndTime:     curve[len(curve)-1].Timestamp,
-		RealizedPnL: curve[len(curve)-1].RealizedPnL,
+		TotalBars:     len(curve),
+		StartEquity:   curve[0].Equity,
+		EndEquity:     curve[len(curve)-1].Equity,
+		StartTime:     curve[0].Timestamp,
+		EndTime:       curve[len(curve)-1].Timestamp,
+		RealizedPnL:   curve[len(curve)-1].RealizedPnL,
 		UnrealizedPnL: curve[len(curve)-1].UnrealizedPnL,
 	}
 
@@ -99,6 +101,18 @@ func ComputeMetrics(curve []EquityPoint) Metrics {
 		m.SortinoRatio = (meanRet / downDev) * math.Sqrt(annualTradingDays)
 	}
 
+	// Calmar ratio: CAGR / max drawdown.
+	if m.MaxDrawdown > 0 && m.StartEquity > 0 && !m.StartTime.IsZero() && !m.EndTime.IsZero() && m.EndTime.After(m.StartTime) {
+		years := m.EndTime.Sub(m.StartTime).Hours() / (24.0 * 365.25)
+		if years > 0 {
+			equityRatio := m.EndEquity / m.StartEquity
+			if equityRatio > 0 {
+				cagr := math.Pow(equityRatio, 1.0/years) - 1.0
+				m.CalmarRatio = cagr / m.MaxDrawdown
+			}
+		}
+	}
+
 	// Win rate and profit factor.
 	var wins, losses int
 	var grossProfit, grossLoss float64
@@ -120,6 +134,15 @@ func ComputeMetrics(curve []EquityPoint) Metrics {
 		m.ProfitFactor = grossProfit / grossLoss
 	} else if grossProfit > 0 {
 		m.ProfitFactor = math.Inf(1)
+	}
+	if wins > 0 && losses > 0 {
+		avgWin := grossProfit / float64(wins)
+		avgLoss := grossLoss / float64(losses)
+		if avgLoss > 0 {
+			m.AvgWinLossRatio = avgWin / avgLoss
+		}
+	} else if wins > 0 {
+		m.AvgWinLossRatio = math.Inf(1)
 	}
 
 	return m
