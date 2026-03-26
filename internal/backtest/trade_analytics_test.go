@@ -2,6 +2,7 @@ package backtest
 
 import (
 	"math"
+	"slices"
 	"testing"
 	"time"
 
@@ -93,5 +94,60 @@ func TestComputeTradeAnalyticsNoClosedTrades(t *testing.T) {
 	}
 	if a.MaxConsecutiveLosses != 0 {
 		t.Errorf("MaxConsecutiveLosses = %d, want 0", a.MaxConsecutiveLosses)
+	}
+}
+
+func TestComputeTradeAnalyticsLargestSingleLossZeroWhenAllWins(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	trades := []domain.Trade{
+		{ID: uuid.New(), Ticker: "AAPL", Side: domain.OrderSideBuy, Quantity: 1, Price: 100, ExecutedAt: base},
+		{ID: uuid.New(), Ticker: "AAPL", Side: domain.OrderSideSell, Quantity: 1, Price: 110, ExecutedAt: base.Add(24 * time.Hour)},
+	}
+
+	a := ComputeTradeAnalytics(trades, base, base.Add(24*time.Hour))
+	if a.LargestSingleWin != 10 {
+		t.Errorf("LargestSingleWin = %f, want 10", a.LargestSingleWin)
+	}
+	if a.LargestSingleLoss != 0 {
+		t.Errorf("LargestSingleLoss = %f, want 0", a.LargestSingleLoss)
+	}
+}
+
+func TestComputeTradeAnalyticsStableOrderForSameTimestampTrades(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	closeOne := base.Add(24 * time.Hour)
+	closeTwo := base.Add(48 * time.Hour)
+	trades := []domain.Trade{
+		{ID: uuid.New(), Ticker: "AAPL", Side: domain.OrderSideBuy, Quantity: 1, Price: 100, ExecutedAt: base},
+		{ID: uuid.New(), Ticker: "AAPL", Side: domain.OrderSideBuy, Quantity: 1, Price: 200, ExecutedAt: base},
+		{ID: uuid.New(), Ticker: "AAPL", Side: domain.OrderSideSell, Quantity: 1, Price: 210, ExecutedAt: closeOne},
+		{ID: uuid.New(), Ticker: "AAPL", Side: domain.OrderSideSell, Quantity: 1, Price: 90, ExecutedAt: closeTwo},
+	}
+
+	analytics := ComputeTradeAnalytics(trades, base, closeTwo)
+	if analytics.ClosedTrades != 2 {
+		t.Fatalf("ClosedTrades = %d, want 2", analytics.ClosedTrades)
+	}
+
+	// Preserving input order at identical timestamps yields +110 then -110.
+	if analytics.LargestSingleWin != 110 {
+		t.Errorf("LargestSingleWin = %f, want 110", analytics.LargestSingleWin)
+	}
+	if analytics.LargestSingleLoss != -110 {
+		t.Errorf("LargestSingleLoss = %f, want -110", analytics.LargestSingleLoss)
+	}
+
+	reversed := slices.Clone(trades)
+	slices.Reverse(reversed[0:2])
+	reorderedAnalytics := ComputeTradeAnalytics(reversed, base, closeTwo)
+	if reorderedAnalytics.LargestSingleWin != 10 {
+		t.Errorf("reordered LargestSingleWin = %f, want 10", reorderedAnalytics.LargestSingleWin)
+	}
+	if reorderedAnalytics.LargestSingleLoss != -10 {
+		t.Errorf("reordered LargestSingleLoss = %f, want -10", reorderedAnalytics.LargestSingleLoss)
 	}
 }

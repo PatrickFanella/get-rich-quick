@@ -50,10 +50,7 @@ func ComputeTradeAnalytics(trades []domain.Trade, periodStart, periodEnd time.Ti
 	}
 
 	sortedTrades := append([]domain.Trade(nil), trades...)
-	sort.Slice(sortedTrades, func(i, j int) bool {
-		if sortedTrades[i].ExecutedAt.Equal(sortedTrades[j].ExecutedAt) {
-			return sortedTrades[i].ID.String() < sortedTrades[j].ID.String()
-		}
+	sort.SliceStable(sortedTrades, func(i, j int) bool {
 		return sortedTrades[i].ExecutedAt.Before(sortedTrades[j].ExecutedAt)
 	})
 
@@ -138,7 +135,7 @@ func ComputeTradeAnalytics(trades []domain.Trade, periodStart, periodEnd time.Ti
 		if ct.pnl > analytics.LargestSingleWin {
 			analytics.LargestSingleWin = ct.pnl
 		}
-		if ct.pnl < analytics.LargestSingleLoss {
+		if ct.pnl < 0 && ct.pnl < analytics.LargestSingleLoss {
 			analytics.LargestSingleLoss = ct.pnl
 		}
 
