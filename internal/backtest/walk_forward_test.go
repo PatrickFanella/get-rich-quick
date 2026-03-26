@@ -2,11 +2,14 @@ package backtest
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/PatrickFanella/get-rich-quick/internal/agent"
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
 )
 
@@ -14,42 +17,69 @@ func TestGenerateWalkForwardWindows(t *testing.T) {
 	t.Parallel()
 
 	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	end := time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC).Add(-time.Nanosecond)
+	end := time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC)
 
-	windows, err := generateWalkForwardWindows(start, end, WalkForwardConfig{
-		CalibrationMonths: 2,
-		TestMonths:        1,
-	})
-	if err != nil {
-		t.Fatalf("generateWalkForwardWindows() error = %v", err)
+	testCases := []struct {
+		name            string
+		cfg             WalkForwardConfig
+		wantWindowCount int
+	}{
+		{
+			name: "calibration 2 months, test 1 month",
+			cfg: WalkForwardConfig{
+				CalibrationMonths: 2,
+				TestMonths:        1,
+			},
+			wantWindowCount: 4,
+		},
+		{
+			name: "calibration 2 months, test 2 months",
+			cfg: WalkForwardConfig{
+				CalibrationMonths: 2,
+				TestMonths:        2,
+			},
+			wantWindowCount: 2,
+		},
 	}
 
-	if len(windows) != 4 {
-		t.Fatalf("len(windows) = %d, want 4", len(windows))
-	}
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	if !windows[0].CalibrationStart.Equal(start) {
-		t.Errorf("windows[0].CalibrationStart = %v, want %v", windows[0].CalibrationStart, start)
-	}
+			windows, err := generateWalkForwardWindows(start, end, tc.cfg)
+			if err != nil {
+				t.Fatalf("generateWalkForwardWindows() error = %v", err)
+			}
 
-	for i := range windows {
-		w := windows[i]
-		if !w.CalibrationEnd.Before(w.TestStart) {
-			t.Errorf("window %d calibration end (%v) must be before test start (%v)", i, w.CalibrationEnd, w.TestStart)
-		}
-		if !w.CalibrationStart.Before(w.CalibrationEnd) {
-			t.Errorf("window %d calibration start (%v) must be before calibration end (%v)", i, w.CalibrationStart, w.CalibrationEnd)
-		}
-		if !w.TestStart.Before(w.TestEnd) {
-			t.Errorf("window %d test start (%v) must be before test end (%v)", i, w.TestStart, w.TestEnd)
-		}
-		if i == 0 {
-			continue
-		}
-		wantStart := windows[i-1].CalibrationStart.AddDate(0, 1, 0)
-		if !w.CalibrationStart.Equal(wantStart) {
-			t.Errorf("window %d calibration start = %v, want %v", i, w.CalibrationStart, wantStart)
-		}
+			if len(windows) != tc.wantWindowCount {
+				t.Fatalf("len(windows) = %d, want %d", len(windows), tc.wantWindowCount)
+			}
+
+			if !windows[0].CalibrationStart.Equal(start) {
+				t.Errorf("windows[0].CalibrationStart = %v, want %v", windows[0].CalibrationStart, start)
+			}
+
+			for i := range windows {
+				w := windows[i]
+				if !w.CalibrationEndExclusive.Equal(w.TestStart) {
+					t.Errorf("window %d calibration end exclusive (%v) must equal test start (%v)", i, w.CalibrationEndExclusive, w.TestStart)
+				}
+				if !w.CalibrationStart.Before(w.CalibrationEndExclusive) {
+					t.Errorf("window %d calibration start (%v) must be before calibration end exclusive (%v)", i, w.CalibrationStart, w.CalibrationEndExclusive)
+				}
+				if !w.TestStart.Before(w.TestEndExclusive) {
+					t.Errorf("window %d test start (%v) must be before test end exclusive (%v)", i, w.TestStart, w.TestEndExclusive)
+				}
+				if i == 0 {
+					continue
+				}
+				wantStart := addMonthsClamped(windows[i-1].CalibrationStart, tc.cfg.TestMonths)
+				if !w.CalibrationStart.Equal(wantStart) {
+					t.Errorf("window %d calibration start = %v, want %v", i, w.CalibrationStart, wantStart)
+				}
+			}
+		})
 	}
 }
 
@@ -73,11 +103,22 @@ func TestGenerateWalkForwardWindowsRejectsInvalidInputs(t *testing.T) {
 	}
 }
 
+func TestAddMonthsClamped_EndOfMonth(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2024, 1, 31, 15, 0, 0, 0, time.UTC)
+	got := addMonthsClamped(start, 1)
+	want := time.Date(2024, 2, 29, 15, 0, 0, 0, time.UTC) // leap year clamp
+	if !got.Equal(want) {
+		t.Fatalf("addMonthsClamped(%v, 1) = %v, want %v", start, got, want)
+	}
+}
+
 func TestOrchestratorRunWalkForwardAggregatesOutOfSample(t *testing.T) {
 	t.Parallel()
 
 	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	end := time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC).Add(-time.Nanosecond)
+	end := time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC)
 	bars := makeDailyBars(start, end)
 
 	cfg := OrchestratorConfig{
@@ -91,7 +132,8 @@ func TestOrchestratorRunWalkForwardAggregatesOutOfSample(t *testing.T) {
 		},
 	}
 
-	orch, err := NewOrchestrator(cfg, bars, makePipeline(), nil)
+	testLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	orch, err := NewOrchestrator(cfg, bars, makePipelineWithLogger(testLogger), testLogger)
 	if err != nil {
 		t.Fatalf("NewOrchestrator() error = %v", err)
 	}
@@ -121,7 +163,7 @@ func TestOrchestratorRunWalkForwardAggregatesOutOfSample(t *testing.T) {
 		if windowResult.Test == nil {
 			t.Fatalf("window %d test result is nil", i)
 		}
-		if !windowResult.Window.CalibrationEnd.Before(windowResult.Window.TestStart) {
+		if !windowResult.Window.CalibrationEndExclusive.Equal(windowResult.Window.TestStart) {
 			t.Errorf("window %d has overlapping calibration/test ranges", i)
 		}
 	}
@@ -133,4 +175,14 @@ func makeDailyBars(start, end time.Time) []domain.OHLCV {
 		bars = append(bars, makeBar(ts, 100))
 	}
 	return bars
+}
+
+func makePipelineWithLogger(logger *slog.Logger) *agent.Pipeline {
+	events := make(chan agent.PipelineEvent, 64)
+	return agent.NewPipeline(
+		agent.PipelineConfig{},
+		agent.NoopPersister{},
+		events,
+		logger,
+	)
 }
