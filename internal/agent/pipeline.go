@@ -449,6 +449,8 @@ func (p *Pipeline) currentTime() time.Time {
 	}
 
 	return p.now()
+}
+
 func (p *Pipeline) emitCacheStats(state *PipelineState, collector *llm.CacheStatsCollector, runID, strategyID uuid.UUID, ticker string) {
 	stats := collector.Snapshot()
 	if state != nil {
