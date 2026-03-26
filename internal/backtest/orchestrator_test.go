@@ -192,6 +192,10 @@ func TestOrchestratorFiltersBarsToDateRange(t *testing.T) {
 	if len(result.BarResults) != 3 {
 		t.Errorf("BarResults len = %d, want 3", len(result.BarResults))
 	}
+	wantBuyAndHold := (102.0 - 100.0) / 100.0
+	if result.Metrics.BuyAndHoldReturn != wantBuyAndHold {
+		t.Errorf("Metrics.BuyAndHoldReturn = %f, want %f", result.Metrics.BuyAndHoldReturn, wantBuyAndHold)
+	}
 }
 
 func TestOrchestratorRunRejectsEmptyDateRange(t *testing.T) {
