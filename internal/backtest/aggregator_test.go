@@ -251,6 +251,40 @@ func TestRunMulti_NilResult(t *testing.T) {
 	}
 }
 
+func TestRunMulti_RequiresPromptMetadata(t *testing.T) {
+	tests := []struct {
+		name   string
+		result *OrchestratorResult
+	}{
+		{
+			name: "missing prompt version",
+			result: &OrchestratorResult{
+				Metrics:           Metrics{},
+				PromptVersionHash: testPromptHash,
+			},
+		},
+		{
+			name: "missing prompt version hash",
+			result: &OrchestratorResult{
+				Metrics:       Metrics{},
+				PromptVersion: "prompt-v1",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := RunMulti(context.Background(), MultiRunConfig{
+				Runs:    3,
+				RunFunc: sequentialPromptRunFunc([]*OrchestratorResult{tt.result, tt.result, tt.result}),
+			})
+			if err == nil {
+				t.Fatal("expected error for missing prompt metadata")
+			}
+		})
+	}
+}
+
 func TestRunMulti_ContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
@@ -476,6 +510,19 @@ func TestComparePromptVariants_RejectsMixedPromptMetadata(t *testing.T) {
 
 	if _, err := ComparePromptVariants(left, right, 0.95); err == nil {
 		t.Fatal("expected error for mixed prompt metadata")
+	}
+}
+
+func TestComparePromptVariants_RejectsUnsupportedConfidenceLevel(t *testing.T) {
+	result := &MultiRunResult{
+		Runs:                3,
+		PromptVersions:      []string{"prompt-a", "prompt-a", "prompt-a"},
+		PromptVersionHashes: []string{"hash-a", "hash-a", "hash-a"},
+		Aggregated:          aggregateMetrics([]Metrics{{TotalReturn: 0.1}, {TotalReturn: 0.1}, {TotalReturn: 0.1}}),
+	}
+
+	if _, err := ComparePromptVariants(result, result, 0.92); err == nil {
+		t.Fatal("expected error for unsupported confidence level")
 	}
 }
 

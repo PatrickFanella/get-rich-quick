@@ -13,6 +13,13 @@ import (
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
 )
 
+var currentPromptVersionHash = HashPromptVersion(
+	MarketAnalystSystemPrompt,
+	FundamentalsAnalystSystemPrompt,
+	SocialAnalystSystemPrompt,
+	NewsAnalystSystemPrompt,
+)
+
 // HashPromptVersion returns a stable hash for the provided prompt-version inputs.
 // It is used to tag backtest runs so prompt variants can be compared later even
 // when the human-readable version labels are reused.
@@ -28,12 +35,7 @@ func HashPromptVersion(parts ...string) string {
 // CurrentPromptVersionHash returns the hash of the analyst prompt set that is
 // currently compiled into the binary.
 func CurrentPromptVersionHash() string {
-	return HashPromptVersion(
-		MarketAnalystSystemPrompt,
-		FundamentalsAnalystSystemPrompt,
-		SocialAnalystSystemPrompt,
-		NewsAnalystSystemPrompt,
-	)
+	return currentPromptVersionHash
 }
 
 // MarketAnalystSystemPrompt is the system prompt that instructs the LLM to

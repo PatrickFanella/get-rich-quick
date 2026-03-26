@@ -144,6 +144,9 @@ func RunMulti(ctx context.Context, cfg MultiRunConfig) (*MultiRunResult, error) 
 		if result == nil {
 			return nil, fmt.Errorf("aggregator: run %d returned nil result", i+1)
 		}
+		if err := validatePromptMetadata(result, i+1); err != nil {
+			return nil, err
+		}
 
 		individual = append(individual, result.Metrics)
 		promptVersions = append(promptVersions, result.PromptVersion)
@@ -164,6 +167,9 @@ func RunMulti(ctx context.Context, cfg MultiRunConfig) (*MultiRunResult, error) 
 func ComparePromptVariants(left, right *MultiRunResult, confidenceLevel float64) (*PromptABComparisonReport, error) {
 	if left == nil || right == nil {
 		return nil, fmt.Errorf("aggregator: both prompt variants are required")
+	}
+	if _, ok := tCritical(1, confidenceLevel); !ok {
+		return nil, fmt.Errorf("aggregator: unsupported confidence level %.2f", confidenceLevel)
 	}
 
 	leftSummary, err := summarizePromptVariant(left)
@@ -237,6 +243,16 @@ func validateMultiRunConfig(cfg MultiRunConfig) error {
 	}
 	if cfg.RunFunc == nil {
 		return fmt.Errorf("aggregator: RunFunc is required")
+	}
+	return nil
+}
+
+func validatePromptMetadata(result *OrchestratorResult, runIndex int) error {
+	if strings.TrimSpace(result.PromptVersion) == "" {
+		return fmt.Errorf("aggregator: run %d missing prompt_version metadata", runIndex)
+	}
+	if strings.TrimSpace(result.PromptVersionHash) == "" {
+		return fmt.Errorf("aggregator: run %d missing prompt_version_hash metadata", runIndex)
 	}
 	return nil
 }
