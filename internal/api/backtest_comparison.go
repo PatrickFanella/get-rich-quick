@@ -214,11 +214,21 @@ func appendHistoricalRunWindow(
 	if windowSize <= 0 {
 		return window
 	}
-	window = append(window, summary)
-	sortHistoricalRuns(window)
+
+	insertAt := sort.Search(len(window), func(i int) bool {
+		return historicalRunComesBefore(summary, window[i])
+	})
+	if len(window) == windowSize && insertAt >= len(window) {
+		return window
+	}
+
+	window = append(window, HistoricalBacktestRun{})
+	copy(window[insertAt+1:], window[insertAt:])
+	window[insertAt] = summary
 	if len(window) > windowSize {
 		window = window[:windowSize]
 	}
+
 	return window
 }
 
@@ -400,11 +410,15 @@ func formatComparisonLabel(strategyName string, runTimestamp time.Time, promptVe
 
 func sortHistoricalRuns(runs []HistoricalBacktestRun) {
 	sort.SliceStable(runs, func(i, j int) bool {
-		if runs[i].RunTimestamp.Equal(runs[j].RunTimestamp) {
-			return strings.Compare(runs[i].RunID.String(), runs[j].RunID.String()) > 0
-		}
-		return runs[i].RunTimestamp.After(runs[j].RunTimestamp)
+		return historicalRunComesBefore(runs[i], runs[j])
 	})
+}
+
+func historicalRunComesBefore(left, right HistoricalBacktestRun) bool {
+	if left.RunTimestamp.Equal(right.RunTimestamp) {
+		return strings.Compare(left.RunID.String(), right.RunID.String()) > 0
+	}
+	return left.RunTimestamp.After(right.RunTimestamp)
 }
 
 func paginateHistoricalRuns(runs []HistoricalBacktestRun, limit, offset int) []HistoricalBacktestRun {
