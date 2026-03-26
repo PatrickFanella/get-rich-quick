@@ -1,6 +1,8 @@
 package domain
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"testing"
 	"time"
@@ -444,7 +446,7 @@ func TestBacktestRunValidate(t *testing.T) {
 		RunTimestamp:      time.Date(2024, 1, 3, 21, 0, 0, 0, time.UTC),
 		Duration:          37 * time.Minute,
 		PromptVersion:     "prompt-v1",
-		PromptVersionHash: "4d7d6b1be6f7f6a1a60454e824efb7f65c08b4f6e0dd11135f6d39774d4a3ea8",
+		PromptVersionHash: testPromptVersionHash("prompt-v1"),
 	}
 
 	tests := []struct {
@@ -572,4 +574,9 @@ func TestBacktestRunValidate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func testPromptVersionHash(version string) string {
+	sum := sha256.Sum256([]byte(version))
+	return hex.EncodeToString(sum[:])
 }

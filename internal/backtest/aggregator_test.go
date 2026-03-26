@@ -6,11 +6,13 @@ import (
 	"math"
 	"testing"
 	"time"
+
+	"github.com/PatrickFanella/get-rich-quick/internal/agent/analysts"
 )
 
 // --- helpers ---------------------------------------------------------------
 
-const testPromptHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+var testPromptHash = analysts.HashPromptVersion("prompt-v1")
 
 // makeOrchestratorResult builds an OrchestratorResult with the given Metrics.
 func makeOrchestratorResult(m Metrics) *OrchestratorResult {
