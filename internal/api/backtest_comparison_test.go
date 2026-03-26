@@ -36,25 +36,25 @@ func TestBacktestComparisonAPIQueryHistoricalRunsFiltersAndPaginates(t *testing.
 		t.Fatalf("QueryHistoricalRuns() error = %v", err)
 	}
 
-	if got.Total != 2 {
-		t.Fatalf("got.Total = %d, want 2", got.Total)
+	if got.Total != 3 {
+		t.Fatalf("got.Total = %d, want 3", got.Total)
 	}
 	if len(got.Runs) != 1 {
 		t.Fatalf("len(got.Runs) = %d, want 1", len(got.Runs))
 	}
 
 	run := got.Runs[0]
-	if run.RunID != testRunAOlder.ID {
-		t.Fatalf("run.RunID = %s, want %s", run.RunID, testRunAOlder.ID)
+	if run.RunID != testRunAMiddle.ID {
+		t.Fatalf("run.RunID = %s, want %s", run.RunID, testRunAMiddle.ID)
 	}
 	if run.StrategyName != testStrategyA.Name {
 		t.Fatalf("run.StrategyName = %q, want %q", run.StrategyName, testStrategyA.Name)
 	}
-	if run.BacktestConfigName != testConfigAOne.Name {
-		t.Fatalf("run.BacktestConfigName = %q, want %q", run.BacktestConfigName, testConfigAOne.Name)
+	if run.BacktestConfigName != testConfigATwo.Name {
+		t.Fatalf("run.BacktestConfigName = %q, want %q", run.BacktestConfigName, testConfigATwo.Name)
 	}
-	if run.Metrics.TotalReturn != 0.10 {
-		t.Fatalf("run.Metrics.TotalReturn = %v, want 0.10", run.Metrics.TotalReturn)
+	if run.Metrics.TotalReturn != 0.11 {
+		t.Fatalf("run.Metrics.TotalReturn = %v, want 0.11", run.Metrics.TotalReturn)
 	}
 }
 
@@ -175,6 +175,14 @@ var (
 		"hash-v1",
 		backtest.Metrics{TotalReturn: 0.10, MaxDrawdown: 0.05, SharpeRatio: 1.1, EndEquity: 110_000, RealizedPnL: 10_000, TotalBars: 20},
 	)
+	testRunAMiddle = makeHistoricalRun(
+		uuid.MustParse("00000000-0000-0000-0000-000000000005"),
+		testConfigATwo.ID,
+		time.Date(2024, 1, 4, 21, 0, 0, 0, time.UTC),
+		"prompt-v1",
+		"hash-v1",
+		backtest.Metrics{TotalReturn: 0.11, MaxDrawdown: 0.045, SharpeRatio: 1.2, EndEquity: 111_000, RealizedPnL: 11_000, TotalBars: 21},
+	)
 	testRunANewer = makeHistoricalRun(
 		uuid.MustParse("00000000-0000-0000-0000-000000000002"),
 		testConfigATwo.ID,
@@ -221,6 +229,7 @@ func newTestBacktestComparisonAPI(t *testing.T) *BacktestComparisonAPI {
 		fakeBacktestRunRepo{
 			byID: map[uuid.UUID]domain.BacktestRun{
 				testRunAOlder.ID:       testRunAOlder,
+				testRunAMiddle.ID:      testRunAMiddle,
 				testRunANewer.ID:       testRunANewer,
 				testRunAOtherPrompt.ID: testRunAOtherPrompt,
 				testRunB.ID:            testRunB,

@@ -120,33 +120,41 @@ func (a *BacktestComparisonAPI) QueryHistoricalRuns(
 	}
 
 	strategyCache := make(map[uuid.UUID]*domain.Strategy)
-	summaries := make([]HistoricalBacktestRun, 0)
+	windowSize := limit + offset
+	summaries := make([]HistoricalBacktestRun, 0, windowSize)
+	total := 0
 	for _, cfg := range configs {
-		runs, err := a.listAllRuns(ctx, repository.BacktestRunFilter{
+		filter := repository.BacktestRunFilter{
 			BacktestConfigID:  &cfg.ID,
 			PromptVersion:     strings.TrimSpace(query.PromptVersion),
 			PromptVersionHash: strings.TrimSpace(query.PromptVersionHash),
 			RunAfter:          query.RunAfter,
 			RunBefore:         query.RunBefore,
-		})
-		if err != nil {
-			return nil, err
 		}
-		for _, run := range runs {
-			summary, err := a.historicalRunSummary(ctx, run, cfg, strategyCache)
+
+		runOffset := 0
+		for {
+			runs, err := a.runs.List(ctx, filter, backtestComparisonPageSize, runOffset)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("api: list backtest runs: %w", err)
 			}
-			summaries = append(summaries, summary)
+			for _, run := range runs {
+				summary, err := a.historicalRunSummary(ctx, run, cfg, strategyCache)
+				if err != nil {
+					return nil, err
+				}
+				total++
+				summaries = appendHistoricalRunWindow(summaries, summary, windowSize)
+			}
+			if len(runs) < backtestComparisonPageSize {
+				break
+			}
+			runOffset += len(runs)
 		}
 	}
 
-	sortHistoricalRuns(summaries)
-	total := len(summaries)
-	summaries = paginateHistoricalRuns(summaries, limit, offset)
-
 	return &HistoricalBacktestRunsResponse{
-		Runs:  summaries,
+		Runs:  paginateHistoricalRuns(summaries, limit, offset),
 		Total: total,
 	}, nil
 }
@@ -183,9 +191,10 @@ func (a *BacktestComparisonAPI) CompareHistoricalRuns(
 			return nil, err
 		}
 		runs = append(runs, summary)
+		stableSummary := &runs[len(runs)-1]
 		inputs = append(inputs, backtest.MetricComparisonInput{
-			Name:    summary.ComparisonLabel,
-			Metrics: &summary.Metrics,
+			Name:    stableSummary.ComparisonLabel,
+			Metrics: &stableSummary.Metrics,
 		})
 	}
 
@@ -195,6 +204,22 @@ func (a *BacktestComparisonAPI) CompareHistoricalRuns(
 		MetricTable:  table,
 		SummaryDiffs: backtest.BuildMetricComparisonDiffs(table),
 	}, nil
+}
+
+func appendHistoricalRunWindow(
+	window []HistoricalBacktestRun,
+	summary HistoricalBacktestRun,
+	windowSize int,
+) []HistoricalBacktestRun {
+	if windowSize <= 0 {
+		return window
+	}
+	window = append(window, summary)
+	sortHistoricalRuns(window)
+	if len(window) > windowSize {
+		window = window[:windowSize]
+	}
+	return window
 }
 
 func normalizeBacktestQuery(query HistoricalBacktestRunsQuery) (int, int, error) {
