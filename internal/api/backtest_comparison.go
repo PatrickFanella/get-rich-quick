@@ -367,6 +367,9 @@ func formatComparisonLabel(strategyName string, runTimestamp time.Time, promptVe
 	if version := strings.TrimSpace(promptVersion); version != "" {
 		label += " [" + version + "]"
 	}
+	if runTimestamp.IsZero() {
+		return label
+	}
 	return label + " @ " + runTimestamp.UTC().Format(time.RFC3339)
 }
 

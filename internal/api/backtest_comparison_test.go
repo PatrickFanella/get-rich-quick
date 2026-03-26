@@ -76,9 +76,15 @@ func TestBacktestComparisonAPICompareHistoricalRunsReturnsAlignedMetricTableAndD
 	if len(got.MetricTable.Headers) != 4 {
 		t.Fatalf("len(got.MetricTable.Headers) = %d, want 4", len(got.MetricTable.Headers))
 	}
-	for _, want := range []string{testStrategyA.Name, "prompt-v1", testStrategyB.Name, "prompt-v2"} {
-		if !containsString(got.MetricTable.Headers, want) {
-			t.Fatalf("headers %#v do not include %q", got.MetricTable.Headers, want)
+	wantHeaders := []string{
+		"Metric",
+		formatComparisonLabel(testStrategyA.Name, testRunAOlder.RunTimestamp, testRunAOlder.PromptVersion),
+		formatComparisonLabel(testStrategyA.Name, testRunANewer.RunTimestamp, testRunANewer.PromptVersion),
+		formatComparisonLabel(testStrategyB.Name, testRunB.RunTimestamp, testRunB.PromptVersion),
+	}
+	for i, want := range wantHeaders {
+		if got.MetricTable.Headers[i] != want {
+			t.Fatalf("got.MetricTable.Headers[%d] = %q, want %q", i, got.MetricTable.Headers[i], want)
 		}
 	}
 
@@ -272,15 +278,6 @@ func findComparisonDiff(t *testing.T, diffs []backtest.MetricComparisonDiff, met
 	}
 	t.Fatalf("metric diff %q not found", metric)
 	return backtest.MetricComparisonDiff{}
-}
-
-func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if strings.Contains(value, want) {
-			return true
-		}
-	}
-	return false
 }
 
 func closeEnough(got, want float64) bool {
