@@ -35,18 +35,9 @@ func (r *BacktestRunRepo) Create(ctx context.Context, run *domain.BacktestRun) e
 		return fmt.Errorf("postgres: validate backtest run: %w", err)
 	}
 
-	metricsJSON, err := marshalRequiredJSONB("metrics", run.Metrics)
-	if err != nil {
-		return err
-	}
-	tradeLogJSON, err := marshalRequiredJSONB("trade log", run.TradeLog)
-	if err != nil {
-		return err
-	}
-	equityCurveJSON, err := marshalRequiredJSONB("equity curve", run.EquityCurve)
-	if err != nil {
-		return err
-	}
+	metricsJSON := run.Metrics
+	tradeLogJSON := run.TradeLog
+	equityCurveJSON := run.EquityCurve
 
 	row := r.pool.QueryRow(ctx,
 		`INSERT INTO backtest_runs (
@@ -184,14 +175,4 @@ func buildBacktestRunListQuery(filter repository.BacktestRunFilter, limit, offse
 	base += fmt.Sprintf(" LIMIT %s OFFSET %s", nextArg(limit), nextArg(offset))
 
 	return base, args
-}
-
-func marshalRequiredJSONB(field string, raw json.RawMessage) ([]byte, error) {
-	if len(raw) == 0 {
-		return nil, fmt.Errorf("postgres: backtest %s is required", field)
-	}
-	if !json.Valid(raw) {
-		return nil, fmt.Errorf("postgres: backtest %s is not valid JSON", field)
-	}
-	return raw, nil
 }

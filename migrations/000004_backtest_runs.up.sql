@@ -11,6 +11,9 @@ CREATE TABLE backtest_runs (
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_backtest_runs_config_id ON backtest_runs (backtest_config_id);
 CREATE INDEX idx_backtest_runs_run_timestamp ON backtest_runs (run_timestamp);
 CREATE INDEX idx_backtest_runs_prompt_version ON backtest_runs (prompt_version);
+CREATE INDEX idx_backtest_runs_config_run_ts_id
+    ON backtest_runs (backtest_config_id, run_timestamp DESC, id DESC);
+CREATE INDEX idx_backtest_runs_config_prompt_run_ts_id
+    ON backtest_runs (backtest_config_id, prompt_version, run_timestamp DESC, id DESC);
