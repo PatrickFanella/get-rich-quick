@@ -19,13 +19,13 @@ COPY internal ./internal
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/tradingagent ./cmd/tradingagent
 
 FROM alpine:${ALPINE_VERSION} AS production
-RUN apk add --no-cache ca-certificates && \
-    addgroup -S app && \
+RUN addgroup -S app && \
     adduser -S -G app -h /app app
 
 WORKDIR /app
 
 COPY --from=builder /out/tradingagent /usr/local/bin/tradingagent
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --chown=app:app migrations ./migrations
 
 ENV APP_ENV=production
