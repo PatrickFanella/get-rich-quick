@@ -535,7 +535,7 @@ func TestWSMessageTypes(t *testing.T) {
 		}
 	}
 
-	// Verify WSMessage serialisation.
+	// Verify WSMessage serialization.
 	msg := WSMessage{
 		Type:       EventPipelineStart,
 		StrategyID: uuid.New(),

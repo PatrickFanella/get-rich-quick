@@ -93,7 +93,7 @@ func (h *Hub) Run() {
 			h.logger.Info("ws client unregistered", slog.Int("total", h.ClientCount()))
 
 		case message := <-h.broadcast:
-			h.mu.RLock()
+			h.mu.Lock()
 			for client := range h.clients {
 				if client.matchesSubscription(message) {
 					select {
@@ -106,7 +106,7 @@ func (h *Hub) Run() {
 					}
 				}
 			}
-			h.mu.RUnlock()
+			h.mu.Unlock()
 		}
 	}
 }
