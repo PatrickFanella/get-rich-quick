@@ -1,0 +1,494 @@
+package api
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
+	"github.com/PatrickFanella/get-rich-quick/internal/domain"
+	"github.com/PatrickFanella/get-rich-quick/internal/repository"
+)
+
+const (
+	defaultLimit = 50
+	maxLimit     = 100
+)
+
+// parsePagination extracts limit/offset query params with sane defaults.
+func parsePagination(r *http.Request) (limit, offset int) {
+	limit = defaultLimit
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+	return limit, offset
+}
+
+// parseUUID extracts a UUID from a chi URL parameter.
+func parseUUID(r *http.Request, param string) (uuid.UUID, error) {
+	raw := chi.URLParam(r, param)
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil, errors.New("invalid id: " + raw)
+	}
+	return id, nil
+}
+
+// --- Strategy handlers ---
+
+func (s *Server) handleListStrategies(w http.ResponseWriter, r *http.Request) {
+	limit, offset := parsePagination(r)
+	q := r.URL.Query()
+
+	filter := repository.StrategyFilter{
+		Ticker:     q.Get("ticker"),
+		MarketType: domain.MarketType(q.Get("market_type")),
+	}
+	if v := q.Get("is_active"); v != "" {
+		b := v == "true"
+		filter.IsActive = &b
+	}
+	if v := q.Get("is_paper"); v != "" {
+		b := v == "true"
+		filter.IsPaper = &b
+	}
+
+	strategies, err := s.strategies.List(r.Context(), filter, limit, offset)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list strategies", ErrCodeInternal)
+		return
+	}
+	respondList(w, strategies, len(strategies), limit, offset)
+}
+
+func (s *Server) handleGetStrategy(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUID(r, "id")
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error(), ErrCodeBadRequest)
+		return
+	}
+	strategy, err := s.strategies.Get(r.Context(), id)
+	if err != nil {
+		if isNotFound(err) {
+			respondError(w, http.StatusNotFound, "strategy not found", ErrCodeNotFound)
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get strategy", ErrCodeInternal)
+		return
+	}
+	respondJSON(w, http.StatusOK, strategy)
+}
+
+func (s *Server) handleCreateStrategy(w http.ResponseWriter, r *http.Request) {
+	var strategy domain.Strategy
+	if err := json.NewDecoder(r.Body).Decode(&strategy); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body", ErrCodeBadRequest)
+		return
+	}
+	if err := strategy.Validate(); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error(), ErrCodeValidation)
+		return
+	}
+	strategy.ID = uuid.New()
+	if err := s.strategies.Create(r.Context(), &strategy); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to create strategy", ErrCodeInternal)
+		return
+	}
+	respondJSON(w, http.StatusCreated, strategy)
+}
+
+func (s *Server) handleUpdateStrategy(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUID(r, "id")
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error(), ErrCodeBadRequest)
+		return
+	}
+	var strategy domain.Strategy
+	if err := json.NewDecoder(r.Body).Decode(&strategy); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body", ErrCodeBadRequest)
+		return
+	}
+	strategy.ID = id
+	if err := strategy.Validate(); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error(), ErrCodeValidation)
+		return
+	}
+	if err := s.strategies.Update(r.Context(), &strategy); err != nil {
+		if isNotFound(err) {
+			respondError(w, http.StatusNotFound, "strategy not found", ErrCodeNotFound)
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to update strategy", ErrCodeInternal)
+		return
+	}
+	respondJSON(w, http.StatusOK, strategy)
+}
+
+func (s *Server) handleDeleteStrategy(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUID(r, "id")
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error(), ErrCodeBadRequest)
+		return
+	}
+	if err := s.strategies.Delete(r.Context(), id); err != nil {
+		if isNotFound(err) {
+			respondError(w, http.StatusNotFound, "strategy not found", ErrCodeNotFound)
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to delete strategy", ErrCodeInternal)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Pipeline run handlers ---
+
+func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
+	limit, offset := parsePagination(r)
+	q := r.URL.Query()
+
+	filter := repository.PipelineRunFilter{
+		Ticker: q.Get("ticker"),
+		Status: domain.PipelineStatus(q.Get("status")),
+	}
+	if v := q.Get("strategy_id"); v != "" {
+		if id, err := uuid.Parse(v); err == nil {
+			filter.StrategyID = &id
+		}
+	}
+
+	runs, err := s.runs.List(r.Context(), filter, limit, offset)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list runs", ErrCodeInternal)
+		return
+	}
+	respondList(w, runs, len(runs), limit, offset)
+}
+
+func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUID(r, "id")
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error(), ErrCodeBadRequest)
+		return
+	}
+	// PipelineRunRepository.Get requires tradeDate; list and find by ID.
+	runs, listErr := s.runs.List(r.Context(), repository.PipelineRunFilter{}, maxLimit, 0)
+	if listErr != nil {
+		respondError(w, http.StatusInternalServerError, "failed to get run", ErrCodeInternal)
+		return
+	}
+	for i := range runs {
+		if runs[i].ID == id {
+			respondJSON(w, http.StatusOK, &runs[i])
+			return
+		}
+	}
+	respondError(w, http.StatusNotFound, "run not found", ErrCodeNotFound)
+}
+
+func (s *Server) handleGetRunDecisions(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUID(r, "id")
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error(), ErrCodeBadRequest)
+		return
+	}
+	limit, offset := parsePagination(r)
+	decisions, err := s.decisions.GetByRun(r.Context(), id, repository.AgentDecisionFilter{}, limit, offset)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to get decisions", ErrCodeInternal)
+		return
+	}
+	respondList(w, decisions, len(decisions), limit, offset)
+}
+
+func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUID(r, "id")
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error(), ErrCodeBadRequest)
+		return
+	}
+	// Try to find the run by listing
+	runs, listErr := s.runs.List(r.Context(), repository.PipelineRunFilter{}, maxLimit, 0)
+	if listErr != nil {
+		respondError(w, http.StatusInternalServerError, "failed to cancel run", ErrCodeInternal)
+		return
+	}
+	for i := range runs {
+		if runs[i].ID == id {
+			if !runs[i].Status.CanTransitionTo(domain.PipelineStatusCancelled) {
+				respondError(w, http.StatusBadRequest, "run cannot be cancelled in its current state", ErrCodeBadRequest)
+				return
+			}
+			update := repository.PipelineRunStatusUpdate{
+				Status: domain.PipelineStatusCancelled,
+			}
+			if err := s.runs.UpdateStatus(r.Context(), id, runs[i].TradeDate, update); err != nil {
+				respondError(w, http.StatusInternalServerError, "failed to cancel run", ErrCodeInternal)
+				return
+			}
+			respondJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+			return
+		}
+	}
+	respondError(w, http.StatusNotFound, "run not found", ErrCodeNotFound)
+}
+
+// --- Portfolio handlers ---
+
+func (s *Server) handleListPositions(w http.ResponseWriter, r *http.Request) {
+	limit, offset := parsePagination(r)
+	q := r.URL.Query()
+
+	filter := repository.PositionFilter{
+		Ticker: q.Get("ticker"),
+		Side:   domain.PositionSide(q.Get("side")),
+	}
+
+	positions, err := s.positions.List(r.Context(), filter, limit, offset)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list positions", ErrCodeInternal)
+		return
+	}
+	respondList(w, positions, len(positions), limit, offset)
+}
+
+func (s *Server) handleGetOpenPositions(w http.ResponseWriter, r *http.Request) {
+	limit, offset := parsePagination(r)
+	positions, err := s.positions.GetOpen(r.Context(), repository.PositionFilter{}, limit, offset)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list open positions", ErrCodeInternal)
+		return
+	}
+	respondList(w, positions, len(positions), limit, offset)
+}
+
+func (s *Server) handlePortfolioSummary(w http.ResponseWriter, r *http.Request) {
+	// Build a portfolio summary from open positions.
+	positions, err := s.positions.GetOpen(r.Context(), repository.PositionFilter{}, maxLimit, 0)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to get portfolio summary", ErrCodeInternal)
+		return
+	}
+
+	var totalUnrealized, totalRealized float64
+	for _, p := range positions {
+		if p.UnrealizedPnL != nil {
+			totalUnrealized += *p.UnrealizedPnL
+		}
+		totalRealized += p.RealizedPnL
+	}
+	summary := map[string]any{
+		"open_positions":  len(positions),
+		"unrealized_pnl":  totalUnrealized,
+		"realized_pnl":    totalRealized,
+	}
+	respondJSON(w, http.StatusOK, summary)
+}
+
+// --- Order handlers ---
+
+func (s *Server) handleListOrders(w http.ResponseWriter, r *http.Request) {
+	limit, offset := parsePagination(r)
+	q := r.URL.Query()
+
+	filter := repository.OrderFilter{
+		Ticker: q.Get("ticker"),
+		Status: domain.OrderStatus(q.Get("status")),
+		Side:   domain.OrderSide(q.Get("side")),
+	}
+
+	orders, err := s.orders.List(r.Context(), filter, limit, offset)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list orders", ErrCodeInternal)
+		return
+	}
+	respondList(w, orders, len(orders), limit, offset)
+}
+
+func (s *Server) handleGetOrder(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUID(r, "id")
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error(), ErrCodeBadRequest)
+		return
+	}
+	order, err := s.orders.Get(r.Context(), id)
+	if err != nil {
+		if isNotFound(err) {
+			respondError(w, http.StatusNotFound, "order not found", ErrCodeNotFound)
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get order", ErrCodeInternal)
+		return
+	}
+
+	// Also fetch fills (trades) for this order.
+	fills, fillErr := s.trades.GetByOrder(r.Context(), id, repository.TradeFilter{}, maxLimit, 0)
+	if fillErr != nil {
+		respondError(w, http.StatusInternalServerError, "failed to get order fills", ErrCodeInternal)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"order": order,
+		"fills": fills,
+	})
+}
+
+// --- Trade handlers ---
+
+func (s *Server) handleListTrades(w http.ResponseWriter, r *http.Request) {
+	limit, offset := parsePagination(r)
+	q := r.URL.Query()
+
+	filter := repository.TradeFilter{
+		Ticker: q.Get("ticker"),
+		Side:   domain.OrderSide(q.Get("side")),
+	}
+
+	// TradeRepository doesn't have a general List; use GetByOrder with empty ID
+	// which won't match anything. Instead we return trades by checking for an
+	// order_id query param, or return an empty list.
+	orderIDStr := q.Get("order_id")
+	positionIDStr := q.Get("position_id")
+
+	if orderIDStr != "" {
+		orderID, err := uuid.Parse(orderIDStr)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, "invalid order_id", ErrCodeBadRequest)
+			return
+		}
+		trades, err := s.trades.GetByOrder(r.Context(), orderID, filter, limit, offset)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to list trades", ErrCodeInternal)
+			return
+		}
+		respondList(w, trades, len(trades), limit, offset)
+		return
+	}
+
+	if positionIDStr != "" {
+		positionID, err := uuid.Parse(positionIDStr)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, "invalid position_id", ErrCodeBadRequest)
+			return
+		}
+		trades, err := s.trades.GetByPosition(r.Context(), positionID, filter, limit, offset)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to list trades", ErrCodeInternal)
+			return
+		}
+		respondList(w, trades, len(trades), limit, offset)
+		return
+	}
+
+	// No filter: return empty list as the interface has no general List method.
+	respondList(w, []domain.Trade{}, 0, limit, offset)
+}
+
+// --- Memory handlers ---
+
+func (s *Server) handleListMemories(w http.ResponseWriter, r *http.Request) {
+	limit, offset := parsePagination(r)
+	q := r.URL.Query()
+
+	query := q.Get("q")
+	filter := repository.MemorySearchFilter{
+		AgentRole: domain.AgentRole(q.Get("agent_role")),
+	}
+
+	memories, err := s.memories.Search(r.Context(), query, filter, limit, offset)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to search memories", ErrCodeInternal)
+		return
+	}
+	respondList(w, memories, len(memories), limit, offset)
+}
+
+func (s *Server) handleSearchMemories(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Query string `json:"query"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Query == "" {
+		respondError(w, http.StatusBadRequest, "query is required", ErrCodeValidation)
+		return
+	}
+	limit, offset := parsePagination(r)
+	memories, err := s.memories.Search(r.Context(), body.Query, repository.MemorySearchFilter{}, limit, offset)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to search memories", ErrCodeInternal)
+		return
+	}
+	respondList(w, memories, len(memories), limit, offset)
+}
+
+func (s *Server) handleDeleteMemory(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUID(r, "id")
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error(), ErrCodeBadRequest)
+		return
+	}
+	if err := s.memories.Delete(r.Context(), id); err != nil {
+		if isNotFound(err) {
+			respondError(w, http.StatusNotFound, "memory not found", ErrCodeNotFound)
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to delete memory", ErrCodeInternal)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Risk handlers ---
+
+func (s *Server) handleRiskStatus(w http.ResponseWriter, r *http.Request) {
+	status, err := s.risk.GetStatus(r.Context())
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to get risk status", ErrCodeInternal)
+		return
+	}
+	respondJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) handleKillSwitchToggle(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Active bool   `json:"active"`
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body", ErrCodeBadRequest)
+		return
+	}
+
+	if body.Active {
+		if err := s.risk.ActivateKillSwitch(r.Context(), body.Reason); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to activate kill switch", ErrCodeInternal)
+			return
+		}
+	} else {
+		if err := s.risk.DeactivateKillSwitch(r.Context()); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to deactivate kill switch", ErrCodeInternal)
+			return
+		}
+	}
+	respondJSON(w, http.StatusOK, map[string]bool{"active": body.Active})
+}
+
+// isNotFound checks whether err indicates a not-found condition. It matches
+// the "not found" substring used by the postgres repository layer.
+func isNotFound(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "not found")
+}

@@ -1,0 +1,206 @@
+package api
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/PatrickFanella/get-rich-quick/internal/repository"
+	"github.com/PatrickFanella/get-rich-quick/internal/risk"
+)
+
+// Server is the HTTP REST API server that exposes all system functionality.
+type Server struct {
+	router     chi.Router
+	httpServer *http.Server
+	logger     *slog.Logger
+
+	// Repositories
+	strategies repository.StrategyRepository
+	runs       repository.PipelineRunRepository
+	decisions  repository.AgentDecisionRepository
+	orders     repository.OrderRepository
+	positions  repository.PositionRepository
+	trades     repository.TradeRepository
+	memories   repository.MemoryRepository
+
+	// Risk engine
+	risk risk.RiskEngine
+}
+
+// ServerConfig holds configuration for the API server.
+type ServerConfig struct {
+	Host        string
+	Port        int
+	CORSConfig  CORSConfig
+	RateLimit   int           // requests per window
+	RateWindow  time.Duration // window duration
+}
+
+// DefaultServerConfig returns a sensible default server configuration.
+func DefaultServerConfig() ServerConfig {
+	return ServerConfig{
+		Host:       "0.0.0.0",
+		Port:       8080,
+		CORSConfig: DefaultCORSConfig(),
+		RateLimit:  100,
+		RateWindow: time.Minute,
+	}
+}
+
+// Deps groups the repository and service dependencies required by the Server.
+type Deps struct {
+	Strategies repository.StrategyRepository
+	Runs       repository.PipelineRunRepository
+	Decisions  repository.AgentDecisionRepository
+	Orders     repository.OrderRepository
+	Positions  repository.PositionRepository
+	Trades     repository.TradeRepository
+	Memories   repository.MemoryRepository
+	Risk       risk.RiskEngine
+}
+
+// NewServer creates a new API server with all routes and middleware registered.
+func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if deps.Strategies == nil {
+		return nil, fmt.Errorf("strategies repository is required")
+	}
+	if deps.Runs == nil {
+		return nil, fmt.Errorf("runs repository is required")
+	}
+	if deps.Decisions == nil {
+		return nil, fmt.Errorf("decisions repository is required")
+	}
+	if deps.Orders == nil {
+		return nil, fmt.Errorf("orders repository is required")
+	}
+	if deps.Positions == nil {
+		return nil, fmt.Errorf("positions repository is required")
+	}
+	if deps.Trades == nil {
+		return nil, fmt.Errorf("trades repository is required")
+	}
+	if deps.Memories == nil {
+		return nil, fmt.Errorf("memories repository is required")
+	}
+	if deps.Risk == nil {
+		return nil, fmt.Errorf("risk engine is required")
+	}
+
+	s := &Server{
+		logger:     logger,
+		strategies: deps.Strategies,
+		runs:       deps.Runs,
+		decisions:  deps.Decisions,
+		orders:     deps.Orders,
+		positions:  deps.Positions,
+		trades:     deps.Trades,
+		memories:   deps.Memories,
+		risk:       deps.Risk,
+	}
+
+	r := chi.NewRouter()
+
+	// Global middleware
+	r.Use(RequestLogger(logger))
+	r.Use(CORS(cfg.CORSConfig))
+	if cfg.RateLimit > 0 {
+		rl := NewRateLimiter(cfg.RateLimit, cfg.RateWindow)
+		r.Use(rl.Middleware)
+	}
+
+	// Health check
+	r.Get("/health", s.handleHealth)
+
+	// API v1
+	r.Route("/api/v1", func(v1 chi.Router) {
+		// Strategies
+		v1.Route("/strategies", func(sr chi.Router) {
+			sr.Get("/", s.handleListStrategies)
+			sr.Post("/", s.handleCreateStrategy)
+			sr.Get("/{id}", s.handleGetStrategy)
+			sr.Put("/{id}", s.handleUpdateStrategy)
+			sr.Delete("/{id}", s.handleDeleteStrategy)
+		})
+
+		// Pipeline runs
+		v1.Route("/runs", func(rr chi.Router) {
+			rr.Get("/", s.handleListRuns)
+			rr.Get("/{id}", s.handleGetRun)
+			rr.Get("/{id}/decisions", s.handleGetRunDecisions)
+			rr.Post("/{id}/cancel", s.handleCancelRun)
+		})
+
+		// Portfolio
+		v1.Route("/portfolio", func(pr chi.Router) {
+			pr.Get("/positions", s.handleListPositions)
+			pr.Get("/positions/open", s.handleGetOpenPositions)
+			pr.Get("/summary", s.handlePortfolioSummary)
+		})
+
+		// Orders
+		v1.Route("/orders", func(or chi.Router) {
+			or.Get("/", s.handleListOrders)
+			or.Get("/{id}", s.handleGetOrder)
+		})
+
+		// Trades
+		v1.Get("/trades", s.handleListTrades)
+
+		// Memories
+		v1.Route("/memories", func(mr chi.Router) {
+			mr.Get("/", s.handleListMemories)
+			mr.Post("/search", s.handleSearchMemories)
+			mr.Delete("/{id}", s.handleDeleteMemory)
+		})
+
+		// Risk
+		v1.Route("/risk", func(rr chi.Router) {
+			rr.Get("/status", s.handleRiskStatus)
+			rr.Post("/killswitch", s.handleKillSwitchToggle)
+		})
+	})
+
+	s.router = r
+	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	s.httpServer = &http.Server{
+		Addr:              addr,
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	return s, nil
+}
+
+// Router returns the underlying chi.Router. Useful for testing.
+func (s *Server) Router() http.Handler {
+	return s.router
+}
+
+// Start begins listening for HTTP requests. It blocks until the server is
+// stopped or encounters an error.
+func (s *Server) Start() error {
+	s.logger.Info("api server starting", slog.String("addr", s.httpServer.Addr))
+	if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("api server: %w", err)
+	}
+	return nil
+}
+
+// Shutdown gracefully stops the HTTP server.
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.logger.Info("api server shutting down")
+	return s.httpServer.Shutdown(ctx)
+}
+
+// handleHealth returns 200 OK with a simple status payload.
+func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
