@@ -1,0 +1,27 @@
+package main
+
+import (
+	"bytes"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/PatrickFanella/get-rich-quick/internal/config"
+)
+
+func TestNewHTTPHandlerHealthz(t *testing.T) {
+	logger := config.NewLogger("production", "info", &bytes.Buffer{})
+	handler := newHTTPHandler(logger)
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ServeHTTP() status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if body := rec.Body.String(); body != "ok" {
+		t.Fatalf("ServeHTTP() body = %q, want %q", body, "ok")
+	}
+}
