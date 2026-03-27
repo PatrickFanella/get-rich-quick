@@ -32,9 +32,12 @@ const (
 // newUpgrader creates a WebSocket upgrader that validates the Origin header
 // against the server's configured CORS allowed origins.
 func newUpgrader(allowedOrigins []string) websocket.Upgrader {
-	allowAll := len(allowedOrigins) == 1 && allowedOrigins[0] == "*"
+	var allowAll bool
 	allowed := make(map[string]struct{}, len(allowedOrigins))
 	for _, o := range allowedOrigins {
+		if o == "*" {
+			allowAll = true
+		}
 		allowed[o] = struct{}{}
 	}
 
@@ -186,7 +189,7 @@ func (c *Client) handleCommand(raw []byte) {
 	switch cmd.Action {
 	case "subscribe":
 		if errs := c.applySubscribe(cmd); len(errs) > 0 {
-			c.sendError("invalid ids: " + strings.Join(errs, ", "))
+			c.sendError("invalid UUID format: " + strings.Join(errs, ", "))
 			return
 		}
 	case "unsubscribe":
