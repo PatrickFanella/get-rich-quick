@@ -50,6 +50,14 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if err := run(ctx, server); err != nil {
+		log.Fatalf("serve http: %v", err)
+	}
+
+	logger.Info("trading agent stopped")
+}
+
+func run(ctx context.Context, server *http.Server) error {
 	serverErr := make(chan error, 1)
 	go func() {
 		serverErr <- server.ListenAndServe()
@@ -57,9 +65,10 @@ func main() {
 
 	select {
 	case err := <-serverErr:
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("serve http: %v", err)
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
 		}
+		return err
 	case <-ctx.Done():
 	}
 
@@ -67,13 +76,14 @@ func main() {
 	defer cancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatalf("shutdown http server: %v", err)
-	}
-	if err := <-serverErr; err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatalf("wait for http server shutdown: %v", err)
+		return err
 	}
 
-	logger.Info("trading agent stopped")
+	err := <-serverErr
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
 }
 
 func newHTTPHandler(logger *slog.Logger) http.Handler {

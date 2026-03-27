@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/config"
 )
@@ -23,5 +26,32 @@ func TestNewHTTPHandlerHealthz(t *testing.T) {
 	}
 	if body := rec.Body.String(); body != "ok" {
 		t.Fatalf("ServeHTTP() body = %q, want %q", body, "ok")
+	}
+}
+
+func TestRun_ReturnsStartupErrorWithoutBlocking(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen() error = %v", err)
+	}
+	defer listener.Close()
+
+	server := &http.Server{
+		Addr:    listener.Addr().String(),
+		Handler: http.NewServeMux(),
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- run(context.Background(), server)
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("run() error = nil, want startup error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("run() did not return after startup failure")
 	}
 }
