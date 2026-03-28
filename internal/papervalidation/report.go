@@ -1,7 +1,6 @@
 package papervalidation
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/backtest"
@@ -64,10 +63,4 @@ func GenerateReport(
 		Decision:         decision,
 		TransitionPlan:   plan,
 	}
-}
-
-// MarshalJSON serialises the report to JSON.
-func (r ValidationReport) MarshalJSON() ([]byte, error) {
-	type Alias ValidationReport
-	return json.Marshal((Alias)(r))
 }

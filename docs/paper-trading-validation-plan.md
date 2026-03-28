@@ -57,7 +57,7 @@ continues.
 
 When a GO decision is reached:
 
-1. **Start at 25 %** of paper position sizes for live trading.
+1. **Start at 25%** of paper position sizes for live trading.
 2. Run live alongside paper for an additional 2 weeks.
 3. If live performance tracks paper within acceptable tolerance, scale to 50 %,
    then 75 %, then 100 % in weekly increments.
