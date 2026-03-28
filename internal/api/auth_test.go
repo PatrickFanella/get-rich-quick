@@ -158,3 +158,42 @@ func TestAPIKeyRateLimiterIsPerKey(t *testing.T) {
 		t.Fatal("key-a should be refilled after one minute")
 	}
 }
+
+func TestTokenBucketRateLimiterEvictsIdleBuckets(t *testing.T) {
+	t.Parallel()
+
+	rl := NewTokenBucketRateLimiter(time.Minute)
+	now := time.Date(2026, 3, 28, 1, 30, 0, 0, time.UTC)
+	rl.nowFunc = func() time.Time { return now }
+
+	if !rl.Allow("idle-key", 1) {
+		t.Fatal("first request should be allowed")
+	}
+	if got := len(rl.buckets); got != 1 {
+		t.Fatalf("len(buckets) = %d, want 1", got)
+	}
+
+	now = now.Add(3 * time.Minute)
+	if !rl.Allow("new-key", 1) {
+		t.Fatal("new key should be allowed")
+	}
+	if got := len(rl.buckets); got != 1 {
+		t.Fatalf("len(buckets) = %d, want 1 after eviction", got)
+	}
+}
+
+func TestAuthManagerRateLimitForWindowScalesPerMinuteValue(t *testing.T) {
+	t.Parallel()
+
+	auth, err := NewAuthManager(AuthConfig{
+		JWTSecret:    "test-secret",
+		APIKeyWindow: 30 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("NewAuthManager() error = %v", err)
+	}
+
+	if got := auth.rateLimitForWindow(100); got != 50 {
+		t.Fatalf("rateLimitForWindow(100) = %d, want 50", got)
+	}
+}

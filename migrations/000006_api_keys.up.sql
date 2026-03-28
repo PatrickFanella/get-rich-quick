@@ -6,7 +6,7 @@ CREATE TABLE api_keys (
     name                  TEXT        NOT NULL,
     key_prefix            TEXT        NOT NULL UNIQUE,
     key_hash              TEXT        NOT NULL UNIQUE,
-    rate_limit_per_minute INT         NOT NULL DEFAULT 100,
+    rate_limit_per_minute INT         NOT NULL DEFAULT 100 CHECK (rate_limit_per_minute > 0),
     last_used_at          TIMESTAMPTZ,
     expires_at            TIMESTAMPTZ,
     revoked_at            TIMESTAMPTZ,

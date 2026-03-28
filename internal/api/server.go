@@ -120,6 +120,7 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 		APIKeys:         deps.APIKeys,
 		APIKeyRateLimit: cfg.APIKeyRateLimit,
 		APIKeyWindow:    cfg.APIKeyWindow,
+		Logger:          logger,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create auth manager: %w", err)
@@ -282,7 +283,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if result.APIKey != nil && !s.auth.keyLimiter.Allow(result.APIKey.ID.String(), result.APIKey.RateLimitPerMinute) {
+		if result.APIKey != nil && !s.auth.keyLimiter.Allow(result.APIKey.ID.String(), s.auth.rateLimitForWindow(result.APIKey.RateLimitPerMinute)) {
 			respondError(w, http.StatusTooManyRequests, "rate limit exceeded", ErrCodeRateLimited)
 			return
 		}

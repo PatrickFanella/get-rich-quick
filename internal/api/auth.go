@@ -2,19 +2,21 @@ package api
 
 import (
 	"context"
-	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
@@ -70,6 +72,7 @@ type AuthConfig struct {
 	APIKeys         repository.APIKeyRepository
 	APIKeyRateLimit int
 	APIKeyWindow    time.Duration
+	Logger          *slog.Logger
 }
 
 // DefaultAuthConfig returns the default auth configuration.
@@ -91,26 +94,23 @@ type AuthManager struct {
 	nowFunc         func() time.Time
 	keyLimiter      *TokenBucketRateLimiter
 	defaultKeyLimit int
-}
-
-type jwtHeader struct {
-	Alg string `json:"alg"`
-	Typ string `json:"typ"`
+	apiKeyWindow    time.Duration
+	logger          *slog.Logger
 }
 
 type jwtClaims struct {
-	Subject   string `json:"sub"`
 	TokenType string `json:"token_type"`
-	IssuedAt  int64  `json:"iat"`
-	ExpiresAt int64  `json:"exp"`
+	jwt.RegisteredClaims
 }
 
 // TokenBucketRateLimiter implements a token-bucket limiter keyed by identifier.
 type TokenBucketRateLimiter struct {
-	mu      sync.Mutex
-	buckets map[string]*tokenBucket
-	window  time.Duration
-	nowFunc func() time.Time
+	mu           sync.Mutex
+	buckets      map[string]*tokenBucket
+	window       time.Duration
+	nowFunc      func() time.Time
+	lastCleanup  time.Time
+	idleLifetime time.Duration
 }
 
 type tokenBucket struct {
@@ -125,9 +125,10 @@ func NewTokenBucketRateLimiter(window time.Duration) *TokenBucketRateLimiter {
 		window = time.Minute
 	}
 	return &TokenBucketRateLimiter{
-		buckets: make(map[string]*tokenBucket),
-		window:  window,
-		nowFunc: time.Now,
+		buckets:      make(map[string]*tokenBucket),
+		window:       window,
+		nowFunc:      time.Now,
+		idleLifetime: 2 * window,
 	}
 }
 
@@ -141,6 +142,7 @@ func (rl *TokenBucketRateLimiter) Allow(key string, limit int) bool {
 	defer rl.mu.Unlock()
 
 	now := rl.nowFunc()
+	rl.evictIdleLocked(now)
 	bucket, ok := rl.buckets[key]
 	if !ok || bucket.capacity != limit {
 		rl.buckets[key] = &tokenBucket{
@@ -169,11 +171,29 @@ func (rl *TokenBucketRateLimiter) Allow(key string, limit int) bool {
 	return true
 }
 
+func (rl *TokenBucketRateLimiter) evictIdleLocked(now time.Time) {
+	if rl.idleLifetime <= 0 {
+		return
+	}
+	if !rl.lastCleanup.IsZero() && now.Sub(rl.lastCleanup) < rl.window {
+		return
+	}
+	for key, bucket := range rl.buckets {
+		if now.Sub(bucket.last) > rl.idleLifetime {
+			delete(rl.buckets, key)
+		}
+	}
+	rl.lastCleanup = now
+}
+
 // NewAuthManager creates a new auth manager from server configuration.
 func NewAuthManager(cfg AuthConfig) (*AuthManager, error) {
 	cfg = applyDefaultAuthConfig(cfg)
 	if strings.TrimSpace(cfg.JWTSecret) == "" {
 		return nil, errMissingJWTSecret
+	}
+	if cfg.Logger == nil {
+		cfg.Logger = slog.Default()
 	}
 
 	return &AuthManager{
@@ -184,6 +204,8 @@ func NewAuthManager(cfg AuthConfig) (*AuthManager, error) {
 		nowFunc:         time.Now,
 		keyLimiter:      NewTokenBucketRateLimiter(cfg.APIKeyWindow),
 		defaultKeyLimit: cfg.APIKeyRateLimit,
+		apiKeyWindow:    cfg.APIKeyWindow,
+		logger:          cfg.Logger,
 	}, nil
 }
 
@@ -317,7 +339,12 @@ func (a *AuthManager) validateAPIKey(ctx context.Context, rawKey string) (AuthRe
 		return AuthResult{}, errInvalidAPIKey
 	}
 
-	_ = a.apiKeys.TouchLastUsed(ctx, key.ID, a.nowFunc())
+	if err := a.apiKeys.TouchLastUsed(ctx, key.ID, a.nowFunc()); err != nil {
+		a.logger.Error("api key last-used update failed",
+			slog.String("api_key_id", key.ID.String()),
+			slog.Any("error", err),
+		)
+	}
 
 	return AuthResult{
 		Principal: AuthPrincipal{
@@ -337,69 +364,46 @@ func (a *AuthManager) generateJWT(subject, tokenType string, ttl time.Duration) 
 	issuedAt := a.nowFunc().UTC()
 	expiresAt := issuedAt.Add(ttl)
 
-	header := jwtHeader{Alg: "HS256", Typ: "JWT"}
 	claims := jwtClaims{
-		Subject:   subject,
 		TokenType: tokenType,
-		IssuedAt:  issuedAt.Unix(),
-		ExpiresAt: expiresAt.Unix(),
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   subject,
+			IssuedAt:  jwt.NewNumericDate(issuedAt),
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+		},
 	}
 
-	headerJSON, err := json.Marshal(header)
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err := token.SignedString(a.secret)
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("marshal jwt header: %w", err)
+		return "", time.Time{}, fmt.Errorf("sign jwt: %w", err)
 	}
-	claimsJSON, err := json.Marshal(claims)
-	if err != nil {
-		return "", time.Time{}, fmt.Errorf("marshal jwt claims: %w", err)
-	}
-
-	encodedHeader := base64.RawURLEncoding.EncodeToString(headerJSON)
-	encodedClaims := base64.RawURLEncoding.EncodeToString(claimsJSON)
-	signingInput := encodedHeader + "." + encodedClaims
-	signature := signJWT(signingInput, a.secret)
-
-	return signingInput + "." + signature, expiresAt, nil
+	return signed, expiresAt, nil
 }
 
 func (a *AuthManager) validateJWT(token, expectedType string) (jwtClaims, error) {
 	var claims jwtClaims
 
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return claims, errInvalidToken
-	}
-
-	signingInput := parts[0] + "." + parts[1]
-	expectedSig := signJWT(signingInput, a.secret)
-	if !hmac.Equal([]byte(parts[2]), []byte(expectedSig)) {
-		return claims, errInvalidToken
-	}
-
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	_, err := jwt.ParseWithClaims(token, &claims, func(token *jwt.Token) (any, error) {
+		if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+			return nil, errInvalidToken
+		}
+		return a.secret, nil
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithTimeFunc(a.nowFunc))
 	if err != nil {
-		return claims, errInvalidToken
-	}
-	if err := json.Unmarshal(payload, &claims); err != nil {
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return claims, errExpiredToken
+		}
 		return claims, errInvalidToken
 	}
 	if claims.TokenType != expectedType {
 		return claims, errInvalidToken
-	}
-	if a.nowFunc().Unix() >= claims.ExpiresAt {
-		return claims, errExpiredToken
 	}
 	if strings.TrimSpace(claims.Subject) == "" {
 		return claims, errInvalidToken
 	}
 
 	return claims, nil
-}
-
-func signJWT(signingInput string, secret []byte) string {
-	mac := hmac.New(sha256.New, secret)
-	_, _ = mac.Write([]byte(signingInput))
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
 func bearerTokenFromHeader(header string) string {
@@ -439,5 +443,20 @@ func hashAPIKey(raw string) string {
 }
 
 func verifyAPIKey(raw, expectedHash string) bool {
-	return hmac.Equal([]byte(hashAPIKey(raw)), []byte(expectedHash))
+	computed := hashAPIKey(raw)
+	return subtle.ConstantTimeCompare([]byte(computed), []byte(expectedHash)) == 1
+}
+
+func (a *AuthManager) rateLimitForWindow(perMinute int) int {
+	if perMinute <= 0 {
+		return 0
+	}
+	if a.apiKeyWindow <= 0 || a.apiKeyWindow == time.Minute {
+		return perMinute
+	}
+	scaled := int(math.Ceil(float64(perMinute) * a.apiKeyWindow.Minutes()))
+	if scaled < 1 {
+		return 1
+	}
+	return scaled
 }
