@@ -288,7 +288,7 @@ func (s *Server) broadcastRunResult(result *StrategyRunResult) {
 		StrategyID: run.StrategyID,
 		RunID:      run.ID,
 		Data: map[string]any{
-			"status": run.Status,
+			"status": domain.PipelineStatusRunning,
 		},
 		Timestamp: time.Now().UTC(),
 	})

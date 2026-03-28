@@ -211,13 +211,22 @@ func (r *smokeStrategyRunner) findRun(ctx context.Context, runID uuid.UUID) (*do
 		return nil, err
 	}
 
-	runs, err := r.runRepo.List(ctx, repository.PipelineRunFilter{}, 100, 0)
-	if err != nil {
-		return nil, err
-	}
-	for i := range runs {
-		if runs[i].ID == runID {
-			return &runs[i], nil
+	const pageSize = 100
+	for offset := 0; ; offset += pageSize {
+		runs, err := r.runRepo.List(ctx, repository.PipelineRunFilter{}, pageSize, offset)
+		if err != nil {
+			return nil, err
+		}
+		if len(runs) == 0 {
+			break
+		}
+		for i := range runs {
+			if runs[i].ID == runID {
+				return &runs[i], nil
+			}
+		}
+		if len(runs) < pageSize {
+			break
 		}
 	}
 	return nil, fmt.Errorf("run %s: %w", runID, repository.ErrNotFound)

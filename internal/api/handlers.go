@@ -100,7 +100,7 @@ func (s *Server) handleRunStrategy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.runner == nil {
-		respondError(w, http.StatusNotImplemented, "manual strategy runs are not configured", ErrCodeInternal)
+		respondError(w, http.StatusNotImplemented, "manual strategy runs are not configured", ErrCodeNotImplemented)
 		return
 	}
 
@@ -117,6 +117,10 @@ func (s *Server) handleRunStrategy(w http.ResponseWriter, r *http.Request) {
 	result, err := s.runner.RunStrategy(r.Context(), *strategy)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to run strategy", ErrCodeInternal)
+		return
+	}
+	if result == nil {
+		respondError(w, http.StatusInternalServerError, "strategy run returned no result", ErrCodeInternal)
 		return
 	}
 

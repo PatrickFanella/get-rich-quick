@@ -285,6 +285,10 @@ func TestRunStrategyRequiresRunner(t *testing.T) {
 	if rr.Code != http.StatusNotImplemented {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotImplemented)
 	}
+	body := decodeJSON[ErrorResponse](t, rr)
+	if body.Code != ErrCodeNotImplemented {
+		t.Fatalf("code = %q, want %q", body.Code, ErrCodeNotImplemented)
+	}
 }
 
 func TestRunStrategyNotFound(t *testing.T) {
@@ -298,6 +302,61 @@ func TestRunStrategyNotFound(t *testing.T) {
 
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+func TestRunStrategyRejectsNilResult(t *testing.T) {
+	t.Parallel()
+
+	deps := testDeps()
+	deps.Runner = &stubStrategyRunner{}
+	srv := newTestServerWithDeps(t, deps)
+
+	rr := doRequest(t, srv, http.MethodPost, "/api/v1/strategies/"+stratA.ID.String()+"/run", nil)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+	body := decodeJSON[ErrorResponse](t, rr)
+	if body.Code != ErrCodeInternal {
+		t.Fatalf("code = %q, want %q", body.Code, ErrCodeInternal)
+	}
+}
+
+func TestBroadcastRunResultUsesRunningStatusForStartEvent(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	runID := uuid.New()
+	strategyID := uuid.New()
+	result := &StrategyRunResult{
+		Run: domain.PipelineRun{
+			ID:         runID,
+			StrategyID: strategyID,
+			Status:     domain.PipelineStatusCompleted,
+		},
+	}
+
+	srv.broadcastRunResult(result)
+
+	select {
+	case msg := <-srv.hub.broadcast:
+		var decoded WSMessage
+		if err := json.Unmarshal(msg.data, &decoded); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+		if decoded.Type != EventPipelineStart {
+			t.Fatalf("event type = %q, want %q", decoded.Type, EventPipelineStart)
+		}
+		payload, ok := decoded.Data.(map[string]any)
+		if !ok {
+			t.Fatalf("payload type = %T, want map[string]any", decoded.Data)
+		}
+		if got := payload["status"]; got != string(domain.PipelineStatusRunning) {
+			t.Fatalf("start-event status = %v, want %q", got, domain.PipelineStatusRunning)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for start event broadcast")
 	}
 }
 
