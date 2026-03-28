@@ -113,14 +113,20 @@ func (r *PipelineRunRepo) List(ctx context.Context, filter repository.PipelineRu
 // UpdateStatus updates the status fields for a pipeline run. It returns
 // ErrNotFound when no row matches the provided composite key.
 func (r *PipelineRunRepo) UpdateStatus(ctx context.Context, id uuid.UUID, tradeDate time.Time, update repository.PipelineRunStatusUpdate) error {
+	var signal any
+	if update.Signal != nil {
+		signal = *update.Signal
+	}
+
 	row := r.pool.QueryRow(ctx,
 		`UPDATE pipeline_runs
-		 SET status = $1, completed_at = $2, error_message = $3
-		 WHERE id = $4 AND trade_date = $5::date
+		 SET status = $1, completed_at = $2, error_message = $3, signal = COALESCE($4, signal)
+		 WHERE id = $5 AND trade_date = $6::date
 		 RETURNING id`,
 		update.Status,
 		update.CompletedAt,
 		update.ErrorMessage,
+		signal,
 		id,
 		tradeDate,
 	)

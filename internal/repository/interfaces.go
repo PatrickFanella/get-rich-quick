@@ -51,6 +51,7 @@ type PipelineRunFilter struct {
 // PipelineRunStatusUpdate defines the fields that may change when updating run status.
 type PipelineRunStatusUpdate struct {
 	Status       domain.PipelineStatus
+	Signal       *domain.PipelineSignal
 	CompletedAt  *time.Time
 	ErrorMessage string
 }
