@@ -2,18 +2,18 @@
 title: Phase 5 Execution Paths
 type: tracking
 created: 2026-03-26
-tags: [tracking, phase-5, api, paper-trading, observability, production]
+tags: [tracking, phase-5, api, paper-trading, production]
 ---
 
 # Phase 5: Execution Paths
 
-> 33 issues across 7 tracks. **17 ready now** (6 already implemented), 16 blocked.
-> Updated: 2026-03-26
+> 30 issues across 7 tracks. **16 ready now** (6 already implemented), 14 blocked.
+> Updated: 2026-03-27
 > Tracking issue: [#348](https://github.com/PatrickFanella/get-rich-quick/issues/348)
 
 ## Context
 
-Phase 4 delivered a complete backtesting engine (30 files, full test coverage). This phase bridges the working backend engine to production-readiness: close out Phase 4, land architecture improvements, build the API layer, add observability, and begin 60-day paper trading validation.
+Phase 4 delivered a complete backtesting engine (30 files, full test coverage). This phase bridges the working backend engine to production-readiness: close out Phase 4, land architecture improvements, build the API layer, and begin 60-day paper trading validation. Observability (#80, #83, #85) is deferred to server deployment.
 
 ## Summary
 
@@ -23,10 +23,11 @@ Phase 4 delivered a complete backtesting engine (30 files, full test coverage). 
 | B     | Phase 4 Completion        |   7    |   4    |    3    |      5      | Mixed           |
 | C     | API Layer                 |   3    |   1    |    2    |      0      | Mixed           |
 | D     | CI/CD & Infrastructure    |   3    |   1    |    2    |      0      | GPT-5.4         |
-| E     | Observability             |   3    |   1    |    2    |      0      | GPT-5.4         |
-| F     | Paper Trading             |   7    |   2    |    5    |      3      | Mixed           |
-| G     | Architecture Decisions    |   4    |   2    |    2    |      0      | Human           |
-|       | **Total**                 | **33** | **17** | **16**  |   **13**    |                 |
+| E     | Paper Trading             |   7    |   2    |    5    |      3      | Mixed           |
+| F     | Architecture Decisions    |   4    |   2    |    2    |      0      | Human           |
+|       | **Total**                 | **30** | **16** | **14**  |   **13**    |                 |
+
+> **Deferred to server deployment:** #80 (Prometheus), #83 (Grafana), #85 (Alerting)
 
 **Implemented** = code exists in the repo but the issue has not been closed. These need verification against the issue acceptance criteria, then closure.
 
@@ -100,25 +101,9 @@ Phase 4 delivered a complete backtesting engine (30 files, full test coverage). 
 
 ---
 
-## Track E: Observability
+## Track E: Paper Trading
 
-> Depends on: Nothing for #80. #83 and #85 depend on #80.
-
-| #   | Issue                                                             | Title                                            | Size | Blocker | Status  | Model   |
-| --- | ----------------------------------------------------------------- | ------------------------------------------------ | :--: | ------- | ------- | ------- |
-| 1   | [#80](https://github.com/PatrickFanella/get-rich-quick/issues/80) | Implement Prometheus metrics exposition          |  M   | None    | READY   | GPT-5.4 |
-| 2   | [#83](https://github.com/PatrickFanella/get-rich-quick/issues/83) | Create Grafana dashboard configurations          |  M   | #80     | BLOCKED | GPT-5.4 |
-| 3   | [#85](https://github.com/PatrickFanella/get-rich-quick/issues/85) | Implement alerting rules and notification system |  M   | #80     | BLOCKED | GPT-5.4 |
-
-**Design reference:** `docs/design/infrastructure/deployment-and-operations.md` specifies 6 metric families: `tradingagent_pipeline_runs_total`, `tradingagent_pipeline_duration_seconds`, `tradingagent_llm_calls_total`, `tradingagent_llm_tokens_total`, `tradingagent_orders_total`, `tradingagent_portfolio_value`. Grafana dashboards for Pipeline Health, LLM Usage, Trading, Risk, System. Alerting via Telegram + email.
-
-**Execution order:** #80 first (add prometheus/client_golang, instrument pipeline + LLM + execution), then #83 and #85 in parallel.
-
----
-
-## Track F: Paper Trading
-
-> Depends on: Track C #74 (API server), Track E #80 (metrics). ADRs #93 and #96 should be decided first.
+> Depends on: Track C #74 (API server). ADRs #93 and #96 should be decided first.
 
 | #   | Issue                                                             | Title                                                     | Size | Blocker     | Status      | Model           |
 | --- | ----------------------------------------------------------------- | --------------------------------------------------------- | :--: | ----------- | ----------- | --------------- |
@@ -128,17 +113,17 @@ Phase 4 delivered a complete backtesting engine (30 files, full test coverage). 
 | 4   | [#86](https://github.com/PatrickFanella/get-rich-quick/issues/86) | Implement circuit breaker state machine                   |  M   | None        | IMPLEMENTED | —               |
 | 5   | [#87](https://github.com/PatrickFanella/get-rich-quick/issues/87) | Implement position limit enforcement                      |  M   | None        | IMPLEMENTED | —               |
 | 6   | [#89](https://github.com/PatrickFanella/get-rich-quick/issues/89) | Implement stop-loss and take-profit order management      |  M   | #93         | BLOCKED     | Claude Opus 4.6 |
-| 7   | [#79](https://github.com/PatrickFanella/get-rich-quick/issues/79) | Define and implement 60-day paper trading validation plan |  M   | #74,#80,#89 | BLOCKED     | Claude Opus 4.6 |
+| 7   | [#79](https://github.com/PatrickFanella/get-rich-quick/issues/79) | Define and implement 60-day paper trading validation plan |  M   | #74,#89     | BLOCKED     | Claude Opus 4.6 |
 
 **Status:** #82, #86, #87 are fully implemented in `internal/risk/` with tests (kill switch: API/file/env, circuit breaker: open/tripped/cooldown with auto-reset, position limits: per-position/total/concurrent/per-market). Verify and close.
 
 #89 is **partial** — `TradingPlan` stores stop-loss/take-profit values and positions persist them, but the execution engine does not actively enforce SL/TP exits. Needs: automated exit logic in the order manager or a price-monitoring goroutine.
 
-#79 is the capstone — requires API (#74) for strategy management, metrics (#80) for monitoring, and SL/TP enforcement (#89) for safety. The 60-day validation targets Sharpe > 1.0.
+#79 is the capstone — requires API (#74) for strategy management and SL/TP enforcement (#89) for safety. The 60-day validation targets Sharpe > 1.0.
 
 ---
 
-## Track G: Architecture Decisions
+## Track F: Architecture Decisions
 
 > Depends on: Nothing for decisions. Implementation depends on the chosen direction.
 
@@ -173,12 +158,8 @@ Track C #74 (REST API) ─── independent
 Track D #91 (CI) ─── blocked by test suites
   └── Track D #94 (CD) ─── blocked by #91
 
-Track E #80 (Prometheus) ─── independent
-  ├── Track E #83 (Grafana) ─── blocked by #80
-  └── Track E #85 (Alerting) ─── blocked by #80
-
-Track F #89 (SL/TP management) ─── blocked by ADR #93
-  └── Track F #79 (60-day validation) ─── blocked by #74, #80, #89
+Track E #89 (SL/TP management) ─── blocked by ADR #93
+  └── Track E #79 (60-day validation) ─── blocked by #74, #89
 ```
 
 ---
@@ -191,40 +172,37 @@ Track F #89 (SL/TP management) ─── blocked by ADR #93
 
 - Track A: #342, #343, #344, #345, #346 (arch improvements — code on main)
 - Track B: #66, #68, #70, #73, #308, #315 (backtest engine — code on main)
-- Track F: #82, #86, #87 (risk controls — code on main)
+- Track E: #82, #86, #87 (risk controls — code on main)
 
 **Start new work:**
 
 - Track D: #90 (Docker build)
-- Track G: #93, #96 (paper trading ADRs — decisions needed)
-- Track G: #110, #111 (infrastructure + risk ADRs — decisions needed)
+- Track F: #93, #96 (paper trading ADRs — decisions needed)
+- Track F: #110, #111 (infrastructure + risk ADRs — decisions needed)
 
-### Wave 2 — Core infrastructure (5 issues)
+### Wave 2 — Core infrastructure (4 issues)
 
 - Track C: **#74** (REST API server) — largest item, unblocks 5+ issues
-- Track E: **#80** (Prometheus metrics)
 - Track D: **#91** (CI pipeline)
 - Track B: **#316** (backtest integration test)
 - Track A: **#347** (typed phase I/O migration — can start anytime)
 
-### Wave 3 — API extensions + observability (5 issues)
+### Wave 3 — API extensions (3 issues)
 
 - Track C: **#77** (WebSocket) — blocked by #74
 - Track C: **#88** (JWT auth) — blocked by #74
-- Track E: **#83** (Grafana dashboards) — blocked by #80
-- Track E: **#85** (Alerting) — blocked by #80
 - Track D: **#94** (CD pipeline) — blocked by #91
 
 ### Wave 4 — Paper trading preparation (3 issues)
 
 - Track B: **#317** (backtest comparison API) — blocked by #74
-- Track F: **#89** (SL/TP enforcement) — blocked by ADR #93
-- Track G: **#112** (human review gate ADR) — blocked by #74
+- Track E: **#89** (SL/TP enforcement) — blocked by ADR #93
+- Track F: **#112** (human review gate ADR) — blocked by #74
 
 ### Wave 5 — Validation (2 issues)
 
-- Track G: **#113** (end-to-end smoke test) — blocked by #74
-- Track F: **#79** (60-day paper trading validation) — blocked by #74, #80, #89
+- Track F: **#113** (end-to-end smoke test) — blocked by #74
+- Track E: **#79** (60-day paper trading validation) — blocked by #74, #89
 
 ---
 
@@ -232,15 +210,14 @@ Track F #89 (SL/TP management) ─── blocked by ADR #93
 
 1. **Close before opening** — 13 issues are already implemented. Verify and close them before starting new work to keep the issue tracker honest.
 2. **API is the critical path** — #74 (REST API) unblocks 5+ downstream issues including WebSocket, backtest comparison, smoke test, and paper trading validation. Start it in Wave 2.
-3. **Observability before validation** — Prometheus (#80) and alerting (#85) must be running before starting the 60-day paper trading validation so failures are visible.
-4. **ADRs before implementation** — Position sizing (#93) and slippage assumptions (#96) must be decided before implementing SL/TP enforcement (#89), which in turn must be done before paper trading.
-5. **SL/TP is the missing safety net** — Risk controls (kill switch, circuit breaker, position limits) are complete, but automated stop-loss/take-profit exits are stored-but-not-enforced. This is the main gap between "engine works" and "safe to paper trade."
+3. **ADRs before implementation** — Position sizing (#93) and slippage assumptions (#96) must be decided before implementing SL/TP enforcement (#89), which in turn must be done before paper trading.
+4. **SL/TP is the missing safety net** — Risk controls (kill switch, circuit breaker, position limits) are complete, but automated stop-loss/take-profit exits are stored-but-not-enforced. This is the main gap between "engine works" and "safe to paper trade."
 
 ## Model Recommendations
 
 | Complexity | Model           | Use For                                                         |
 | ---------- | --------------- | --------------------------------------------------------------- |
 | High       | Claude Opus 4.6 | REST API server (#74), WebSocket (#77), SL/TP enforcement (#89) |
-| Medium     | GPT-5.4         | Docker (#90), CI/CD (#91, #94), Prometheus (#80), Grafana (#83) |
-| Low        | GPT-5.4         | JWT auth (#88), alerting (#85), comparison API (#317)           |
+| Medium     | GPT-5.4         | Docker (#90), CI/CD (#91, #94)                                  |
+| Low        | GPT-5.4         | JWT auth (#88), comparison API (#317)                           |
 | —          | Human           | All ADRs (#93, #96, #110, #111, #112)                           |
