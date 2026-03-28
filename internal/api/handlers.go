@@ -93,6 +93,41 @@ func (s *Server) handleGetStrategy(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, strategy)
 }
 
+func (s *Server) handleRunStrategy(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUID(r, "id")
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error(), ErrCodeBadRequest)
+		return
+	}
+	if s.runner == nil {
+		respondError(w, http.StatusNotImplemented, "manual strategy runs are not configured", ErrCodeNotImplemented)
+		return
+	}
+
+	strategy, err := s.strategies.Get(r.Context(), id)
+	if err != nil {
+		if isNotFound(err) {
+			respondError(w, http.StatusNotFound, "strategy not found", ErrCodeNotFound)
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to get strategy", ErrCodeInternal)
+		return
+	}
+
+	result, err := s.runner.RunStrategy(r.Context(), *strategy)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to run strategy", ErrCodeInternal)
+		return
+	}
+	if result == nil {
+		respondError(w, http.StatusInternalServerError, "strategy run returned no result", ErrCodeInternal)
+		return
+	}
+
+	s.broadcastRunResult(result)
+	respondJSON(w, http.StatusOK, result)
+}
+
 func (s *Server) handleCreateStrategy(w http.ResponseWriter, r *http.Request) {
 	var strategy domain.Strategy
 	if err := json.NewDecoder(r.Body).Decode(&strategy); err != nil {
@@ -311,9 +346,9 @@ func (s *Server) handlePortfolioSummary(w http.ResponseWriter, r *http.Request) 
 		totalRealized += p.RealizedPnL
 	}
 	summary := map[string]any{
-		"open_positions":  len(positions),
-		"unrealized_pnl":  totalUnrealized,
-		"realized_pnl":    totalRealized,
+		"open_positions": len(positions),
+		"unrealized_pnl": totalUnrealized,
+		"realized_pnl":   totalRealized,
 	}
 	respondJSON(w, http.StatusOK, summary)
 }

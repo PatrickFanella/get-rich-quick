@@ -2,8 +2,7 @@ ARG GO_VERSION=1.25.8
 ARG ALPINE_VERSION=3.21
 
 FROM golang:${GO_VERSION}-alpine AS dev
-RUN apk add --no-cache git curl && \
-    go install github.com/air-verse/air@latest
+RUN go install github.com/air-verse/air@latest
 WORKDIR /app
 EXPOSE 8080
 CMD ["air", "-c", ".air.toml"]

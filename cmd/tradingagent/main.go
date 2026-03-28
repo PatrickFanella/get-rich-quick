@@ -41,26 +41,26 @@ func main() {
 	addr := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
 	fmt.Printf("Trading Agent configured for %s on %s\n", cfg.Environment, addr)
 
-	server := &http.Server{
-		Addr:              addr,
-		Handler:           newHTTPHandler(logger),
-		ReadHeaderTimeout: 5 * time.Second,
+	server, cleanup, err := newAPIServer(context.Background(), cfg, logger)
+	if err != nil {
+		log.Fatalf("build api server: %v", err)
 	}
+	defer cleanup()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := run(ctx, server); err != nil {
+	if err := run(ctx, server.Start, server.Shutdown); err != nil {
 		log.Fatalf("serve http: %v", err)
 	}
 
 	logger.Info("trading agent stopped")
 }
 
-func run(ctx context.Context, server *http.Server) error {
+func run(ctx context.Context, serve func() error, shutdown func(context.Context) error) error {
 	serverErr := make(chan error, 1)
 	go func() {
-		serverErr <- server.ListenAndServe()
+		serverErr <- serve()
 	}()
 
 	select {
@@ -75,7 +75,7 @@ func run(ctx context.Context, server *http.Server) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := server.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if err := shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 

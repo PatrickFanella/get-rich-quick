@@ -25,12 +25,16 @@ import (
 // ---------------------------------------------------------------------------
 
 func newTestServer(t *testing.T) *Server {
+	return newTestServerWithDeps(t, testDeps())
+}
+
+func newTestServerWithDeps(t *testing.T, deps Deps) *Server {
 	t.Helper()
 
 	cfg := DefaultServerConfig()
 	cfg.JWTSecret = "test-jwt-secret"
 
-	srv, err := NewServer(cfg, testDeps(), slog.Default())
+	srv, err := NewServer(cfg, deps, slog.Default())
 	if err != nil {
 		t.Fatalf("NewServer() error = %v", err)
 	}
@@ -236,6 +240,123 @@ func TestCreateStrategyValidation(t *testing.T) {
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestRunStrategy(t *testing.T) {
+	t.Parallel()
+
+	run := domain.PipelineRun{
+		ID:         uuid.New(),
+		StrategyID: stratA.ID,
+		Ticker:     stratA.Ticker,
+		Status:     domain.PipelineStatusCompleted,
+	}
+	deps := testDeps()
+	deps.Runner = &stubStrategyRunner{
+		result: &StrategyRunResult{
+			Run:    run,
+			Signal: domain.PipelineSignalBuy,
+		},
+	}
+	srv := newTestServerWithDeps(t, deps)
+
+	rr := doRequest(t, srv, http.MethodPost, "/api/v1/strategies/"+stratA.ID.String()+"/run", nil)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d\nbody: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	body := decodeJSON[StrategyRunResult](t, rr)
+	if body.Run.ID != run.ID {
+		t.Fatalf("run id = %s, want %s", body.Run.ID, run.ID)
+	}
+	if body.Signal != domain.PipelineSignalBuy {
+		t.Fatalf("signal = %q, want %q", body.Signal, domain.PipelineSignalBuy)
+	}
+}
+
+func TestRunStrategyRequiresRunner(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t)
+
+	rr := doRequest(t, srv, http.MethodPost, "/api/v1/strategies/"+stratA.ID.String()+"/run", nil)
+
+	if rr.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotImplemented)
+	}
+	body := decodeJSON[ErrorResponse](t, rr)
+	if body.Code != ErrCodeNotImplemented {
+		t.Fatalf("code = %q, want %q", body.Code, ErrCodeNotImplemented)
+	}
+}
+
+func TestRunStrategyNotFound(t *testing.T) {
+	t.Parallel()
+
+	deps := testDeps()
+	deps.Runner = &stubStrategyRunner{}
+	srv := newTestServerWithDeps(t, deps)
+
+	rr := doRequest(t, srv, http.MethodPost, "/api/v1/strategies/"+uuid.New().String()+"/run", nil)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+func TestRunStrategyRejectsNilResult(t *testing.T) {
+	t.Parallel()
+
+	deps := testDeps()
+	deps.Runner = &stubStrategyRunner{}
+	srv := newTestServerWithDeps(t, deps)
+
+	rr := doRequest(t, srv, http.MethodPost, "/api/v1/strategies/"+stratA.ID.String()+"/run", nil)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+	body := decodeJSON[ErrorResponse](t, rr)
+	if body.Code != ErrCodeInternal {
+		t.Fatalf("code = %q, want %q", body.Code, ErrCodeInternal)
+	}
+}
+
+func TestBroadcastRunResultUsesRunningStatusForStartEvent(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	runID := uuid.New()
+	strategyID := uuid.New()
+	result := &StrategyRunResult{
+		Run: domain.PipelineRun{
+			ID:         runID,
+			StrategyID: strategyID,
+			Status:     domain.PipelineStatusCompleted,
+		},
+	}
+
+	srv.broadcastRunResult(result)
+
+	select {
+	case msg := <-srv.hub.broadcast:
+		var decoded WSMessage
+		if err := json.Unmarshal(msg.data, &decoded); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+		if decoded.Type != EventPipelineStart {
+			t.Fatalf("event type = %q, want %q", decoded.Type, EventPipelineStart)
+		}
+		payload, ok := decoded.Data.(map[string]any)
+		if !ok {
+			t.Fatalf("payload type = %T, want map[string]any", decoded.Data)
+		}
+		if got := payload["status"]; got != string(domain.PipelineStatusRunning) {
+			t.Fatalf("start-event status = %v, want %q", got, domain.PipelineStatusRunning)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for start event broadcast")
 	}
 }
 
@@ -783,6 +904,15 @@ func (stubRunRepo) List(context.Context, repository.PipelineRunFilter, int, int)
 }
 func (stubRunRepo) UpdateStatus(context.Context, uuid.UUID, time.Time, repository.PipelineRunStatusUpdate) error {
 	return nil
+}
+
+type stubStrategyRunner struct {
+	result *StrategyRunResult
+	err    error
+}
+
+func (s *stubStrategyRunner) RunStrategy(context.Context, domain.Strategy) (*StrategyRunResult, error) {
+	return s.result, s.err
 }
 
 // stubDecisionRepo

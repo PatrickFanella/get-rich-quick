@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PatrickFanella/get-rich-quick/internal/domain"
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 
@@ -31,13 +32,27 @@ type Server struct {
 	memories   repository.MemoryRepository
 
 	// Risk engine
-	risk risk.RiskEngine
+	risk   risk.RiskEngine
+	runner StrategyRunner
 
 	auth *AuthManager
 
 	// WebSocket hub for real-time event streaming.
 	hub        *Hub
 	wsUpgrader websocket.Upgrader
+}
+
+// StrategyRunResult captures the persisted artifacts created by a manual run.
+type StrategyRunResult struct {
+	Run       domain.PipelineRun    `json:"run"`
+	Signal    domain.PipelineSignal `json:"signal,omitempty"`
+	Orders    []domain.Order        `json:"orders,omitempty"`
+	Positions []domain.Position     `json:"positions,omitempty"`
+}
+
+// StrategyRunner triggers a strategy pipeline run on demand.
+type StrategyRunner interface {
+	RunStrategy(ctx context.Context, strategy domain.Strategy) (*StrategyRunResult, error)
 }
 
 // ServerConfig holds configuration for the API server.
@@ -78,6 +93,7 @@ type Deps struct {
 	Memories   repository.MemoryRepository
 	APIKeys    repository.APIKeyRepository
 	Risk       risk.RiskEngine
+	Runner     StrategyRunner
 }
 
 // NewServer creates a new API server with all routes and middleware registered.
@@ -138,6 +154,7 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 		trades:     deps.Trades,
 		memories:   deps.Memories,
 		risk:       deps.Risk,
+		runner:     deps.Runner,
 		auth:       authManager,
 		hub:        hub,
 		wsUpgrader: newUpgrader(cfg.CORSConfig.AllowedOrigins),
@@ -161,6 +178,7 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 	}
 
 	// Health check
+	r.Get("/healthz", s.handleHealth)
 	r.Get("/health", s.handleHealth)
 	r.Get("/metrics", s.handleMetrics)
 
@@ -176,6 +194,7 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 			sr.Get("/", s.handleListStrategies)
 			sr.Post("/", s.handleCreateStrategy)
 			sr.Get("/{id}", s.handleGetStrategy)
+			sr.Post("/{id}/run", s.handleRunStrategy)
 			sr.Put("/{id}", s.handleUpdateStrategy)
 			sr.Delete("/{id}", s.handleDeleteStrategy)
 		})
@@ -256,6 +275,55 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // Hub returns the WebSocket hub for broadcasting events.
 func (s *Server) Hub() *Hub {
 	return s.hub
+}
+
+func (s *Server) broadcastRunResult(result *StrategyRunResult) {
+	if s.hub == nil || result == nil {
+		return
+	}
+
+	run := result.Run
+	s.hub.Broadcast(WSMessage{
+		Type:       EventPipelineStart,
+		StrategyID: run.StrategyID,
+		RunID:      run.ID,
+		Data: map[string]any{
+			"status": domain.PipelineStatusRunning,
+		},
+		Timestamp: time.Now().UTC(),
+	})
+
+	if result.Signal != "" {
+		s.hub.Broadcast(WSMessage{
+			Type:       EventSignal,
+			StrategyID: run.StrategyID,
+			RunID:      run.ID,
+			Data: map[string]any{
+				"signal": result.Signal,
+			},
+			Timestamp: time.Now().UTC(),
+		})
+	}
+
+	for _, order := range result.Orders {
+		s.hub.Broadcast(WSMessage{
+			Type:       EventOrderSubmitted,
+			StrategyID: run.StrategyID,
+			RunID:      run.ID,
+			Data:       order,
+			Timestamp:  time.Now().UTC(),
+		})
+	}
+
+	for _, position := range result.Positions {
+		s.hub.Broadcast(WSMessage{
+			Type:       EventPositionUpdate,
+			StrategyID: run.StrategyID,
+			RunID:      run.ID,
+			Data:       position,
+			Timestamp:  time.Now().UTC(),
+		})
+	}
 }
 
 // handleHealth returns 200 OK with a simple status payload.

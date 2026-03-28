@@ -43,7 +43,7 @@ func TestRun_ReturnsStartupErrorWithoutBlocking(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- run(context.Background(), server)
+		done <- run(context.Background(), server.ListenAndServe, server.Shutdown)
 	}()
 
 	select {

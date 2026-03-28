@@ -111,6 +111,81 @@ jobs:
           name: coverage
           path: coverage.out
 
+  smoke-tests:
+    name: Smoke tests
+    runs-on: ubuntu-latest
+    needs: integration-tests
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Configure smoke environment
+        run: |
+          cat > .env <<'EOF'
+          APP_ENV=smoke
+          APP_HOST=0.0.0.0
+          APP_PORT=8080
+          JWT_SECRET=smoke-jwt-secret
+          DATABASE_URL=postgres://postgres:postgres@postgres:5432/tradingagent?sslmode=disable
+          DATABASE_POOL_SIZE=10
+          DATABASE_SSL_MODE=disable
+          REDIS_URL=redis://redis:6379/0
+          LLM_DEFAULT_PROVIDER=ollama
+          LLM_DEEP_THINK_MODEL=smoke-deep
+          LLM_QUICK_THINK_MODEL=smoke-quick
+          LLM_TIMEOUT=30s
+          OLLAMA_BASE_URL=http://ollama.invalid/v1
+          OLLAMA_MODEL=smoke-model
+          ALPHA_VANTAGE_API_KEY=smoke-key
+          ALPHA_VANTAGE_RATE_LIMIT_PER_MINUTE=5
+          FINNHUB_RATE_LIMIT_PER_MINUTE=60
+          RISK_MAX_POSITION_SIZE_PCT=0.10
+          RISK_MAX_DAILY_LOSS_PCT=0.02
+          RISK_MAX_DRAWDOWN_PCT=0.10
+          RISK_MAX_OPEN_POSITIONS=10
+          RISK_CIRCUIT_BREAKER_THRESHOLD=0.05
+          RISK_CIRCUIT_BREAKER_COOLDOWN=15m
+          ENABLE_SCHEDULER=false
+          ENABLE_REDIS_CACHE=false
+          ENABLE_AGENT_MEMORY=false
+          ENABLE_LIVE_TRADING=false
+          POSTGRES_USER=postgres
+          POSTGRES_PASSWORD=postgres
+          POSTGRES_DB=tradingagent
+          EOF
+
+      - name: Start docker compose
+        run: docker compose up --build -d
+
+      - name: Run migrations
+        run: |
+          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+          "$(go env GOPATH)/bin/migrate" -path migrations -database "postgres://postgres:postgres@localhost:5432/tradingagent?sslmode=disable" up
+
+      - name: Wait for API
+        run: |
+          timeout 90 bash -c 'until curl -fsS http://127.0.0.1:8080/health >/dev/null; do sleep 2; done'
+
+      - name: Run smoke test
+        env:
+          RUN_SMOKE_TEST: "1"
+          SMOKE_BASE_URL: http://127.0.0.1:8080
+          SMOKE_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/tradingagent?sslmode=disable
+          SMOKE_JWT_SECRET: smoke-jwt-secret
+        run: go test -count=1 -run Smoke ./cmd/tradingagent
+
+      - name: Show compose logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Tear down docker compose
+        if: always()
+        run: docker compose down -v
+
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -118,6 +193,7 @@ jobs:
       - lint
       - unit-tests
       - integration-tests
+      - smoke-tests
     steps:
       - uses: actions/checkout@v6
 
