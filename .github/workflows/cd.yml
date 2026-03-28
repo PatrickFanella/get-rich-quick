@@ -1,8 +1,7 @@
 name: CD
 
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches: [main]
 
 permissions:
@@ -12,12 +11,12 @@ permissions:
 jobs:
   publish-image:
     name: Publish Docker image
-    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    concurrency:
+      group: cd-main-latest
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
 
       - name: Set image name
         id: image
@@ -34,10 +33,10 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build and push image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
           tags: |
-            ${{ steps.image.outputs.name }}:${{ github.event.pull_request.merge_commit_sha }}
+            ${{ steps.image.outputs.name }}:${{ github.sha }}
             ${{ steps.image.outputs.name }}:latest
