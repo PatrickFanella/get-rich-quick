@@ -48,6 +48,13 @@ func TestComputeTradeAnalyticsHoldingPeriodsAndExtremes(t *testing.T) {
 	if a.LargestSingleLoss != -20 {
 		t.Errorf("LargestSingleLoss = %f, want -20", a.LargestSingleLoss)
 	}
+	// 1 win (PnL=+10) and 1 loss (PnL=-20) → WinRate = 0.5, ProfitFactor = 10/20 = 0.5
+	if math.Abs(a.WinRate-0.5) > 1e-9 {
+		t.Errorf("WinRate = %f, want 0.5", a.WinRate)
+	}
+	if math.Abs(a.ProfitFactor-0.5) > 1e-9 {
+		t.Errorf("ProfitFactor = %f, want 0.5", a.ProfitFactor)
+	}
 }
 
 func TestComputeTradeAnalyticsConsecutiveStreaks(t *testing.T) {
@@ -112,6 +119,13 @@ func TestComputeTradeAnalyticsLargestSingleLossZeroWhenAllWins(t *testing.T) {
 	}
 	if a.LargestSingleLoss != 0 {
 		t.Errorf("LargestSingleLoss = %f, want 0", a.LargestSingleLoss)
+	}
+	// Single winning trade → WinRate = 1.0, ProfitFactor = +Inf
+	if a.WinRate != 1.0 {
+		t.Errorf("WinRate = %f, want 1.0", a.WinRate)
+	}
+	if !math.IsInf(a.ProfitFactor, 1) {
+		t.Errorf("ProfitFactor = %f, want +Inf", a.ProfitFactor)
 	}
 }
 

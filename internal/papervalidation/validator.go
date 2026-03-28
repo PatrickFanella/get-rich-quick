@@ -42,11 +42,14 @@ type MetricResult struct {
 // ValidationResult is the outcome of evaluating paper trading performance
 // against the configured thresholds.
 type ValidationResult struct {
-	Metrics     []MetricResult `json:"metrics"`
-	AllPassed   bool           `json:"all_passed"`
-	GoDecision  bool           `json:"go_decision"`
-	ElapsedDays int            `json:"elapsed_days"`
-	DaysRequired int           `json:"days_required"`
+	Metrics []MetricResult `json:"metrics"`
+	// AllPassed indicates that all *metric thresholds* have passed. It does not
+	// include the calendar-day requirement; use GoDecision to determine the final
+	// overall validation decision.
+	AllPassed    bool `json:"all_passed"`
+	GoDecision   bool `json:"go_decision"`
+	ElapsedDays  int  `json:"elapsed_days"`
+	DaysRequired int  `json:"days_required"`
 }
 
 // Validate evaluates the given performance metrics and trade analytics against
@@ -57,7 +60,13 @@ type ValidationResult struct {
 func Validate(metrics backtest.Metrics, analytics backtest.TradeAnalytics, thresholds Thresholds, paperStart, now time.Time) ValidationResult {
 	elapsed := 0
 	if !paperStart.IsZero() && !now.IsZero() && !now.Before(paperStart) {
-		elapsed = int(now.Sub(paperStart).Hours() / 24)
+		// Compute elapsed calendar days by normalizing to UTC midnight to avoid
+		// DST/timezone effects and partial-day truncation issues.
+		startUTC := paperStart.UTC()
+		nowUTC := now.UTC()
+		startDate := time.Date(startUTC.Year(), startUTC.Month(), startUTC.Day(), 0, 0, 0, 0, time.UTC)
+		nowDate := time.Date(nowUTC.Year(), nowUTC.Month(), nowUTC.Day(), 0, 0, 0, 0, time.UTC)
+		elapsed = int(nowDate.Sub(startDate).Hours() / 24)
 	}
 
 	results := []MetricResult{
@@ -75,15 +84,15 @@ func Validate(metrics backtest.Metrics, analytics backtest.TradeAnalytics, thres
 		},
 		{
 			Name:      "win_rate",
-			Value:     metrics.WinRate,
+			Value:     analytics.WinRate,
 			Threshold: thresholds.MinWinRate,
-			Passed:    metrics.WinRate > thresholds.MinWinRate,
+			Passed:    analytics.WinRate > thresholds.MinWinRate,
 		},
 		{
 			Name:      "profit_factor",
-			Value:     metrics.ProfitFactor,
+			Value:     analytics.ProfitFactor,
 			Threshold: thresholds.MinProfitFactor,
-			Passed:    metrics.ProfitFactor > thresholds.MinProfitFactor,
+			Passed:    analytics.ProfitFactor > thresholds.MinProfitFactor,
 		},
 		{
 			Name:      "round_trip_trades",

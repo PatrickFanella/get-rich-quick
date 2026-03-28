@@ -23,11 +23,42 @@ type HoldingPeriodStats struct {
 type TradeAnalytics struct {
 	HoldingPeriods       HoldingPeriodStats `json:"holding_periods"`
 	ClosedTrades         int                `json:"closed_trades"`
+	WinRate              float64            `json:"win_rate"`
+	ProfitFactor         float64            `json:"profit_factor"`
 	TradeFrequencyPerDay float64            `json:"trade_frequency_per_day"`
 	LargestSingleWin     float64            `json:"largest_single_win"`
 	LargestSingleLoss    float64            `json:"largest_single_loss"`
 	MaxConsecutiveWins   int                `json:"max_consecutive_wins"`
 	MaxConsecutiveLosses int                `json:"max_consecutive_losses"`
+}
+
+// MarshalJSON converts non-finite floating-point values (e.g. infinite
+// ProfitFactor when there are no losing trades) into string sentinels so
+// report output stays valid JSON.
+func (a TradeAnalytics) MarshalJSON() ([]byte, error) {
+	type tradeAnalyticsJSON struct {
+		HoldingPeriods       HoldingPeriodStats `json:"holding_periods"`
+		ClosedTrades         int                `json:"closed_trades"`
+		WinRate              any                `json:"win_rate"`
+		ProfitFactor         any                `json:"profit_factor"`
+		TradeFrequencyPerDay any                `json:"trade_frequency_per_day"`
+		LargestSingleWin     any                `json:"largest_single_win"`
+		LargestSingleLoss    any                `json:"largest_single_loss"`
+		MaxConsecutiveWins   int                `json:"max_consecutive_wins"`
+		MaxConsecutiveLosses int                `json:"max_consecutive_losses"`
+	}
+
+	return json.Marshal(tradeAnalyticsJSON{
+		HoldingPeriods:       a.HoldingPeriods,
+		ClosedTrades:         a.ClosedTrades,
+		WinRate:              jsonFloatValue(a.WinRate),
+		ProfitFactor:         jsonFloatValue(a.ProfitFactor),
+		TradeFrequencyPerDay: jsonFloatValue(a.TradeFrequencyPerDay),
+		LargestSingleWin:     jsonFloatValue(a.LargestSingleWin),
+		LargestSingleLoss:    jsonFloatValue(a.LargestSingleLoss),
+		MaxConsecutiveWins:   a.MaxConsecutiveWins,
+		MaxConsecutiveLosses: a.MaxConsecutiveLosses,
+	})
 }
 
 // MarshalJSON renders holding periods as readable duration strings instead of
@@ -141,6 +172,28 @@ func ComputeTradeAnalytics(trades []domain.Trade, periodStart, periodEnd time.Ti
 	analytics := TradeAnalytics{
 		ClosedTrades:      len(closed),
 		LargestSingleLoss: math.Inf(1),
+	}
+
+	// Compute trade-level win rate and profit factor from closed-trade PnLs.
+	var wins, losses int
+	var grossProfit, grossLoss float64
+	for _, ct := range closed {
+		if ct.pnl > 0 {
+			wins++
+			grossProfit += ct.pnl
+		} else if ct.pnl < 0 {
+			losses++
+			grossLoss += math.Abs(ct.pnl)
+		}
+	}
+	total := wins + losses
+	if total > 0 {
+		analytics.WinRate = float64(wins) / float64(total)
+	}
+	if grossLoss > 0 {
+		analytics.ProfitFactor = grossProfit / grossLoss
+	} else if grossProfit > 0 {
+		analytics.ProfitFactor = math.Inf(1)
 	}
 
 	holdingPeriods := make([]time.Duration, 0, len(closed))

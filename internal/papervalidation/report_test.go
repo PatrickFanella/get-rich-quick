@@ -12,12 +12,10 @@ func TestGenerateReportGoDecision(t *testing.T) {
 	t.Parallel()
 
 	metrics := backtest.Metrics{
-		SharpeRatio:  1.5,
-		MaxDrawdown:  0.10,
-		WinRate:      0.55,
-		ProfitFactor: 2.0,
+		SharpeRatio: 1.5,
+		MaxDrawdown: 0.10,
 	}
-	analytics := backtest.TradeAnalytics{ClosedTrades: 25}
+	analytics := backtest.TradeAnalytics{ClosedTrades: 25, WinRate: 0.55, ProfitFactor: 2.0}
 	th := DefaultThresholds()
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -52,12 +50,10 @@ func TestGenerateReportNoGoDecision(t *testing.T) {
 	t.Parallel()
 
 	metrics := backtest.Metrics{
-		SharpeRatio:  0.8,
-		MaxDrawdown:  0.10,
-		WinRate:      0.55,
-		ProfitFactor: 2.0,
+		SharpeRatio: 0.8,
+		MaxDrawdown: 0.10,
 	}
-	analytics := backtest.TradeAnalytics{ClosedTrades: 25}
+	analytics := backtest.TradeAnalytics{ClosedTrades: 25, WinRate: 0.55, ProfitFactor: 2.0}
 	th := DefaultThresholds()
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -80,12 +76,10 @@ func TestGenerateReportDaysRemaining(t *testing.T) {
 	t.Parallel()
 
 	metrics := backtest.Metrics{
-		SharpeRatio:  1.5,
-		MaxDrawdown:  0.10,
-		WinRate:      0.55,
-		ProfitFactor: 2.0,
+		SharpeRatio: 1.5,
+		MaxDrawdown: 0.10,
 	}
-	analytics := backtest.TradeAnalytics{ClosedTrades: 25}
+	analytics := backtest.TradeAnalytics{ClosedTrades: 25, WinRate: 0.55, ProfitFactor: 2.0}
 	th := DefaultThresholds()
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -105,12 +99,10 @@ func TestGenerateReportJSONRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	metrics := backtest.Metrics{
-		SharpeRatio:  1.5,
-		MaxDrawdown:  0.10,
-		WinRate:      0.55,
-		ProfitFactor: 2.0,
+		SharpeRatio: 1.5,
+		MaxDrawdown: 0.10,
 	}
-	analytics := backtest.TradeAnalytics{ClosedTrades: 25}
+	analytics := backtest.TradeAnalytics{ClosedTrades: 25, WinRate: 0.55, ProfitFactor: 2.0}
 	th := DefaultThresholds()
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -149,12 +141,10 @@ func TestGenerateReportMetricDetails(t *testing.T) {
 	t.Parallel()
 
 	metrics := backtest.Metrics{
-		SharpeRatio:  1.5,
-		MaxDrawdown:  0.20,
-		WinRate:      0.55,
-		ProfitFactor: 2.0,
+		SharpeRatio: 1.5,
+		MaxDrawdown: 0.20,
 	}
-	analytics := backtest.TradeAnalytics{ClosedTrades: 25}
+	analytics := backtest.TradeAnalytics{ClosedTrades: 25, WinRate: 0.55, ProfitFactor: 2.0}
 	th := DefaultThresholds()
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)

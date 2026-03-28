@@ -37,12 +37,10 @@ func TestValidateAllPassingGo(t *testing.T) {
 	t.Parallel()
 
 	metrics := backtest.Metrics{
-		SharpeRatio:  1.5,
-		MaxDrawdown:  0.10,
-		WinRate:      0.55,
-		ProfitFactor: 2.0,
+		SharpeRatio: 1.5,
+		MaxDrawdown: 0.10,
 	}
-	analytics := backtest.TradeAnalytics{ClosedTrades: 25}
+	analytics := backtest.TradeAnalytics{ClosedTrades: 25, WinRate: 0.55, ProfitFactor: 2.0}
 	th := DefaultThresholds()
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -75,10 +73,8 @@ func TestValidateNoGoInsufficientDays(t *testing.T) {
 	metrics := backtest.Metrics{
 		SharpeRatio:  1.5,
 		MaxDrawdown:  0.10,
-		WinRate:      0.55,
-		ProfitFactor: 2.0,
 	}
-	analytics := backtest.TradeAnalytics{ClosedTrades: 25}
+	analytics := backtest.TradeAnalytics{ClosedTrades: 25, WinRate: 0.55, ProfitFactor: 2.0}
 	th := DefaultThresholds()
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -109,56 +105,46 @@ func TestValidateNoGoFailedMetrics(t *testing.T) {
 		{
 			name: "low sharpe",
 			metrics: backtest.Metrics{
-				SharpeRatio:  0.8,
-				MaxDrawdown:  0.10,
-				WinRate:      0.55,
-				ProfitFactor: 2.0,
+				SharpeRatio: 0.8,
+				MaxDrawdown: 0.10,
 			},
-			analytics:    backtest.TradeAnalytics{ClosedTrades: 25},
+			analytics:    backtest.TradeAnalytics{ClosedTrades: 25, WinRate: 0.55, ProfitFactor: 2.0},
 			failedMetric: "sharpe_ratio",
 		},
 		{
 			name: "high drawdown",
 			metrics: backtest.Metrics{
-				SharpeRatio:  1.5,
-				MaxDrawdown:  0.20,
-				WinRate:      0.55,
-				ProfitFactor: 2.0,
+				SharpeRatio: 1.5,
+				MaxDrawdown: 0.20,
 			},
-			analytics:    backtest.TradeAnalytics{ClosedTrades: 25},
+			analytics:    backtest.TradeAnalytics{ClosedTrades: 25, WinRate: 0.55, ProfitFactor: 2.0},
 			failedMetric: "max_drawdown",
 		},
 		{
 			name: "low win rate",
 			metrics: backtest.Metrics{
-				SharpeRatio:  1.5,
-				MaxDrawdown:  0.10,
-				WinRate:      0.30,
-				ProfitFactor: 2.0,
+				SharpeRatio: 1.5,
+				MaxDrawdown: 0.10,
 			},
-			analytics:    backtest.TradeAnalytics{ClosedTrades: 25},
+			analytics:    backtest.TradeAnalytics{ClosedTrades: 25, WinRate: 0.30, ProfitFactor: 2.0},
 			failedMetric: "win_rate",
 		},
 		{
 			name: "low profit factor",
 			metrics: backtest.Metrics{
-				SharpeRatio:  1.5,
-				MaxDrawdown:  0.10,
-				WinRate:      0.55,
-				ProfitFactor: 1.2,
+				SharpeRatio: 1.5,
+				MaxDrawdown: 0.10,
 			},
-			analytics:    backtest.TradeAnalytics{ClosedTrades: 25},
+			analytics:    backtest.TradeAnalytics{ClosedTrades: 25, WinRate: 0.55, ProfitFactor: 1.2},
 			failedMetric: "profit_factor",
 		},
 		{
 			name: "insufficient trades",
 			metrics: backtest.Metrics{
-				SharpeRatio:  1.5,
-				MaxDrawdown:  0.10,
-				WinRate:      0.55,
-				ProfitFactor: 2.0,
+				SharpeRatio: 1.5,
+				MaxDrawdown: 0.10,
 			},
-			analytics:    backtest.TradeAnalytics{ClosedTrades: 10},
+			analytics:    backtest.TradeAnalytics{ClosedTrades: 10, WinRate: 0.55, ProfitFactor: 2.0},
 			failedMetric: "round_trip_trades",
 		},
 	}
@@ -200,12 +186,10 @@ func TestValidateZeroDates(t *testing.T) {
 	t.Parallel()
 
 	metrics := backtest.Metrics{
-		SharpeRatio:  1.5,
-		MaxDrawdown:  0.10,
-		WinRate:      0.55,
-		ProfitFactor: 2.0,
+		SharpeRatio: 1.5,
+		MaxDrawdown: 0.10,
 	}
-	analytics := backtest.TradeAnalytics{ClosedTrades: 25}
+	analytics := backtest.TradeAnalytics{ClosedTrades: 25, WinRate: 0.55, ProfitFactor: 2.0}
 	th := DefaultThresholds()
 
 	result := Validate(metrics, analytics, th, time.Time{}, time.Time{})
@@ -224,12 +208,10 @@ func TestValidateExactThresholds(t *testing.T) {
 	// Values exactly at thresholds — should NOT pass (thresholds are strict
 	// inequalities: > or <, not >= or <=).
 	metrics := backtest.Metrics{
-		SharpeRatio:  1.0,
-		MaxDrawdown:  0.15,
-		WinRate:      0.40,
-		ProfitFactor: 1.5,
+		SharpeRatio: 1.0,
+		MaxDrawdown: 0.15,
 	}
-	analytics := backtest.TradeAnalytics{ClosedTrades: 20}
+	analytics := backtest.TradeAnalytics{ClosedTrades: 20, WinRate: 0.40, ProfitFactor: 1.5}
 	th := DefaultThresholds()
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -257,12 +239,10 @@ func TestValidateInfiniteProfitFactor(t *testing.T) {
 	t.Parallel()
 
 	metrics := backtest.Metrics{
-		SharpeRatio:  1.5,
-		MaxDrawdown:  0.10,
-		WinRate:      0.55,
-		ProfitFactor: math.Inf(1),
+		SharpeRatio: 1.5,
+		MaxDrawdown: 0.10,
 	}
-	analytics := backtest.TradeAnalytics{ClosedTrades: 25}
+	analytics := backtest.TradeAnalytics{ClosedTrades: 25, WinRate: 0.55, ProfitFactor: math.Inf(1)}
 	th := DefaultThresholds()
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)

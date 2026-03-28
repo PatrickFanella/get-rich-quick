@@ -48,7 +48,7 @@ func GenerateReport(
 		decision = "GO"
 		plan = &TransitionPlan{
 			InitialPositionPct: 25.0,
-			Description:        "Start at 25% of paper position sizes, scale weekly: 50%, 75%, 100%.",
+			Description:        "Run live at 25% of paper position sizes alongside ongoing paper trading for 2 weeks with explicit revert criteria; if criteria are satisfied, scale weekly to 50%, 75%, then 100%.",
 		}
 	}
 
