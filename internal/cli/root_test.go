@@ -30,6 +30,7 @@ func TestCommandHelp(t *testing.T) {
 		{"strategies", "--help"},
 		{"strategies", "list", "--help"},
 		{"strategies", "create", "--help"},
+		{"dashboard", "--help"},
 		{"portfolio", "--help"},
 		{"risk", "--help"},
 		{"risk", "status", "--help"},
@@ -156,6 +157,29 @@ func TestCLICommands(t *testing.T) {
 				},
 				UpdatedAt: now,
 			})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/runs":
+			_ = json.NewEncoder(w).Encode(listResponse[domain.PipelineRun]{
+				Data: []domain.PipelineRun{{
+					ID:         runID,
+					StrategyID: strategyID,
+					Ticker:     "AAPL",
+					Status:     domain.PipelineStatusRunning,
+					StartedAt:  now,
+				}},
+				Limit: 10,
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/settings":
+			_ = json.NewEncoder(w).Encode(api.SettingsResponse{
+				LLM: api.LLMSettingsResponse{
+					DefaultProvider: "openai",
+					QuickThinkModel: "gpt-5-mini",
+					DeepThinkModel:  "gpt-5.4",
+				},
+				System: api.SystemInfo{
+					Environment: "test",
+					Version:     "dev",
+				},
+			})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/risk/killswitch":
 			var body map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -277,6 +301,24 @@ func TestCLICommands(t *testing.T) {
 		}
 	})
 
+	t.Run("dashboard renders one-shot tui view", func(t *testing.T) {
+		stdout, _, err := executeCLI(t, nil, "--api-url", server.URL, "dashboard", "--once", "--width", "100", "--height", "30")
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		for _, want := range []string{
+			"Trading Agent Dashboard",
+			"Portfolio summary",
+			"Live activity feed",
+			"Pipeline run",
+			"AAPL",
+		} {
+			if !strings.Contains(stdout, want) {
+				t.Fatalf("dashboard output missing %q:\n%s", want, stdout)
+			}
+		}
+	})
+
 	t.Run("memories search prints results", func(t *testing.T) {
 		stdout, _, err := executeCLI(t, nil, "--api-url", server.URL, "memories", "search", "AAPL breakout")
 		if err != nil {
@@ -330,6 +372,7 @@ func TestCommandsRejectUnexpectedArgs(t *testing.T) {
 		{name: "strategies", args: []string{"strategies", "extra"}},
 		{name: "strategies list", args: []string{"strategies", "list", "extra"}},
 		{name: "strategies create", args: []string{"strategies", "create", "--name", "AAPL Trend", "--ticker", "AAPL", "--market-type", "stock", "extra"}},
+		{name: "dashboard", args: []string{"dashboard", "extra"}},
 		{name: "portfolio", args: []string{"portfolio", "extra"}},
 		{name: "risk", args: []string{"risk", "extra"}},
 		{name: "risk status", args: []string{"risk", "status", "extra"}},

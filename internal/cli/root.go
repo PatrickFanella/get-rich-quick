@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/api"
+	"github.com/PatrickFanella/get-rich-quick/internal/cli/tui"
 	"github.com/PatrickFanella/get-rich-quick/internal/config"
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
 	"github.com/PatrickFanella/get-rich-quick/internal/risk"
@@ -111,6 +112,7 @@ func NewRootCommand(ctx context.Context, deps Dependencies) *cobra.Command {
 	rootCmd.AddCommand(state.newServeCommand())
 	rootCmd.AddCommand(state.newRunCommand())
 	rootCmd.AddCommand(state.newStrategiesCommand())
+	rootCmd.AddCommand(state.newDashboardCommand())
 	rootCmd.AddCommand(state.newPortfolioCommand())
 	rootCmd.AddCommand(state.newRiskCommand())
 	rootCmd.AddCommand(state.newMemoriesCommand())
@@ -430,6 +432,75 @@ func (s *rootState) client() (*apiClient, error) {
 		return nil, fmt.Errorf("invalid api url %q", s.apiURL)
 	}
 	return newAPIClient(baseURL.String(), s.token, s.apiKey), nil
+}
+
+func (s *rootState) tuiSnapshot(
+	ctx context.Context,
+	client *apiClient,
+) (tui.Snapshot, error) {
+	var strategies listResponse[domain.Strategy]
+	if err := client.get(ctx, "/api/v1/strategies", nil, &strategies); err != nil {
+		return tui.Snapshot{}, err
+	}
+
+	var summary portfolioSummary
+	if err := client.get(ctx, "/api/v1/portfolio/summary", nil, &summary); err != nil {
+		return tui.Snapshot{}, err
+	}
+
+	var positions listResponse[domain.Position]
+	if err := client.get(ctx, "/api/v1/portfolio/positions/open", nil, &positions); err != nil {
+		return tui.Snapshot{}, err
+	}
+
+	var status risk.EngineStatus
+	if err := client.get(ctx, "/api/v1/risk/status", nil, &status); err != nil {
+		return tui.Snapshot{}, err
+	}
+
+	var runs listResponse[domain.PipelineRun]
+	runQuery := url.Values{}
+	runQuery.Set("limit", "10")
+	if err := client.get(ctx, "/api/v1/runs", runQuery, &runs); err != nil {
+		return tui.Snapshot{}, err
+	}
+
+	var settings api.SettingsResponse
+	if err := client.get(ctx, "/api/v1/settings", nil, &settings); err != nil {
+		return tui.Snapshot{}, err
+	}
+
+	snapshot := tui.Snapshot{
+		Portfolio: tui.PortfolioSummary{
+			OpenPositions: summary.OpenPositions,
+			UnrealizedPnL: summary.UnrealizedPnL,
+			RealizedPnL:   summary.RealizedPnL,
+		},
+		Positions:  positions.Data,
+		Strategies: activeStrategies(strategies.Data),
+		Risk:       status,
+		Settings:   settings,
+	}
+	if len(runs.Data) > 0 {
+		run := runs.Data[0]
+		snapshot.LatestRun = &run
+		snapshot.Activity = append(snapshot.Activity, tui.ActivityItem{
+			OccurredAt: run.StartedAt,
+			Title:      "Latest pipeline run",
+			Details:    fmt.Sprintf("%s • %s • %s", emptyDash(run.Ticker), run.Status.String(), run.ID.String()),
+		})
+	}
+	return snapshot, nil
+}
+
+func activeStrategies(strategies []domain.Strategy) []domain.Strategy {
+	active := make([]domain.Strategy, 0, len(strategies))
+	for _, strategy := range strategies {
+		if strategy.IsActive {
+			active = append(active, strategy)
+		}
+	}
+	return active
 }
 
 func (s *rootState) resolveStrategyForTicker(ctx context.Context, client *apiClient, ticker string) (*domain.Strategy, error) {
