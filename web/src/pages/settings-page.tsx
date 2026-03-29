@@ -215,6 +215,8 @@ export function SettingsPage() {
     )
   }
 
+  const settingsData = settingsQuery.data!
+
   function handleProviderChange<K extends ProviderKey>(
     providerKey: K,
     field: keyof EditableProviderState,
@@ -354,7 +356,7 @@ export function SettingsPage() {
               <div className="space-y-4">
                 {providerDefinitions.map(({ key, label, supportsBaseUrl }) => {
                   const provider = formState.llm.providers[key]
-                  const savedProvider = settingsQuery.data.llm.providers[key]
+                  const savedProvider = settingsData.llm.providers[key]
                   const hasSavedLast4 = Boolean(savedProvider.api_key_last4)
                   const keyStatus = provider.api_key.trim()
                     ? 'New key ready'
@@ -631,22 +633,22 @@ export function SettingsPage() {
               <div className="grid gap-4 sm:grid-cols-3">
                 <div>
                   <p className="text-sm text-muted-foreground">Environment</p>
-                  <p className="font-medium capitalize">{settingsQuery.data.system.environment || 'unknown'}</p>
+                  <p className="font-medium capitalize">{settingsData.system.environment || 'unknown'}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Version</p>
-                  <p className="font-medium">{settingsQuery.data.system.version}</p>
+                  <p className="font-medium">{settingsData.system.version}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Uptime</p>
-                  <p className="font-medium">{formatUptime(settingsQuery.data.system.uptime_seconds)}</p>
+                  <p className="font-medium">{formatUptime(settingsData.system.uptime_seconds)}</p>
                 </div>
               </div>
 
               <div className="space-y-3">
                 <p className="text-sm font-medium">Connected brokers</p>
                 <div className="space-y-2">
-                  {settingsQuery.data.system.connected_brokers.map((broker) => (
+                  {settingsData.system.connected_brokers.map((broker) => (
                     <div key={broker.name} className="flex items-center justify-between rounded-lg border px-3 py-2">
                       <div>
                         <p className="font-medium capitalize">{broker.name}</p>
