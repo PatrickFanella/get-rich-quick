@@ -1,0 +1,103 @@
+import { useQuery } from '@tanstack/react-query'
+import { DollarSign, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
+
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { apiClient } from '@/lib/api/client'
+import { cn } from '@/lib/utils'
+
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+  }).format(value)
+}
+
+export function PortfolioSummary() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['portfolio', 'summary'],
+    queryFn: () => apiClient.getPortfolioSummary(),
+    refetchInterval: 30_000,
+  })
+
+  if (isLoading) {
+    return (
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" data-testid="portfolio-summary-loading">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Card key={i}>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+              <div className="size-4 animate-pulse rounded bg-muted" />
+            </CardHeader>
+            <CardContent>
+              <div className="h-7 w-28 animate-pulse rounded bg-muted" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    )
+  }
+
+  if (isError || !data) {
+    return (
+      <Card data-testid="portfolio-summary-error">
+        <CardContent className="p-6 text-sm text-muted-foreground">
+          Unable to load portfolio summary. Start the API server to see live data.
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const totalPnl = data.unrealized_pnl + data.realized_pnl
+
+  const metrics = [
+    {
+      label: 'Total P&L',
+      value: formatCurrency(totalPnl),
+      icon: DollarSign,
+      positive: totalPnl >= 0,
+    },
+    {
+      label: 'Unrealized P&L',
+      value: formatCurrency(data.unrealized_pnl),
+      icon: data.unrealized_pnl >= 0 ? TrendingUp : TrendingDown,
+      positive: data.unrealized_pnl >= 0,
+    },
+    {
+      label: 'Realized P&L',
+      value: formatCurrency(data.realized_pnl),
+      icon: data.realized_pnl >= 0 ? TrendingUp : TrendingDown,
+      positive: data.realized_pnl >= 0,
+    },
+    {
+      label: 'Open positions',
+      value: String(data.open_positions),
+      icon: Wallet,
+      positive: null,
+    },
+  ]
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" data-testid="portfolio-summary">
+      {metrics.map(({ label, value, icon: Icon, positive }) => (
+        <Card key={label}>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">{label}</CardTitle>
+            <Icon className="size-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <p
+              className={cn(
+                'text-2xl font-bold',
+                positive === true && 'text-emerald-600',
+                positive === false && 'text-red-600',
+              )}
+            >
+              {value}
+            </p>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  )
+}
