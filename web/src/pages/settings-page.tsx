@@ -158,8 +158,6 @@ export function SettingsPage() {
   useEffect(() => {
     if (settingsQuery.data) {
       setFormState(toFormState(settingsQuery.data))
-      setSaveMessage(null)
-      setSaveError(null)
     }
   }, [settingsQuery.data])
 

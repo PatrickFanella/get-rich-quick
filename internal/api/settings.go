@@ -58,14 +58,14 @@ type OllamaSettings struct {
 
 // RiskSettings contains configurable risk thresholds shown in the settings UI.
 type RiskSettings struct {
-	MaxPositionSizePct        float64 `json:"max_position_size_pct"`
-	MaxDailyLossPct           float64 `json:"max_daily_loss_pct"`
-	MaxDrawdownPct            float64 `json:"max_drawdown_pct"`
-	MaxOpenPositions          int     `json:"max_open_positions"`
-	MaxTotalExposurePct       float64 `json:"max_total_exposure_pct"`
-	MaxPerMarketExposurePct   float64 `json:"max_per_market_exposure_pct"`
+	MaxPositionSizePct         float64 `json:"max_position_size_pct"`
+	MaxDailyLossPct            float64 `json:"max_daily_loss_pct"`
+	MaxDrawdownPct             float64 `json:"max_drawdown_pct"`
+	MaxOpenPositions           int     `json:"max_open_positions"`
+	MaxTotalExposurePct        float64 `json:"max_total_exposure_pct"`
+	MaxPerMarketExposurePct    float64 `json:"max_per_market_exposure_pct"`
 	CircuitBreakerThresholdPct float64 `json:"circuit_breaker_threshold_pct"`
-	CircuitBreakerCooldownMin int     `json:"circuit_breaker_cooldown_min"`
+	CircuitBreakerCooldownMin  int     `json:"circuit_breaker_cooldown_min"`
 }
 
 // SystemInfo provides non-editable system metadata for the settings page.
@@ -91,10 +91,10 @@ type SettingsUpdateRequest struct {
 
 // LLMSettingsUpdateRequest contains updated provider and tier selections.
 type LLMSettingsUpdateRequest struct {
-	DefaultProvider string                     `json:"default_provider"`
-	DeepThinkModel  string                     `json:"deep_think_model"`
-	QuickThinkModel string                     `json:"quick_think_model"`
-	Providers       LLMProvidersUpdateRequest  `json:"providers"`
+	DefaultProvider string                    `json:"default_provider"`
+	DeepThinkModel  string                    `json:"deep_think_model"`
+	QuickThinkModel string                    `json:"quick_think_model"`
+	Providers       LLMProvidersUpdateRequest `json:"providers"`
 }
 
 // LLMProvidersUpdateRequest groups per-provider updates.
@@ -116,12 +116,12 @@ type LLMProviderUpdateRequest struct {
 
 // SettingsBootstrap contains the initial values used to seed the settings service.
 type SettingsBootstrap struct {
-	LLM             llmSettingsState
-	Risk            RiskSettings
-	Environment     string
-	Version         string
+	LLM              llmSettingsState
+	Risk             RiskSettings
+	Environment      string
+	Version          string
 	ConnectedBrokers []BrokerConnection
-	StartedAt       time.Time
+	StartedAt        time.Time
 }
 
 type llmSettingsState struct {

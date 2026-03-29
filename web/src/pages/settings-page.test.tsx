@@ -207,10 +207,16 @@ describe('SettingsPage', () => {
 
   it('toggles the kill switch through the risk API', async () => {
     const user = userEvent.setup()
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    let killSwitchActivated = false
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, requestInit?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString()
 
       if (url.includes('/api/v1/risk/killswitch')) {
+        killSwitchActivated = requestInit?.body === JSON.stringify({
+          active: true,
+          reason: 'Activated from settings page',
+        })
         return {
           ok: true,
           status: 200,
@@ -224,17 +230,14 @@ describe('SettingsPage', () => {
           status: 200,
           json: async () => ({
             ...riskStatusResponse,
-            kill_switch:
-              fetchMock.mock.calls.find(([, requestInit]) =>
-                typeof input !== 'string' && requestInit?.method === 'POST',
-              ) !== undefined
-                ? {
-                    active: true,
-                    reason: 'Activated from settings page',
-                    mechanisms: ['api_toggle'],
-                    activated_at: '2025-01-01T00:00:00Z',
-                  }
-                : riskStatusResponse.kill_switch,
+            kill_switch: killSwitchActivated
+              ? {
+                  active: true,
+                  reason: 'Activated from settings page',
+                  mechanisms: ['api_toggle'],
+                  activated_at: '2025-01-01T00:00:00Z',
+                }
+              : riskStatusResponse.kill_switch,
           }),
         }
       }
