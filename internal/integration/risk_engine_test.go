@@ -41,8 +41,8 @@ func TestIntegration_RiskEngine_CircuitBreakerTripAndReset(t *testing.T) {
 	engine.SetGetEnvFunc(func(string) string { return "" })
 
 	// 1. Initially, pre-trade check should pass.
-	strategy := createStrategy(t, ctx, r.Strategy, "Risk Test", "AAPL")
-	_ = strategy
+	// Create strategy to validate test DB setup (not used directly in risk checks).
+	createStrategy(t, ctx, r.Strategy, "Risk Test", "AAPL")
 
 	order := &domain.Order{
 		Ticker:   "AAPL",

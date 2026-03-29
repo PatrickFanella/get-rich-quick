@@ -42,17 +42,17 @@ func newTestDB(t *testing.T) *testDB {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	connString := os.Getenv("DB_URL")
-	if connString == "" {
-		connString = os.Getenv("DATABASE_URL")
+	databaseURL := os.Getenv("DB_URL")
+	if databaseURL == "" {
+		databaseURL = os.Getenv("DATABASE_URL")
 	}
-	if connString == "" {
+	if databaseURL == "" {
 		t.Skip("skipping integration test: DB_URL or DATABASE_URL is not set")
 	}
 
 	ctx := context.Background()
 
-	adminPool, err := pgxpool.New(ctx, connString)
+	adminPool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
 		t.Fatalf("failed to create admin pool: %v", err)
 	}
@@ -68,7 +68,7 @@ func newTestDB(t *testing.T) *testDB {
 		t.Fatalf("failed to create test schema: %v", err)
 	}
 
-	config, err := pgxpool.ParseConfig(connString)
+	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		dropSchema(adminPool, schemaName)
 		adminPool.Close()
@@ -307,13 +307,13 @@ func createPipelineRun(t *testing.T, ctx context.Context, r *postgres.PipelineRu
 	return run
 }
 
-func createPosition(t *testing.T, ctx context.Context, r *postgres.PositionRepo, strategyID uuid.UUID, ticker string, side domain.PositionSide, qty, avgEntry float64) *domain.Position {
+func createPosition(t *testing.T, ctx context.Context, r *postgres.PositionRepo, strategyID uuid.UUID, ticker string, side domain.PositionSide, quantity, avgEntry float64) *domain.Position {
 	t.Helper()
 	pos := &domain.Position{
 		StrategyID: &strategyID,
 		Ticker:     ticker,
 		Side:       side,
-		Quantity:    qty,
+		Quantity:    quantity,
 		AvgEntry:   avgEntry,
 	}
 	if err := r.Create(ctx, pos); err != nil {
