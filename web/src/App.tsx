@@ -4,6 +4,8 @@ import { AppShell } from '@/components/layout/app-shell'
 import { AppProviders } from '@/lib/providers'
 import { DashboardPage } from '@/pages/dashboard-page'
 import { PlaceholderPage } from '@/pages/placeholder-page'
+import { StrategiesPage } from '@/pages/strategies-page'
+import { StrategyDetailPage } from '@/pages/strategy-detail-page'
 import { PortfolioPage } from '@/pages/portfolio-page'
 
 function App() {
@@ -13,19 +15,8 @@ function App() {
         <Routes>
           <Route element={<AppShell />}>
             <Route index element={<DashboardPage />} />
-            <Route
-              path="strategies"
-              element={
-                <PlaceholderPage
-                  title="Strategies"
-                  description="Strategy configuration, scheduling, and execution management will land here in a follow-up issue."
-                  bullets={[
-                    'Typed endpoints are available for list, create, update, delete, and manual runs.',
-                    'Navigation and route structure are ready for page-specific UI work.',
-                  ]}
-                />
-              }
-            />
+            <Route path="strategies" element={<StrategiesPage />} />
+            <Route path="strategies/:id" element={<StrategyDetailPage />} />
             <Route
               path="runs"
               element={
