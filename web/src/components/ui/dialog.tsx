@@ -1,6 +1,13 @@
-import { type HTMLAttributes, type MouseEvent, forwardRef, useCallback, useEffect } from 'react'
+import { type HTMLAttributes, type MouseEvent, createContext, forwardRef, useCallback, useContext, useEffect, useId, useRef } from 'react'
 
 import { cn } from '@/lib/utils'
+
+interface DialogContextValue {
+  titleId: string
+  descriptionId: string
+}
+
+const DialogContext = createContext<DialogContextValue | null>(null)
 
 interface DialogProps {
   open: boolean
@@ -9,8 +16,23 @@ interface DialogProps {
 }
 
 export function Dialog({ open, onOpenChange, children }: DialogProps) {
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const previousFocusRef = useRef<HTMLElement | null>(null)
+  const titleId = useId()
+  const descriptionId = useId()
+
   useEffect(() => {
     if (!open) return
+
+    previousFocusRef.current = document.activeElement as HTMLElement | null
+
+    // Move focus into the dialog
+    requestAnimationFrame(() => {
+      const firstFocusable = dialogRef.current?.querySelector<HTMLElement>(
+        'input, button, textarea, select, [tabindex]:not([tabindex="-1"])',
+      )
+      firstFocusable?.focus()
+    })
 
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
@@ -19,20 +41,35 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
     }
 
     document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      // Restore focus on close
+      previousFocusRef.current?.focus()
+    }
   }, [open, onOpenChange])
 
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={() => onOpenChange(false)}
-        data-testid="dialog-overlay"
-      />
-      <div className="relative z-50 w-full max-w-lg">{children}</div>
-    </div>
+    <DialogContext.Provider value={{ titleId, descriptionId }}>
+      <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm"
+          onClick={() => onOpenChange(false)}
+          data-testid="dialog-overlay"
+        />
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          aria-describedby={descriptionId}
+          className="relative z-50 w-full max-w-lg"
+        >
+          {children}
+        </div>
+      </div>
+    </DialogContext.Provider>
   )
 }
 
@@ -67,11 +104,13 @@ function DialogHeader({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
 }
 
 function DialogTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
-  return <h2 className={cn('text-lg font-semibold leading-none tracking-tight', className)} {...props} />
+  const ctx = useContext(DialogContext)
+  return <h2 id={ctx?.titleId} className={cn('text-lg font-semibold leading-none tracking-tight', className)} {...props} />
 }
 
 function DialogDescription({ className, ...props }: HTMLAttributes<HTMLParagraphElement>) {
-  return <p className={cn('text-sm text-muted-foreground', className)} {...props} />
+  const ctx = useContext(DialogContext)
+  return <p id={ctx?.descriptionId} className={cn('text-sm text-muted-foreground', className)} {...props} />
 }
 
 function DialogFooter({ className, ...props }: HTMLAttributes<HTMLDivElement>) {

@@ -37,6 +37,7 @@ export function CreateStrategyDialog({
   const [isPaper, setIsPaper] = useState(true)
   const [isActive, setIsActive] = useState(false)
   const [configJson, setConfigJson] = useState('{}')
+  const [configError, setConfigError] = useState<string | null>(null)
 
   function resetForm() {
     setName('')
@@ -47,6 +48,14 @@ export function CreateStrategyDialog({
     setIsPaper(true)
     setIsActive(false)
     setConfigJson('{}')
+    setConfigError(null)
+  }
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen) {
+      resetForm()
+    }
+    onOpenChange(nextOpen)
   }
 
   function handleSubmit(e: FormEvent) {
@@ -55,7 +64,9 @@ export function CreateStrategyDialog({
     let config: unknown = {}
     try {
       config = JSON.parse(configJson)
+      setConfigError(null)
     } catch {
+      setConfigError('Invalid JSON')
       return
     }
 
@@ -69,12 +80,10 @@ export function CreateStrategyDialog({
       is_active: isActive,
       is_paper: isPaper,
     })
-
-    resetForm()
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent data-testid="create-strategy-dialog">
         <DialogHeader>
           <DialogTitle>Create strategy</DialogTitle>
@@ -177,11 +186,19 @@ export function CreateStrategyDialog({
             <Textarea
               id="strategy-config"
               value={configJson}
-              onChange={(e) => setConfigJson(e.target.value)}
+              onChange={(e) => {
+                setConfigJson(e.target.value)
+                setConfigError(null)
+              }}
               rows={4}
               className="font-mono text-xs"
               data-testid="strategy-config-textarea"
             />
+            {configError ? (
+              <p className="text-xs text-destructive" data-testid="config-error">
+                {configError}
+              </p>
+            ) : null}
           </div>
 
           <DialogFooter>

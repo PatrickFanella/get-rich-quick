@@ -289,8 +289,19 @@ export interface StrategyCreateRequest {
   market_type: MarketType
   schedule_cron?: string
   config?: unknown
+  // Optional on create: backend only requires name, ticker, and market_type
+  is_active?: boolean
+  is_paper?: boolean
+}
+
+export interface StrategyUpdateRequest {
+  name: string
+  description?: string
+  ticker: string
+  market_type: MarketType
+  schedule_cron?: string
+  config?: unknown
+  // Required on update: PUT handler expects full strategy state
   is_active: boolean
   is_paper: boolean
 }
-
-export type StrategyUpdateRequest = StrategyCreateRequest
