@@ -281,3 +281,25 @@ export interface PaginationParams {
   limit?: number
   offset?: number
 }
+
+export interface StrategyCreateRequest {
+  name: string
+  description?: string
+  ticker: string
+  market_type: MarketType
+  schedule_cron?: string
+  config?: unknown
+  is_active: boolean
+  is_paper: boolean
+}
+
+export interface StrategyUpdateRequest {
+  name: string
+  description?: string
+  ticker: string
+  market_type: MarketType
+  schedule_cron?: string
+  config?: unknown
+  is_active: boolean
+  is_paper: boolean
+}

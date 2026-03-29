@@ -19,8 +19,10 @@ import type {
   PortfolioSummary,
   RunListParams,
   Strategy,
+  StrategyCreateRequest,
   StrategyListParams,
   StrategyRunResult,
+  StrategyUpdateRequest,
   Trade,
   TradeListParams,
   UUID,
@@ -77,6 +79,18 @@ export class ApiClient {
 
   async getStrategy(id: UUID) {
     return this.request<Strategy>(`/api/v1/strategies/${id}`)
+  }
+
+  async createStrategy(data: StrategyCreateRequest) {
+    return this.request<Strategy>('/api/v1/strategies', { method: 'POST', body: data })
+  }
+
+  async updateStrategy(id: UUID, data: StrategyUpdateRequest) {
+    return this.request<Strategy>(`/api/v1/strategies/${id}`, { method: 'PUT', body: data })
+  }
+
+  async deleteStrategy(id: UUID) {
+    return this.requestNoContent(`/api/v1/strategies/${id}`, { method: 'DELETE' })
   }
 
   async runStrategy(id: UUID) {
