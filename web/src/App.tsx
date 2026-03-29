@@ -6,6 +6,7 @@ import { DashboardPage } from '@/pages/dashboard-page'
 import { PlaceholderPage } from '@/pages/placeholder-page'
 import { StrategiesPage } from '@/pages/strategies-page'
 import { StrategyDetailPage } from '@/pages/strategy-detail-page'
+import { PortfolioPage } from '@/pages/portfolio-page'
 
 function App() {
   return (
@@ -29,19 +30,7 @@ function App() {
                 />
               }
             />
-            <Route
-              path="portfolio"
-              element={
-                <PlaceholderPage
-                  title="Portfolio"
-                  description="Portfolio, positions, orders, and trades have typed API client coverage and a reserved route."
-                  bullets={[
-                    'The client models mirror the current Go JSON field names and list envelopes.',
-                    'TanStack Query is configured so these pages can opt into caching incrementally.',
-                  ]}
-                />
-              }
-            />
+            <Route path="portfolio" element={<PortfolioPage />} />
             <Route
               path="risk"
               element={
