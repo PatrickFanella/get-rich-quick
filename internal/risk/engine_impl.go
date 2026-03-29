@@ -47,8 +47,9 @@ type RiskEngineImpl struct {
 	logger             *slog.Logger
 	state              engineState
 	nowMu              sync.RWMutex
-	nowFunc            func() time.Time    // for testability; defaults to time.Now
-	killSwitchFilePath string              // file flag path; defaults to defaultKillSwitchFilePath
+	nowFunc            func() time.Time // for testability; defaults to time.Now
+	killSwitchFilePath string           // file flag path; defaults to defaultKillSwitchFilePath
+	ksMu               sync.RWMutex
 	fileExistsFunc     func(string) bool   // for testability; defaults to defaultFileExists
 	getEnvFunc         func(string) string // for testability; defaults to os.Getenv
 }
@@ -99,6 +100,30 @@ func (e *RiskEngineImpl) SetNowFunc(now func() time.Time) {
 	defer e.nowMu.Unlock()
 
 	e.nowFunc = now
+}
+
+// SetFileExistsFunc overrides the file-existence check used by the kill
+// switch, enabling deterministic test behavior without touching the
+// filesystem.
+func (e *RiskEngineImpl) SetFileExistsFunc(fn func(string) bool) {
+	if e == nil || fn == nil {
+		return
+	}
+	e.ksMu.Lock()
+	defer e.ksMu.Unlock()
+	e.fileExistsFunc = fn
+}
+
+// SetGetEnvFunc overrides the environment-variable lookup used by the kill
+// switch, enabling deterministic test behavior without mutating the process
+// environment.
+func (e *RiskEngineImpl) SetGetEnvFunc(fn func(string) string) {
+	if e == nil || fn == nil {
+		return
+	}
+	e.ksMu.Lock()
+	defer e.ksMu.Unlock()
+	e.getEnvFunc = fn
 }
 
 func (e *RiskEngineImpl) currentTime() time.Time {
@@ -163,10 +188,16 @@ func (e *RiskEngineImpl) isKillSwitchActiveUnlocked(apiKS KillSwitchStatus) (boo
 	if apiKS.Active {
 		mechanisms = append(mechanisms, KillSwitchMechanismAPI)
 	}
-	if e.fileExistsFunc(e.killSwitchFilePath) {
+
+	e.ksMu.RLock()
+	fileExists := e.fileExistsFunc
+	getEnv := e.getEnvFunc
+	e.ksMu.RUnlock()
+
+	if fileExists(e.killSwitchFilePath) {
 		mechanisms = append(mechanisms, KillSwitchMechanismFile)
 	}
-	if e.getEnvFunc(killSwitchEnvVar) == "true" {
+	if getEnv(killSwitchEnvVar) == "true" {
 		mechanisms = append(mechanisms, KillSwitchMechanismEnvVar)
 	}
 	return len(mechanisms) > 0, mechanisms
