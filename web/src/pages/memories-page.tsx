@@ -24,6 +24,7 @@ import { apiClient } from '@/lib/api/client'
 import type { AgentMemory, AgentRole } from '@/lib/api/types'
 
 const PAGE_SIZE = 10
+const PAGE_REQUEST_SIZE = PAGE_SIZE + 1
 const AGENT_ROLE_OPTIONS: AgentRole[] = [
   'market_analyst',
   'fundamentals_analyst',
@@ -79,7 +80,7 @@ export function MemoriesPage() {
       apiClient.listMemories({
         q: query || undefined,
         agent_role: agentRole || undefined,
-        limit: PAGE_SIZE,
+        limit: PAGE_REQUEST_SIZE,
         offset,
       }),
   })
@@ -94,8 +95,9 @@ export function MemoriesPage() {
     },
   })
 
-  const visibleCount = data?.data.length ?? 0
-  const hasNextPage = visibleCount === PAGE_SIZE
+  const visibleMemories = data?.data.slice(0, PAGE_SIZE) ?? []
+  const visibleCount = visibleMemories.length
+  const hasNextPage = (data?.data.length ?? 0) > PAGE_SIZE
   const pageLabel = useMemo(() => Math.floor(offset / PAGE_SIZE) + 1, [offset])
 
   function applyFilters() {
@@ -216,7 +218,7 @@ export function MemoriesPage() {
             <p className="text-sm text-muted-foreground" data-testid="memories-error">
               Unable to load memories right now. Start the API server to browse stored agent context.
             </p>
-          ) : !data?.data.length ? (
+          ) : !visibleMemories.length ? (
             <div
               className="flex flex-col items-center gap-2 py-8 text-center"
               data-testid="memories-empty"
@@ -228,7 +230,7 @@ export function MemoriesPage() {
             </div>
           ) : (
             <ul className="space-y-3" data-testid="memories-list">
-              {data.data.map((memory) => (
+              {visibleMemories.map((memory) => (
                 <li key={memory.id}>
                   <article className="rounded-lg border p-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

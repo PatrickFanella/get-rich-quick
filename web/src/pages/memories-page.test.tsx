@@ -6,7 +6,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoriesPage } from '@/pages/memories-page'
 
 function Wrapper({ children }: { children: React.ReactNode }) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: false,
+      },
+    },
+  })
   return (
     <QueryClientProvider client={client}>
       <MemoryRouter>{children}</MemoryRouter>
@@ -34,7 +42,7 @@ describe('MemoriesPage', () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ data: [baseMemory], limit: 10, offset: 0 }),
+      json: async () => ({ data: [baseMemory], limit: 11, offset: 0 }),
     })
     vi.stubGlobal('fetch', fetchMock)
 
@@ -52,7 +60,7 @@ describe('MemoriesPage', () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ data: [baseMemory], limit: 10, offset: 0 }),
+      json: async () => ({ data: [baseMemory], limit: 11, offset: 0 }),
     })
     vi.stubGlobal('fetch', fetchMock)
 
@@ -74,12 +82,12 @@ describe('MemoriesPage', () => {
     expect(requestUrl.pathname).toBe('/api/v1/memories')
     expect(requestUrl.searchParams.get('q')).toBe('breakout risk')
     expect(requestUrl.searchParams.get('agent_role')).toBe('trader')
-    expect(requestUrl.searchParams.get('limit')).toBe('10')
+    expect(requestUrl.searchParams.get('limit')).toBe('11')
     expect(requestUrl.searchParams.get('offset')).toBe('0')
   })
 
   it('supports deleting a memory and moving to the next page', async () => {
-    const pageOne = Array.from({ length: 10 }, (_, index) => ({
+    const pageOne = Array.from({ length: 11 }, (_, index) => ({
       ...baseMemory,
       id: `00000000-0000-0000-0000-0000000000${String(index + 1).padStart(2, '0')}`,
       situation: `Situation ${index + 1}`,
@@ -99,7 +107,7 @@ describe('MemoriesPage', () => {
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: async () => ({ data: pageOne, limit: 10, offset: 0 }),
+        json: async () => ({ data: pageOne, limit: 11, offset: 0 }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -109,12 +117,12 @@ describe('MemoriesPage', () => {
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: async () => ({ data: pageOne, limit: 10, offset: 0 }),
+        json: async () => ({ data: pageOne, limit: 11, offset: 0 }),
       })
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: async () => ({ data: pageTwo, limit: 10, offset: 10 }),
+        json: async () => ({ data: pageTwo, limit: 11, offset: 10 }),
       })
     vi.stubGlobal('fetch', fetchMock)
 
@@ -133,5 +141,26 @@ describe('MemoriesPage', () => {
     expect(await screen.findByText('Situation 11')).toBeInTheDocument()
     const pageTwoUrl = new URL(fetchMock.mock.calls[3][0].toString())
     expect(pageTwoUrl.searchParams.get('offset')).toBe('10')
+  })
+
+  it('disables next when the final page is exactly full', async () => {
+    const exactPage = Array.from({ length: 10 }, (_, index) => ({
+      ...baseMemory,
+      id: `10000000-0000-0000-0000-0000000000${String(index + 1).padStart(2, '0')}`,
+      situation: `Final page situation ${index + 1}`,
+      recommendation: `Final page recommendation ${index + 1}`,
+    }))
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: exactPage, limit: 11, offset: 0 }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<MemoriesPage />, { wrapper: Wrapper })
+
+    expect(await screen.findByText('Final page situation 1')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /next/i })).toBeDisabled()
   })
 })
