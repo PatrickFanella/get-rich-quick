@@ -971,8 +971,15 @@ func TestProcessSignal_UsesInjectedClockForLifecycleTimestamps(t *testing.T) {
 		t.Fatalf("ProcessSignal() unexpected error: %v", err)
 	}
 
+	if len(orderRepo.orders) != 1 {
+		t.Fatalf("expected 1 created order, got %d", len(orderRepo.orders))
+	}
 	if got := orderRepo.orders[0].CreatedAt; !got.Equal(now) {
 		t.Fatalf("order.CreatedAt = %s, want %s", got, now)
+	}
+
+	if len(orderRepo.updates) == 0 {
+		t.Fatal("expected at least 1 order update")
 	}
 	lastUpdate := orderRepo.updates[len(orderRepo.updates)-1]
 	if lastUpdate.SubmittedAt == nil || !lastUpdate.SubmittedAt.Equal(now) {
@@ -981,14 +988,26 @@ func TestProcessSignal_UsesInjectedClockForLifecycleTimestamps(t *testing.T) {
 	if lastUpdate.FilledAt == nil || !lastUpdate.FilledAt.Equal(now) {
 		t.Fatalf("order.FilledAt = %v, want %s", lastUpdate.FilledAt, now)
 	}
+
+	if len(tradeRepo.trades) != 1 {
+		t.Fatalf("expected 1 created trade, got %d", len(tradeRepo.trades))
+	}
 	if got := tradeRepo.trades[0].ExecutedAt; !got.Equal(now) {
 		t.Fatalf("trade.ExecutedAt = %s, want %s", got, now)
 	}
 	if got := tradeRepo.trades[0].CreatedAt; !got.Equal(now) {
 		t.Fatalf("trade.CreatedAt = %s, want %s", got, now)
 	}
+
+	if len(positionRepo.positions) != 1 {
+		t.Fatalf("expected 1 created position, got %d", len(positionRepo.positions))
+	}
 	if got := positionRepo.positions[0].OpenedAt; !got.Equal(now) {
 		t.Fatalf("position.OpenedAt = %s, want %s", got, now)
+	}
+
+	if len(auditRepo.entries) == 0 {
+		t.Fatal("expected at least 1 audit entry")
 	}
 	for i, entry := range auditRepo.entries {
 		if !entry.CreatedAt.Equal(now) {
