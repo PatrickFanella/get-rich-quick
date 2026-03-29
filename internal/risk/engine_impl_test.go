@@ -354,7 +354,7 @@ func TestCheckPositionLimits_InvalidInputs(t *testing.T) {
 	}
 
 	// Zero quantity.
-	approved, reason, err = engine.CheckPositionLimits(context.Background(), "AAPL", 0, portfolio)
+	approved, _, err = engine.CheckPositionLimits(context.Background(), "AAPL", 0, portfolio)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -363,7 +363,7 @@ func TestCheckPositionLimits_InvalidInputs(t *testing.T) {
 	}
 
 	// Negative quantity.
-	approved, reason, err = engine.CheckPositionLimits(context.Background(), "AAPL", -0.05, portfolio)
+	approved, _, err = engine.CheckPositionLimits(context.Background(), "AAPL", -0.05, portfolio)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -372,7 +372,7 @@ func TestCheckPositionLimits_InvalidInputs(t *testing.T) {
 	}
 
 	// NaN quantity.
-	approved, reason, err = engine.CheckPositionLimits(context.Background(), "AAPL", math.NaN(), portfolio)
+	approved, _, err = engine.CheckPositionLimits(context.Background(), "AAPL", math.NaN(), portfolio)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

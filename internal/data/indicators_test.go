@@ -607,13 +607,13 @@ func indicatorTestBars(count int) []domain.OHLCV {
 	start := time.Unix(0, 0).UTC()
 
 	for i := range count {
-		close := round6(100 + float64(i)*0.35 + math.Sin(float64(i)/7.0)*4.2 + float64((i%5)-2)*0.8 - float64((i%3)-1)*0.45)
+		closePrice := round6(100 + float64(i)*0.35 + math.Sin(float64(i)/7.0)*4.2 + float64((i%5)-2)*0.8 - float64((i%3)-1)*0.45)
 		bars[i] = domain.OHLCV{
 			Timestamp: start.Add(time.Duration(i) * time.Hour),
-			Open:      close - 0.5,
-			High:      close + 1,
-			Low:       close - 1,
-			Close:     close,
+			Open:      closePrice - 0.5,
+			High:      closePrice + 1,
+			Low:       closePrice - 1,
+			Close:     closePrice,
 			Volume:    1000 + float64(i),
 		}
 	}

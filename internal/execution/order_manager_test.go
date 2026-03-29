@@ -539,7 +539,7 @@ func TestProcessSignal_HappyPath(t *testing.T) {
 func TestProcessSignal_KillSwitchActive(t *testing.T) {
 	broker := &mockBroker{}
 	riskEng := &mockRiskEngine{
-		isKillSwitchActiveFn: func(ctx context.Context) (bool, error) {
+		isKillSwitchActiveFn: func(_ context.Context) (bool, error) {
 			return true, nil
 		},
 	}
@@ -579,7 +579,7 @@ func TestProcessSignal_KillSwitchActive(t *testing.T) {
 func TestProcessSignal_RiskCheckRejection(t *testing.T) {
 	broker := &mockBroker{}
 	riskEng := &mockRiskEngine{
-		checkPositionLimitsFn: func(ctx context.Context, ticker string, quantity float64, portfolio risk.Portfolio) (bool, string, error) {
+		checkPositionLimitsFn: func(_ context.Context, _ string, _ float64, _ risk.Portfolio) (bool, string, error) {
 			return false, "exceeds max position size", nil
 		},
 	}
@@ -629,7 +629,7 @@ func TestProcessSignal_RiskCheckRejection(t *testing.T) {
 func TestProcessSignal_PreTradeRejection(t *testing.T) {
 	broker := &mockBroker{}
 	riskEng := &mockRiskEngine{
-		checkPreTradeFn: func(ctx context.Context, order *domain.Order, portfolio risk.Portfolio) (bool, string, error) {
+		checkPreTradeFn: func(_ context.Context, _ *domain.Order, _ risk.Portfolio) (bool, string, error) {
 			return false, "circuit breaker tripped", nil
 		},
 	}
