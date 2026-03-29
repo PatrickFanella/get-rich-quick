@@ -137,7 +137,10 @@ export function ActivityFeed() {
                     <span>Run: {item.runId.slice(0, 8)}…</span>
                   ) : null}
                 </div>
-                <time className="shrink-0 text-xs text-muted-foreground">
+                <time
+                  className="shrink-0 text-xs text-muted-foreground"
+                  dateTime={new Date(item.timestamp).toISOString()}
+                >
                   {new Date(item.timestamp).toLocaleTimeString()}
                 </time>
               </li>

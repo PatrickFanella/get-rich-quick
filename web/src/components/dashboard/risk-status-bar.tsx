@@ -167,7 +167,7 @@ export function RiskStatusBar() {
               <p className="text-sm font-medium">Kill switch</p>
               <p className="text-xs text-muted-foreground">
                 {data.kill_switch.active
-                  ? data.kill_switch.reason ?? 'All trading halted'
+                  ? (data.kill_switch.reason && data.kill_switch.reason.trim()) || 'All trading halted'
                   : 'Trading is enabled'}
               </p>
             </div>
@@ -178,7 +178,7 @@ export function RiskStatusBar() {
               onClick={() => killSwitchMutation.mutate(!data.kill_switch.active)}
               data-testid="kill-switch-toggle"
             >
-              <Power className={cn('size-4', data.kill_switch.active && 'text-emerald-600')} />
+              <Power className={cn('size-4', data.kill_switch.active && 'text-destructive')} />
               {data.kill_switch.active ? 'Deactivate' : 'Activate'}
             </Button>
           </div>
