@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Radio, Wifi, WifiOff } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
@@ -60,18 +60,17 @@ function toFeedItem(msg: WebSocketMessage): FeedItem {
 }
 
 function isWebSocketMessage(msg: WebSocketServerMessage): msg is WebSocketMessage {
-  return 'type' in msg && msg.type !== 'error' && !('status' in msg)
+  return 'type' in msg && !('status' in msg)
 }
 
 export function ActivityFeed() {
   const [items, setItems] = useState<FeedItem[]>([])
-  const counterRef = useRef(0)
+  const subscribedRef = useRef(false)
 
   const handleMessage = useCallback((msg: WebSocketServerMessage) => {
     if (!isWebSocketMessage(msg)) return
 
     const item = toFeedItem(msg)
-    counterRef.current += 1
 
     setItems((prev) => {
       const next = [item, ...prev]
@@ -86,10 +85,15 @@ export function ActivityFeed() {
 
   const isConnected = status === 'open'
 
-  if (status === 'open' && counterRef.current === 0) {
-    subscribeAll()
-    counterRef.current = -1
-  }
+  useEffect(() => {
+    if (isConnected && !subscribedRef.current) {
+      subscribeAll()
+      subscribedRef.current = true
+    }
+    if (!isConnected) {
+      subscribedRef.current = false
+    }
+  }, [isConnected, subscribeAll])
 
   return (
     <Card data-testid="activity-feed">
