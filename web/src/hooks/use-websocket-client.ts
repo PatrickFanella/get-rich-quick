@@ -62,7 +62,7 @@ export function useWebSocketClient({
     }
 
     clearReconnectTimer()
-    shouldReconnectRef.current = reconnect
+    shouldReconnectRef.current = enabled && reconnect
     setStatus('connecting')
 
     const socket = new WebSocket(endpoint)
@@ -88,15 +88,17 @@ export function useWebSocketClient({
 
     socket.onclose = () => {
       const isCurrentSocket = socketRef.current === socket
+      const wasReplacedByNewerConnection = !isCurrentSocket && socketRef.current !== null
+      const shouldNotReconnect = !shouldReconnectRef.current
 
       if (isCurrentSocket) {
         socketRef.current = null
       }
       setStatus('closed')
-      if ((!isCurrentSocket && socketRef.current !== null) || !shouldReconnectRef.current) {
+      if (wasReplacedByNewerConnection || shouldNotReconnect) {
         return
       }
-      if (enabled && reconnect) {
+      if (shouldReconnectRef.current) {
         reconnectTimerRef.current = window.setTimeout(() => {
           connect()
         }, reconnectDelayMs)

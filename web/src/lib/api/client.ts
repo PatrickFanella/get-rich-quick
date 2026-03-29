@@ -144,7 +144,7 @@ export class ApiClient {
   }
 
   async deleteMemory(id: UUID) {
-    return this.request<void>(`/api/v1/memories/${id}`, { method: 'DELETE' })
+    return this.requestNoContent(`/api/v1/memories/${id}`, { method: 'DELETE' })
   }
 
   async getRiskStatus() {
@@ -161,6 +161,16 @@ export class ApiClient {
   private async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
     const url = new URL(`${this.baseUrl}${path}`)
 
+    const response = await this.fetch(url, options)
+    return (await response.json()) as T
+  }
+
+  private async requestNoContent(path: string, options: RequestOptions = {}) {
+    const url = new URL(`${this.baseUrl}${path}`)
+    await this.fetch(url, options)
+  }
+
+  private async fetch(url: URL, options: RequestOptions) {
     if (options.query) {
       for (const [key, value] of Object.entries(options.query)) {
         if (value !== undefined) {
@@ -204,16 +214,23 @@ export class ApiClient {
       )
     }
 
-    if (response.status === 204) {
-      return undefined as T
-    }
-
-    return (await response.json()) as T
+    return response
   }
 }
 
 export const apiClient = new ApiClient()
 
 function toQueryParams(params: object): QueryParams {
-  return params as QueryParams
+  const queryParams: QueryParams = {}
+
+  for (const [key, value] of Object.entries(params)) {
+    if (
+      value !== undefined &&
+      (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+    ) {
+      queryParams[key] = value
+    }
+  }
+
+  return queryParams
 }
