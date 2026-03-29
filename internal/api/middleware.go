@@ -16,8 +16,8 @@ import (
 const maxRequestBodyBytes = 1 << 20 // 1 MiB
 
 // SecurityHeaders returns middleware that sets common protective HTTP headers
-// on every response. These headers defend against content-type sniffing,
-// click-jacking, and encourage transport-layer security.
+// on every response. These headers defend against content-type sniffing and
+// click-jacking attacks.
 func SecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")

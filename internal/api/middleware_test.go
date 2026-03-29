@@ -1,6 +1,9 @@
 package api
 
 import (
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -39,8 +42,17 @@ func TestMaxRequestBodyMiddleware(t *testing.T) {
 
 	handler := MaxRequestBody(limit)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		buf := make([]byte, limit+1)
-		_, err := r.Body.Read(buf)
-		if err != nil {
+		n, err := r.Body.Read(buf)
+		if err != nil && !errors.Is(err, io.EOF) {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				respondError(w, http.StatusRequestEntityTooLarge, "body too large", ErrCodeBadRequest)
+				return
+			}
+			respondError(w, http.StatusInternalServerError, "read error", ErrCodeInternal)
+			return
+		}
+		if n > limit {
 			respondError(w, http.StatusRequestEntityTooLarge, "body too large", ErrCodeBadRequest)
 			return
 		}
@@ -86,8 +98,10 @@ func TestMaxRequestBodyOnAPIEndpoint(t *testing.T) {
 
 	srv := newTestServer(t)
 
-	// A request body exceeding 1 MiB should fail.
-	oversized := strings.Repeat("x", (1<<20)+100)
+	// Build a syntactically valid JSON body that exceeds the 1 MiB limit.
+	// The decoder must read past the limit to trigger MaxBytesReader's error.
+	largeField := strings.Repeat("a", (1<<20)+100)
+	oversized := fmt.Sprintf(`{"name":%q,"ticker":"AAPL","market_type":"stock"}`, largeField)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/strategies", strings.NewReader(oversized))
 	req.Header.Set("Content-Type", "application/json")
 
