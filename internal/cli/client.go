@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -99,9 +100,25 @@ func (c *apiClient) do(req *http.Request, dst any) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= http.StatusBadRequest {
+		rawBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if readErr != nil {
+			return fmt.Errorf("%s %s: read error response: %w", req.Method, req.URL.Path, readErr)
+		}
+
 		var apiErr api.ErrorResponse
-		if err := json.NewDecoder(resp.Body).Decode(&apiErr); err == nil && apiErr.Error != "" {
+		if err := json.Unmarshal(rawBody, &apiErr); err == nil && apiErr.Error != "" {
 			return fmt.Errorf("%s %s: %s (%s)", req.Method, req.URL.Path, apiErr.Error, apiErr.Code)
+		}
+
+		contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
+		if snippet := strings.TrimSpace(string(rawBody)); snippet != "" {
+			if contentType != "" {
+				return fmt.Errorf("%s %s: unexpected status %s (%s): %s", req.Method, req.URL.Path, resp.Status, contentType, snippet)
+			}
+			return fmt.Errorf("%s %s: unexpected status %s: %s", req.Method, req.URL.Path, resp.Status, snippet)
+		}
+		if contentType != "" {
+			return fmt.Errorf("%s %s: unexpected status %s (%s)", req.Method, req.URL.Path, resp.Status, contentType)
 		}
 		return fmt.Errorf("%s %s: unexpected status %s", req.Method, req.URL.Path, resp.Status)
 	}

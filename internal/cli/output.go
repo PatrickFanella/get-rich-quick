@@ -170,13 +170,14 @@ func formatOptionalTime(value *time.Time) string {
 }
 
 func truncate(value string, max int) string {
-	if len(value) <= max {
+	runes := []rune(value)
+	if len(runes) <= max {
 		return value
 	}
 	if max <= 1 {
-		return value[:max]
+		return string(runes[:max])
 	}
-	return value[:max-1] + "…"
+	return string(runes[:max-1]) + "…"
 }
 
 func emptyDash(value string) string {

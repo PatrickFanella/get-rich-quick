@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -96,6 +97,14 @@ func TestCLICommands(t *testing.T) {
 		}},
 	}
 
+	var handlerErrs []error
+	var handlerErrsMu sync.Mutex
+	recordHandlerError := func(err error) {
+		handlerErrsMu.Lock()
+		handlerErrs = append(handlerErrs, err)
+		handlerErrsMu.Unlock()
+	}
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
@@ -108,7 +117,9 @@ func TestCLICommands(t *testing.T) {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/strategies/":
 			var created domain.Strategy
 			if err := json.NewDecoder(r.Body).Decode(&created); err != nil {
-				t.Fatalf("decode create request: %v", err)
+				recordHandlerError(err)
+				http.Error(w, "invalid create strategy request", http.StatusBadRequest)
+				return
 			}
 			created.ID = strategyID
 			created.UpdatedAt = now
@@ -146,7 +157,9 @@ func TestCLICommands(t *testing.T) {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/risk/killswitch":
 			var body map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				t.Fatalf("decode kill request: %v", err)
+				recordHandlerError(err)
+				http.Error(w, "invalid kill switch request", http.StatusBadRequest)
+				return
 			}
 			_ = json.NewEncoder(w).Encode(map[string]bool{"active": true})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/memories/search":
@@ -165,6 +178,14 @@ func TestCLICommands(t *testing.T) {
 		}
 	}))
 	defer server.Close()
+	t.Cleanup(func() {
+		handlerErrsMu.Lock()
+		defer handlerErrsMu.Unlock()
+		if len(handlerErrs) == 0 {
+			return
+		}
+		t.Fatalf("mock api handler errors: %v", handlerErrs)
+	})
 
 	t.Run("run command resolves ticker and returns json", func(t *testing.T) {
 		stdout, _, err := executeCLI(t, nil, "--api-url", server.URL, "--format", "json", "run", "AAPL")
@@ -263,6 +284,28 @@ func TestCLICommands(t *testing.T) {
 			t.Fatalf("unexpected memories output:\n%s", stdout)
 		}
 	})
+}
+
+func TestAPIClientIncludesNonJSONErrorDetails(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		http.Error(w, "backend exploded", http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	client := newAPIClient(server.URL, "", "")
+	err := client.get(context.Background(), "/broken", nil, nil)
+	if err == nil {
+		t.Fatal("client.get() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "backend exploded") {
+		t.Fatalf("error = %q, want response snippet", err)
+	}
+	if !strings.Contains(err.Error(), "text/plain") {
+		t.Fatalf("error = %q, want content type", err)
+	}
 }
 
 func executeCLI(t *testing.T, deps *Dependencies, args ...string) (string, string, error) {

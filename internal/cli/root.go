@@ -146,7 +146,7 @@ func (s *rootState) newServeCommand() *cobra.Command {
 			}
 			defer cleanup()
 
-			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
 			if err := runServerLifecycle(ctx, apiServer.Start, apiServer.Shutdown); err != nil {
