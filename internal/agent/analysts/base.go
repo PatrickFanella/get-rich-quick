@@ -89,7 +89,9 @@ func (b *BaseAnalyst) Execute(ctx context.Context, state *agent.PipelineState) e
 		return err
 	}
 	state.SetAnalystReport(b.role, output.Report)
-	state.RecordDecision(b.role, b.Phase(), nil, output.Report, output.LLMResponse)
+	if output.LLMResponse != nil {
+		state.RecordDecision(b.role, b.Phase(), nil, output.Report, output.LLMResponse)
+	}
 	return nil
 }
 
