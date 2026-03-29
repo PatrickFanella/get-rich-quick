@@ -101,6 +101,26 @@ func (e *RiskEngineImpl) SetNowFunc(now func() time.Time) {
 	e.nowFunc = now
 }
 
+// SetFileExistsFunc overrides the file-existence check used by the kill
+// switch, enabling deterministic test behaviour without touching the
+// filesystem.
+func (e *RiskEngineImpl) SetFileExistsFunc(fn func(string) bool) {
+	if e == nil || fn == nil {
+		return
+	}
+	e.fileExistsFunc = fn
+}
+
+// SetGetEnvFunc overrides the environment-variable lookup used by the kill
+// switch, enabling deterministic test behaviour without mutating the process
+// environment.
+func (e *RiskEngineImpl) SetGetEnvFunc(fn func(string) string) {
+	if e == nil || fn == nil {
+		return
+	}
+	e.getEnvFunc = fn
+}
+
 func (e *RiskEngineImpl) currentTime() time.Time {
 	if e == nil {
 		return time.Now()
