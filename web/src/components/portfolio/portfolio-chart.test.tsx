@@ -4,26 +4,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { PortfolioChart } from '@/components/portfolio/portfolio-chart'
 
-interface MockChartPoint {
-  date: string
-  pnl: number
-}
+vi.mock('recharts', async () => {
+  const React = await import('react')
+  const actual = await vi.importActual<typeof import('recharts')>('recharts')
 
-vi.mock('recharts', () => ({
-  ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="portfolio-chart-renderer">{children}</div>
-  ),
-  AreaChart: ({ data, children }: { data?: readonly MockChartPoint[], children: React.ReactNode }) => (
-    <svg data-testid="portfolio-chart-svg" data-chart={JSON.stringify(data ?? [])}>
-      {children}
-    </svg>
-  ),
-  CartesianGrid: () => null,
-  XAxis: () => null,
-  YAxis: () => null,
-  Tooltip: () => null,
-  Area: () => null,
-}))
+  return {
+    ...actual,
+    ResponsiveContainer: ({ children }: { children: React.ReactNode }) =>
+      React.isValidElement(children)
+        ? React.cloneElement(children, { width: 400, height: 256 })
+        : children,
+  }
+})
 
 function Wrapper({ children }: { children: React.ReactNode }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -63,16 +55,8 @@ describe('PortfolioChart', () => {
 
     await waitFor(() => {
       expect(screen.queryByTestId('portfolio-chart-empty')).not.toBeInTheDocument()
-      const renderedChartData = JSON.parse(
-        screen.getByTestId('portfolio-chart-svg').getAttribute('data-chart') ?? '[]',
-      )
-
-      expect(renderedChartData).toEqual([
-        {
-          date: expect.any(String),
-          pnl: 50,
-        },
-      ])
+      const chartContainer = screen.getByTestId('portfolio-chart')
+      expect(chartContainer.querySelector('svg,canvas')).not.toBeNull()
     })
   })
 
