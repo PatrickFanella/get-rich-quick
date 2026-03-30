@@ -51,18 +51,24 @@ func (r *TradeRepo) Create(ctx context.Context, trade *domain.Trade) error {
 	return nil
 }
 
+// List returns trades matching the provided optional filters and pagination.
+func (r *TradeRepo) List(ctx context.Context, filter repository.TradeFilter, limit, offset int) ([]domain.Trade, error) {
+	query, args := buildTradeListQuery(filter, limit, offset)
+	return r.list(ctx, query, args, "list trades")
+}
+
 // GetByOrder returns trades for the given order with optional filtering and
 // pagination.
 func (r *TradeRepo) GetByOrder(ctx context.Context, orderID uuid.UUID, filter repository.TradeFilter, limit, offset int) ([]domain.Trade, error) {
-	query, args := buildTradeScopedListQuery("order_id", orderID, filter, limit, offset)
-	return r.list(ctx, query, args, "get trades by order")
+	filter.OrderID = &orderID
+	return r.List(ctx, filter, limit, offset)
 }
 
 // GetByPosition returns trades for the given position with optional filtering
 // and pagination.
 func (r *TradeRepo) GetByPosition(ctx context.Context, positionID uuid.UUID, filter repository.TradeFilter, limit, offset int) ([]domain.Trade, error) {
-	query, args := buildTradeScopedListQuery("position_id", positionID, filter, limit, offset)
-	return r.list(ctx, query, args, "get trades by position")
+	filter.PositionID = &positionID
+	return r.List(ctx, filter, limit, offset)
 }
 
 const tradeSelectSQL = `SELECT id, order_id, position_id, ticker, side,
@@ -125,9 +131,9 @@ func scanTrade(sc scanner) (*domain.Trade, error) {
 	return &trade, nil
 }
 
-// buildTradeScopedListQuery constructs the SELECT query and arguments for
-// GetByOrder and GetByPosition using the supplied fixed scope.
-func buildTradeScopedListQuery(scopeColumn string, scopeValue uuid.UUID, filter repository.TradeFilter, limit, offset int) (string, []any) {
+// buildTradeListQuery constructs the SELECT query and arguments for List using
+// the provided optional filters.
+func buildTradeListQuery(filter repository.TradeFilter, limit, offset int) (string, []any) {
 	var (
 		conditions []string
 		args       []any
@@ -140,27 +146,49 @@ func buildTradeScopedListQuery(scopeColumn string, scopeValue uuid.UUID, filter 
 		return fmt.Sprintf("$%d", argIdx)
 	}
 
-	conditions = append(conditions, scopeColumn+" = "+nextArg(scopeValue))
-
-	if filter.Ticker != "" {
-		conditions = append(conditions, "ticker = "+nextArg(filter.Ticker))
+	if filter.OrderID != nil {
+		conditions = append(conditions, "order_id = "+nextArg(*filter.OrderID))
 	}
 
-	if filter.Side != "" {
-		conditions = append(conditions, "side = "+nextArg(filter.Side))
+	if filter.PositionID != nil {
+		conditions = append(conditions, "position_id = "+nextArg(*filter.PositionID))
 	}
 
-	if filter.ExecutedAfter != nil {
-		conditions = append(conditions, "executed_at >= "+nextArg(*filter.ExecutedAfter))
+	if filter.Ticker != nil {
+		conditions = append(conditions, "ticker = "+nextArg(*filter.Ticker))
 	}
 
-	if filter.ExecutedBefore != nil {
-		conditions = append(conditions, "executed_at <= "+nextArg(*filter.ExecutedBefore))
+	if filter.Side != nil {
+		conditions = append(conditions, "side = "+nextArg(*filter.Side))
 	}
 
-	query := tradeSelectSQL + " WHERE " + strings.Join(conditions, " AND ")
+	if filter.StartDate != nil {
+		conditions = append(conditions, "executed_at >= "+nextArg(*filter.StartDate))
+	}
+
+	if filter.EndDate != nil {
+		conditions = append(conditions, "executed_at <= "+nextArg(*filter.EndDate))
+	}
+
+	query := tradeSelectSQL
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
 	query += " ORDER BY executed_at DESC, created_at DESC, id DESC"
 	query += fmt.Sprintf(" LIMIT %s OFFSET %s", nextArg(limit), nextArg(offset))
 
 	return query, args
+}
+
+// buildTradeScopedListQuery constructs the SELECT query and arguments for
+// GetByOrder and GetByPosition using the supplied fixed scope.
+func buildTradeScopedListQuery(scopeColumn string, scopeValue uuid.UUID, filter repository.TradeFilter, limit, offset int) (string, []any) {
+	switch scopeColumn {
+	case "order_id":
+		filter.OrderID = &scopeValue
+	case "position_id":
+		filter.PositionID = &scopeValue
+	}
+
+	return buildTradeListQuery(filter, limit, offset)
 }

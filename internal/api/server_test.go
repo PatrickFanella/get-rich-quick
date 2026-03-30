@@ -969,6 +969,9 @@ func (stubPositionRepo) GetByStrategy(context.Context, uuid.UUID, repository.Pos
 type stubTradeRepo struct{}
 
 func (stubTradeRepo) Create(context.Context, *domain.Trade) error { return nil }
+func (stubTradeRepo) List(context.Context, repository.TradeFilter, int, int) ([]domain.Trade, error) {
+	return nil, nil
+}
 func (stubTradeRepo) GetByOrder(context.Context, uuid.UUID, repository.TradeFilter, int, int) ([]domain.Trade, error) {
 	return nil, nil
 }
