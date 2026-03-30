@@ -27,7 +27,8 @@ func TestProductionDockerfileContainsRequiredStages(t *testing.T) {
 		"RUN chmod 444 ./ca-certificates.crt",
 		"ENV SSL_CERT_FILE=/app/ca-certificates.crt",
 		"EXPOSE 8080",
-		"ENTRYPOINT [\"./tradingagent\", \"serve\"]",
+		"ENTRYPOINT [\"./tradingagent\"]",
+		"CMD [\"serve\"]",
 	} {
 		if !strings.Contains(dockerfile, want) {
 			t.Fatalf("Dockerfile missing required content %q", want)
