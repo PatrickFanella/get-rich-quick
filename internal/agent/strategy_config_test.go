@@ -198,7 +198,32 @@ func TestValidateStrategyConfig_DebateRoundsZero(t *testing.T) {
 	}
 }
 
+func TestValidateStrategyConfig_InvalidProvider(t *testing.T) {
+	cfg := validStrategyConfig()
+	cfg.LLMConfig.Provider = strPtr("opneai") // typo
+
+	err := agent.ValidateStrategyConfig(cfg)
+	if err == nil {
+		t.Fatal("expected error for unknown provider, got nil")
+	}
+	if !strings.Contains(err.Error(), "provider") {
+		t.Fatalf("error should mention 'provider', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "opneai") {
+		t.Fatalf("error should include the bad provider name, got: %v", err)
+	}
+}
+
+func TestValidateStrategyConfig_GPT54ModelAccepted(t *testing.T) {
+	cfg := validStrategyConfig()
+	cfg.LLMConfig.DeepThinkModel = strPtr("gpt-5.4")
+
+	if err := agent.ValidateStrategyConfig(cfg); err != nil {
+		t.Fatalf("expected gpt-5.4 to be accepted, got: %v", err)
+	}
+}
+
 // helper pointer constructors used only in tests.
-func strPtr(s string) *string     { return &s }
-func intPtr(n int) *int            { return &n }
+func strPtr(s string) *string      { return &s }
+func intPtr(n int) *int             { return &n }
 func float64Ptr(f float64) *float64 { return &f }

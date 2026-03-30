@@ -2,12 +2,14 @@ package agent
 
 import "fmt"
 
-// KnownLLMModels is the set of model identifiers that ValidateStrategyConfig accepts.
-var KnownLLMModels = map[string]bool{
+// knownLLMModels is the unexported set of model identifiers that
+// ValidateStrategyConfig accepts. Use isKnownLLMModel to query it.
+var knownLLMModels = map[string]bool{
 	// OpenAI
-	"gpt-5-mini":        true,
-	"gpt-5.2":           true,
-	"gpt-4.1-mini":      true,
+	"gpt-5-mini":          true,
+	"gpt-5.2":             true,
+	"gpt-5.4":             true,
+	"gpt-4.1-mini":        true,
 	"openai/gpt-4.1-mini": true,
 	// Anthropic
 	"claude-3-7-sonnet-latest": true,
@@ -17,6 +19,22 @@ var KnownLLMModels = map[string]bool{
 	"grok-3-mini": true,
 	// Ollama
 	"llama3.2": true,
+}
+
+// isKnownLLMModel reports whether model is in the allowlist.
+func isKnownLLMModel(model string) bool {
+	return knownLLMModels[model]
+}
+
+// knownLLMProviders is the set of provider identifiers that
+// ValidateStrategyConfig accepts for StrategyLLMConfig.Provider.
+var knownLLMProviders = map[string]bool{
+	"openai":    true,
+	"anthropic": true,
+	"google":    true,
+	"openrouter": true,
+	"xai":       true,
+	"ollama":    true,
 }
 
 // StrategyLLMConfig holds per-tier model overrides for a strategy.
@@ -100,10 +118,16 @@ func validateLLMConfig(c *StrategyLLMConfig) error {
 	if c == nil {
 		return nil
 	}
-	if c.DeepThinkModel != nil && !KnownLLMModels[*c.DeepThinkModel] {
+	if c.Provider != nil {
+		p := *c.Provider
+		if !knownLLMProviders[p] {
+			return fmt.Errorf("llm_config.provider: unknown provider %q (valid: openai, anthropic, google, openrouter, xai, ollama)", p)
+		}
+	}
+	if c.DeepThinkModel != nil && !isKnownLLMModel(*c.DeepThinkModel) {
 		return fmt.Errorf("llm_config.deep_think_model: unknown model %q", *c.DeepThinkModel)
 	}
-	if c.QuickThinkModel != nil && !KnownLLMModels[*c.QuickThinkModel] {
+	if c.QuickThinkModel != nil && !isKnownLLMModel(*c.QuickThinkModel) {
 		return fmt.Errorf("llm_config.quick_think_model: unknown model %q", *c.QuickThinkModel)
 	}
 	return nil
