@@ -150,9 +150,8 @@ func TestAgentDecisionsPromptCostMigrationAppliesAgainstExistingSchema(t *testin
 			nullable: "YES",
 		},
 		"cost_usd": {
-			dataType:      "numeric",
-			nullable:      "YES",
-			defaultClause: "0",
+			dataType: "numeric",
+			nullable: "YES",
 		},
 	}
 
@@ -167,9 +166,17 @@ func TestAgentDecisionsPromptCostMigrationAppliesAgainstExistingSchema(t *testin
 		if got.nullable != expected.nullable {
 			t.Fatalf("expected column %q nullable=%q, got %q", name, expected.nullable, got.nullable)
 		}
-		if expected.defaultClause != "" && !strings.Contains(got.defaultClause, expected.defaultClause) {
-			t.Fatalf("expected column %q default to contain %q, got %q", name, expected.defaultClause, got.defaultClause)
-		}
+	}
+
+	// Verify cost_usd default is exactly zero (not permissive substring match).
+	costCol, ok := columns["cost_usd"]
+	if !ok {
+		t.Fatal("expected cost_usd column to exist")
+	}
+	// PostgreSQL stores the default as "0" or "0::numeric"; strip any cast and check for exact zero.
+	rawDefault := strings.TrimSpace(strings.SplitN(costCol.defaultClause, "::", 2)[0])
+	if rawDefault != "0" {
+		t.Fatalf("expected cost_usd default to be exactly 0, got %q (full default: %q)", rawDefault, costCol.defaultClause)
 	}
 
 	// Apply down migration and verify both columns are removed.
