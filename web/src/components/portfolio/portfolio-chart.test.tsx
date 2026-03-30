@@ -4,6 +4,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { PortfolioChart } from '@/components/portfolio/portfolio-chart'
 
+vi.mock('recharts', () => ({
+  ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="portfolio-chart-renderer">{children}</div>
+  ),
+  AreaChart: ({ children }: { children: React.ReactNode }) => (
+    <svg data-testid="portfolio-chart-svg">{children}</svg>
+  ),
+  CartesianGrid: () => null,
+  XAxis: () => null,
+  YAxis: () => null,
+  Tooltip: () => null,
+  Area: () => null,
+}))
+
 function Wrapper({ children }: { children: React.ReactNode }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>
@@ -38,12 +52,12 @@ describe('PortfolioChart', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    const { container } = render(<PortfolioChart />, { wrapper: Wrapper })
+    render(<PortfolioChart />, { wrapper: Wrapper })
 
     await waitFor(() => {
-      expect(container.querySelector('.recharts-responsive-container')).toBeInTheDocument()
+      expect(screen.queryByTestId('portfolio-chart-empty')).not.toBeInTheDocument()
+      expect(screen.getByTestId('portfolio-chart-svg')).toBeInTheDocument()
     })
-    expect(screen.queryByTestId('portfolio-chart-empty')).not.toBeInTheDocument()
   })
 
   it('shows empty state when no closed positions', async () => {
