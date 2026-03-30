@@ -18,7 +18,7 @@ require (
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sync v0.20.0
-	google.golang.org/genai v1.51.0
+	google.golang.org/genai v1.52.0
 )
 
 require (
