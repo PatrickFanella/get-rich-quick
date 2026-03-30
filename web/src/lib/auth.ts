@@ -7,35 +7,69 @@ function getStorage() {
     return null
   }
 
-  return window.localStorage
+  try {
+    return window.localStorage
+  } catch {
+    return null
+  }
+}
+
+function getStorageValue(key: string) {
+  const storage = getStorage()
+
+  if (!storage) {
+    return null
+  }
+
+  try {
+    return storage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function setStorageValue(key: string, value: string) {
+  const storage = getStorage()
+
+  if (!storage) {
+    return
+  }
+
+  try {
+    storage.setItem(key, value)
+  } catch {
+    return
+  }
+}
+
+function removeStorageValue(key: string) {
+  const storage = getStorage()
+
+  if (!storage) {
+    return
+  }
+
+  try {
+    storage.removeItem(key)
+  } catch {
+    return
+  }
 }
 
 export function getAccessToken() {
-  return getStorage()?.getItem(ACCESS_TOKEN_KEY) ?? null
+  return getStorageValue(ACCESS_TOKEN_KEY)
 }
 
 export function setTokens(accessToken: string, refreshToken: string, expiresAt: string | number) {
-  const storage = getStorage()
-
-  if (!storage) {
-    return
-  }
-
-  storage.setItem(ACCESS_TOKEN_KEY, accessToken)
-  storage.setItem(REFRESH_TOKEN_KEY, refreshToken)
-  storage.setItem(EXPIRES_AT_KEY, String(expiresAt))
+  setStorageValue(ACCESS_TOKEN_KEY, accessToken)
+  setStorageValue(REFRESH_TOKEN_KEY, refreshToken)
+  setStorageValue(EXPIRES_AT_KEY, String(expiresAt))
 }
 
 export function clearTokens() {
-  const storage = getStorage()
-
-  if (!storage) {
-    return
-  }
-
-  storage.removeItem(ACCESS_TOKEN_KEY)
-  storage.removeItem(REFRESH_TOKEN_KEY)
-  storage.removeItem(EXPIRES_AT_KEY)
+  removeStorageValue(ACCESS_TOKEN_KEY)
+  removeStorageValue(REFRESH_TOKEN_KEY)
+  removeStorageValue(EXPIRES_AT_KEY)
 }
 
 export function isAuthenticated() {
@@ -45,7 +79,7 @@ export function isAuthenticated() {
     return false
   }
 
-  const expiresAt = getStorage()?.getItem(EXPIRES_AT_KEY)
+  const expiresAt = getStorageValue(EXPIRES_AT_KEY)
 
   if (!expiresAt) {
     return false

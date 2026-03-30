@@ -1,7 +1,7 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 
 import { AppShell } from '@/components/layout/app-shell'
-import { ProtectedRoute, PublicOnlyRoute } from '@/components/routes/protected-route'
+import { ProtectedRoute, PublicOnlyRoute } from '@/components/routes/route-guards'
 import { AppProviders } from '@/lib/providers'
 import { DashboardPage } from '@/pages/dashboard-page'
 import { LoginPage } from '@/pages/login-page'
