@@ -48,7 +48,7 @@ export function isAuthenticated() {
   const expiresAt = getStorage()?.getItem(EXPIRES_AT_KEY)
 
   if (!expiresAt) {
-    return true
+    return false
   }
 
   const parsedExpiresAt = Number(expiresAt)
@@ -57,5 +57,7 @@ export function isAuthenticated() {
     return false
   }
 
-  return parsedExpiresAt > Date.now()
+  const expiresAtMs = parsedExpiresAt < 1_000_000_000_000 ? parsedExpiresAt * 1000 : parsedExpiresAt
+
+  return expiresAtMs > Date.now()
 }
