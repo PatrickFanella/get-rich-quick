@@ -62,11 +62,12 @@ func TestUsersMigrationAppliesAgainstExistingSchema(t *testing.T) {
 	defer adminPool.Close()
 
 	schemaName := "migr_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	if _, err := adminPool.Exec(ctx, `CREATE SCHEMA "`+schemaName+`"`); err != nil {
+	sanitizedSchemaName := pgx.Identifier{schemaName}.Sanitize()
+	if _, err := adminPool.Exec(ctx, `CREATE SCHEMA `+sanitizedSchemaName); err != nil {
 		t.Fatalf("failed to create schema: %v", err)
 	}
 	defer func() {
-		if _, err := adminPool.Exec(ctx, `DROP SCHEMA IF EXISTS "`+schemaName+`" CASCADE`); err != nil {
+		if _, err := adminPool.Exec(ctx, `DROP SCHEMA IF EXISTS `+sanitizedSchemaName+` CASCADE`); err != nil {
 			t.Fatalf("failed to drop schema %q: %v", schemaName, err)
 		}
 	}()
@@ -76,6 +77,8 @@ func TestUsersMigrationAppliesAgainstExistingSchema(t *testing.T) {
 		t.Fatalf("failed to parse database config: %v", err)
 	}
 	config.ConnConfig.RuntimeParams["search_path"] = schemaName + ",public"
+	// Migrations are stored as multi-statement SQL files, so the test uses
+	// simple protocol to execute each file in a single Exec call.
 	config.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
