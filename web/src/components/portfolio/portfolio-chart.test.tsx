@@ -4,12 +4,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { PortfolioChart } from '@/components/portfolio/portfolio-chart'
 
+interface MockChartPoint {
+  date: string
+  pnl: number
+}
+
 vi.mock('recharts', () => ({
   ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="portfolio-chart-renderer">{children}</div>
   ),
-  AreaChart: ({ children }: { children: React.ReactNode }) => (
-    <svg data-testid="portfolio-chart-svg">{children}</svg>
+  AreaChart: ({ data, children }: { data?: readonly MockChartPoint[], children: React.ReactNode }) => (
+    <svg data-testid="portfolio-chart-svg" data-chart={JSON.stringify(data ?? [])}>
+      {children}
+    </svg>
   ),
   CartesianGrid: () => null,
   XAxis: () => null,
@@ -56,7 +63,16 @@ describe('PortfolioChart', () => {
 
     await waitFor(() => {
       expect(screen.queryByTestId('portfolio-chart-empty')).not.toBeInTheDocument()
-      expect(screen.getByTestId('portfolio-chart-svg')).toBeInTheDocument()
+      const renderedChartData = JSON.parse(
+        screen.getByTestId('portfolio-chart-svg').getAttribute('data-chart') ?? '[]',
+      )
+
+      expect(renderedChartData).toEqual([
+        {
+          date: expect.any(String),
+          pnl: 50,
+        },
+      ])
     })
   })
 
