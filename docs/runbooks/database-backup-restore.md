@@ -56,10 +56,11 @@ Use this runbook before risky schema work, before restoring production-like data
      --no-owner < "$BACKUP_FILE"
    ```
 
-7. Re-apply migrations so the schema matches the current application build:
+7. Re-apply migrations so the schema matches the current application build. When running `migrate` from the operator workstation, use a host-resolvable connection string instead of the container hostname in `.env`:
 
    ```bash
-   migrate -path migrations -database "$DATABASE_URL" up
+   export LOCAL_DATABASE_URL="${LOCAL_DATABASE_URL:-postgres://postgres:postgres@localhost:${POSTGRES_PORT:-5432}/tradingagent?sslmode=disable}"
+   migrate -path migrations -database "$LOCAL_DATABASE_URL" up
    ```
 
 8. Start the app again if you stopped it:
@@ -72,12 +73,12 @@ Use this runbook before risky schema work, before restoring production-like data
 
 - `pg_restore -l "$BACKUP_FILE"` succeeds for the backup you intend to use.
 - `docker compose exec postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-tradingagent}" -c '\dt'` lists the expected tables after restore.
-- `curl -sS http://127.0.0.1:8080/healthz` returns `ok` after the app is back up.
+- `curl -sS "${TRADINGAGENT_API_URL:-http://127.0.0.1:8080}/healthz"` returns `ok` after the app is back up.
 - An authenticated read-only API call such as `GET /api/v1/strategies` succeeds.
 
 ## Rollback
 
 1. If the restore fails or the application starts with schema errors, stop the app again.
 2. Re-run step 6 using the safety backup you took immediately before the failed restore.
-3. Re-run `migrate -path migrations -database "$DATABASE_URL" up`.
+3. Re-run `migrate -path migrations -database "$LOCAL_DATABASE_URL" up`.
 4. Bring the app back up and verify health before clearing the incident.

@@ -9,7 +9,7 @@ type: runbook
 
 ## Context
 
-Use this runbook for config changes, routine deploys, or process-level recovery when you want the API to shut down cleanly. The server supports graceful shutdown and gives in-flight requests up to 30 seconds to complete before exit.
+Use this runbook for config changes, routine deploys, or process-level recovery when you want the API to shut down cleanly. The server supports graceful shutdown and gives in-flight requests up to 10 seconds to complete before exit.
 
 ## Steps
 
@@ -17,7 +17,7 @@ Use this runbook for config changes, routine deploys, or process-level recovery 
 2. Capture the current application health:
 
    ```bash
-   curl -sS http://127.0.0.1:8080/healthz
+   curl -sS "${TRADINGAGENT_API_URL:-http://127.0.0.1:8080}/healthz"
    tradingagent --api-url "$TRADINGAGENT_API_URL" --api-key "$TRADINGAGENT_API_KEY" risk status
    ```
 
@@ -38,7 +38,7 @@ Use this runbook for config changes, routine deploys, or process-level recovery 
 
 ## Verification
 
-- `/healthz` returns `ok`.
+- `curl -sS "${TRADINGAGENT_API_URL:-http://127.0.0.1:8080}/healthz"` returns `ok`.
 - `risk status` responds successfully and shows the expected kill switch and circuit breaker state.
 - Logs contain a clean shutdown/startup sequence and no repeated crash loop.
 
