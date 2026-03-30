@@ -19,6 +19,7 @@ func TestProductionDockerComposeContainsRequiredConfiguration(t *testing.T) {
 		"services:",
 		"image: postgres:17",
 		"postgres_data:/var/lib/postgresql/data",
+		"POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}",
 		"pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-tradingagent}",
 		"image: redis:7-alpine",
 		"redis_data:/data",
@@ -28,8 +29,6 @@ func TestProductionDockerComposeContainsRequiredConfiguration(t *testing.T) {
 		"APP_ENV: production",
 		"env_file:",
 		"- .env",
-		"postgres:\n        condition: service_healthy",
-		"redis:\n        condition: service_healthy",
 		"restart: unless-stopped",
 		"backend:\n    internal: true",
 		"public:",
@@ -48,6 +47,16 @@ func TestProductionDockerComposeContainsRequiredConfiguration(t *testing.T) {
 			t.Fatalf("docker-compose.prod.yml unexpectedly contains %q", unwanted)
 		}
 	}
+
+	dependsOnBlock := sectionBetween(t, compose, "depends_on:\n", "\n    restart: unless-stopped")
+	for _, want := range []string{"postgres:", "redis:"} {
+		if !strings.Contains(dependsOnBlock, want) {
+			t.Fatalf("depends_on block missing %q", want)
+		}
+	}
+	if got := strings.Count(dependsOnBlock, "condition: service_healthy"); got != 2 {
+		t.Fatalf("depends_on healthy conditions = %d, want 2", got)
+	}
 }
 
 func productionDockerComposePath(t *testing.T) string {
@@ -59,4 +68,21 @@ func productionDockerComposePath(t *testing.T) string {
 	}
 
 	return filepath.Join(filepath.Dir(filename), "..", "..", "docker-compose.prod.yml")
+}
+
+func sectionBetween(t *testing.T, contents, start, end string) string {
+	t.Helper()
+
+	startIndex := strings.Index(contents, start)
+	if startIndex == -1 {
+		t.Fatalf("section start %q not found", start)
+	}
+	startIndex += len(start)
+
+	endIndex := strings.Index(contents[startIndex:], end)
+	if endIndex == -1 {
+		t.Fatalf("section end %q not found", end)
+	}
+
+	return contents[startIndex : startIndex+endIndex]
 }
