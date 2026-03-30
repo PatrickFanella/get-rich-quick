@@ -59,18 +59,22 @@ func TestUsersMigrationAppliesAgainstExistingSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create admin pool: %v", err)
 	}
-	defer adminPool.Close()
+	t.Cleanup(adminPool.Close)
+
+	if _, err := adminPool.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS pgcrypto`); err != nil {
+		t.Fatalf("failed to ensure pgcrypto extension: %v", err)
+	}
 
 	schemaName := "migr_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	sanitizedSchemaName := pgx.Identifier{schemaName}.Sanitize()
 	if _, err := adminPool.Exec(ctx, `CREATE SCHEMA `+sanitizedSchemaName); err != nil {
 		t.Fatalf("failed to create schema: %v", err)
 	}
-	defer func() {
+	t.Cleanup(func() {
 		if _, err := adminPool.Exec(ctx, `DROP SCHEMA IF EXISTS `+sanitizedSchemaName+` CASCADE`); err != nil {
-			t.Fatalf("failed to drop schema %q: %v", schemaName, err)
+			t.Errorf("failed to drop schema %q: %v", schemaName, err)
 		}
-	}()
+	})
 
 	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
@@ -85,7 +89,7 @@ func TestUsersMigrationAppliesAgainstExistingSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create schema-scoped pool: %v", err)
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 
 	for _, filename := range []string{
 		"000001_initial_schema.up.sql",
