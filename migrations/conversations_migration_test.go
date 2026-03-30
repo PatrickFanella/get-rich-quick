@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -28,10 +30,15 @@ func TestConversationsUpMigrationDefinesExpectedSchema(t *testing.T) {
 		"conversation_id uuid not null references conversations (id) on delete cascade",
 		"role text not null check (role in ('user', 'assistant'))",
 		"content text not null",
+		"create or replace function prevent_conversation_message_created_at_update() returns trigger as $$",
+		"raise exception 'conversation_messages.created_at is immutable'",
+		"create trigger trg_conversation_messages_created_at_immutable before update of created_at on conversation_messages for each row execute function prevent_conversation_message_created_at_update()",
 		"create index idx_conversations_pipeline_run_id on conversations (pipeline_run_id)",
 		"create index idx_conversations_created_at on conversations (created_at)",
+		"create index idx_conversations_pipeline_run_id_created_at_id on conversations (pipeline_run_id, created_at, id)",
 		"create index idx_conversation_messages_conversation_id on conversation_messages (conversation_id)",
 		"create index idx_conversation_messages_created_at on conversation_messages (created_at)",
+		"create index idx_conversation_messages_conversation_id_created_at_id on conversation_messages (conversation_id, created_at, id)",
 	}
 
 	for _, fragment := range expectedFragments {
@@ -45,6 +52,8 @@ func TestConversationsDownMigrationDropsConversationTables(t *testing.T) {
 	downSQL := normalizeSQL(t, readMigrationFile(t, "000009_conversations.down.sql"))
 
 	for _, fragment := range []string{
+		"drop trigger if exists trg_conversation_messages_created_at_immutable on conversation_messages;",
+		"drop function if exists prevent_conversation_message_created_at_update();",
 		"drop table if exists conversation_messages cascade;",
 		"drop table if exists conversations cascade;",
 	} {
@@ -176,8 +185,10 @@ func TestConversationsMigrationAppliesAgainstExistingSchema(t *testing.T) {
 
 	assertIndexExists(t, ctx, pool, "conversations", "idx_conversations_pipeline_run_id")
 	assertIndexExists(t, ctx, pool, "conversations", "idx_conversations_created_at")
+	assertIndexExists(t, ctx, pool, "conversations", "idx_conversations_pipeline_run_id_created_at_id")
 	assertIndexExists(t, ctx, pool, "conversation_messages", "idx_conversation_messages_conversation_id")
 	assertIndexExists(t, ctx, pool, "conversation_messages", "idx_conversation_messages_created_at")
+	assertIndexExists(t, ctx, pool, "conversation_messages", "idx_conversation_messages_conversation_id_created_at_id")
 
 	var conversationID string
 	if err := pool.QueryRow(ctx, `
@@ -188,13 +199,49 @@ func TestConversationsMigrationAppliesAgainstExistingSchema(t *testing.T) {
 		t.Fatalf("failed to insert conversation: %v", err)
 	}
 
-	var messageID string
-	if err := pool.QueryRow(ctx, `
-		INSERT INTO conversation_messages (conversation_id, role, content)
-		VALUES ($1, $2, $3)
-		RETURNING id::text
-	`, conversationID, "user", "hello").Scan(&messageID); err != nil {
-		t.Fatalf("failed to insert conversation message: %v", err)
+	messageIDs := []string{
+		"00000000-0000-0000-0000-000000000001",
+		"00000000-0000-0000-0000-000000000002",
+	}
+	fixedCreatedAt := time.Date(2026, time.March, 30, 22, 0, 0, 0, time.UTC)
+	for i, messageID := range messageIDs {
+		content := "hello"
+		if i == 1 {
+			content = "world"
+		}
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO conversation_messages (id, conversation_id, role, content, created_at)
+			VALUES ($1, $2, $3, $4, $5)
+		`, messageID, conversationID, "user", content, fixedCreatedAt); err != nil {
+			t.Fatalf("failed to insert conversation message %s: %v", messageID, err)
+		}
+	}
+
+	var orderedMessageIDs []string
+	rows, err := pool.Query(ctx, `
+		SELECT id::text
+		FROM conversation_messages
+		WHERE conversation_id = $1
+		ORDER BY created_at, id
+	`, conversationID)
+	if err != nil {
+		t.Fatalf("failed to query ordered conversation messages: %v", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var messageID string
+		if err := rows.Scan(&messageID); err != nil {
+			t.Fatalf("failed to scan ordered message id: %v", err)
+		}
+		orderedMessageIDs = append(orderedMessageIDs, messageID)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("failed to iterate ordered message ids: %v", err)
+	}
+
+	if !slices.Equal(orderedMessageIDs, messageIDs) {
+		t.Fatalf("expected messages ordered by created_at, id to be %v, got %v", messageIDs, orderedMessageIDs)
 	}
 
 	var roleErr *pgconn.PgError
@@ -209,12 +256,24 @@ func TestConversationsMigrationAppliesAgainstExistingSchema(t *testing.T) {
 		t.Fatalf("expected invalid role insert to fail with check constraint, got: %v", err)
 	}
 
+	var immutableErr *pgconn.PgError
+	if _, err := pool.Exec(ctx, `
+		UPDATE conversation_messages
+		SET created_at = $2
+		WHERE id = $1
+	`, messageIDs[0], fixedCreatedAt.Add(time.Second)); err == nil {
+		t.Fatal("expected updating conversation_messages.created_at to fail")
+	} else if !strings.Contains(err.Error(), "conversation_messages.created_at is immutable") &&
+		(!errors.As(err, &immutableErr) || immutableErr.Code != "P0001") {
+		t.Fatalf("expected immutable created_at error, got: %v", err)
+	}
+
 	if _, err := pool.Exec(ctx, `DELETE FROM conversations WHERE id = $1`, conversationID); err != nil {
 		t.Fatalf("failed to delete conversation: %v", err)
 	}
 
 	var messageCount int
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM conversation_messages WHERE id = $1`, messageID).Scan(&messageCount); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM conversation_messages WHERE conversation_id = $1`, conversationID).Scan(&messageCount); err != nil {
 		t.Fatalf("failed to count messages after conversation delete: %v", err)
 	}
 	if messageCount != 0 {
