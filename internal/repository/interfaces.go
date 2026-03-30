@@ -63,6 +63,17 @@ type AgentDecisionFilter struct {
 	RoundNumber *int
 }
 
+// AgentEventFilter defines supported filters when listing agent events.
+type AgentEventFilter struct {
+	PipelineRunID *uuid.UUID
+	StrategyID    *uuid.UUID
+	AgentRole     domain.AgentRole
+	EventKind     string
+	Tags          []string
+	CreatedAfter  *time.Time
+	CreatedBefore *time.Time
+}
+
 // OrderFilter defines supported filters when listing or querying orders.
 type OrderFilter struct {
 	Ticker          string
@@ -185,6 +196,12 @@ type PipelineRunRepository interface {
 type AgentDecisionRepository interface {
 	Create(ctx context.Context, decision *domain.AgentDecision) error
 	GetByRun(ctx context.Context, runID uuid.UUID, filter AgentDecisionFilter, limit, offset int) ([]domain.AgentDecision, error)
+}
+
+// AgentEventRepository provides access to structured agent and pipeline events.
+type AgentEventRepository interface {
+	Create(ctx context.Context, event *domain.AgentEvent) error
+	List(ctx context.Context, filter AgentEventFilter, limit, offset int) ([]domain.AgentEvent, error)
 }
 
 // OrderRepository provides CRUD operations for orders.

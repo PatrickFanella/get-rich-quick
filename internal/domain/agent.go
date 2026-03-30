@@ -102,3 +102,17 @@ type AgentDecision struct {
 	LatencyMS        int             `json:"latency_ms,omitempty"`
 	CreatedAt        time.Time       `json:"created_at"`
 }
+
+// AgentEvent stores a structured event emitted by agents or the pipeline.
+type AgentEvent struct {
+	ID            uuid.UUID       `json:"id"`
+	PipelineRunID *uuid.UUID      `json:"pipeline_run_id,omitempty"`
+	StrategyID    *uuid.UUID      `json:"strategy_id,omitempty"`
+	AgentRole     AgentRole       `json:"agent_role,omitempty"`
+	EventKind     string          `json:"event_kind"`
+	Title         string          `json:"title"`
+	Summary       string          `json:"summary,omitempty"`
+	Tags          []string        `json:"tags,omitempty"`
+	Metadata      json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt     time.Time       `json:"created_at"`
+}
