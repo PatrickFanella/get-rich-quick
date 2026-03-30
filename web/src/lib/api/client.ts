@@ -46,6 +46,10 @@ interface RequestOptions extends Omit<RequestInit, 'body' | 'headers'> {
   query?: QueryParams
 }
 
+type NullableListResponse<T> = Omit<ListResponse<T>, 'data'> & {
+  data?: T[] | null
+}
+
 export class ApiClientError extends Error {
   readonly status: number
   readonly code?: string
@@ -193,7 +197,7 @@ export class ApiClient {
   }
 
   private async requestList<T>(path: string, options: RequestOptions = {}) {
-    return normalizeListResponse(await this.request<ListResponse<T>>(path, options))
+    return normalizeListResponse(await this.request<NullableListResponse<T>>(path, options))
   }
 
   private async requestNoContent(path: string, options: RequestOptions = {}) {
@@ -251,12 +255,12 @@ export class ApiClient {
 
 export const apiClient = new ApiClient()
 
-function normalizeListResponse<T>(response: ListResponse<T>): ListResponse<T> {
+function normalizeListResponse<T>(response: NullableListResponse<T>): ListResponse<T> {
   if (response.data == null) {
     return { ...response, data: [] }
   }
 
-  return response
+  return { ...response, data: response.data }
 }
 
 function toQueryParams(params: object): QueryParams {
