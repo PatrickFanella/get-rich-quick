@@ -29,14 +29,27 @@ func NewConversationRepo(pool *pgxpool.Pool) *ConversationRepo {
 // CreateConversation inserts a new conversation and populates generated fields on
 // the provided struct.
 func (r *ConversationRepo) CreateConversation(ctx context.Context, conv *domain.Conversation) error {
-	row := r.pool.QueryRow(ctx,
-		`INSERT INTO conversations (pipeline_run_id, agent_role, title)
-		 VALUES ($1, $2, $3)
-		 RETURNING id, created_at, updated_at`,
-		conv.PipelineRunID,
-		conv.AgentRole,
-		nullString(conv.Title),
-	)
+	var row scanner
+	if conv.ID == uuid.Nil {
+		row = r.pool.QueryRow(ctx,
+			`INSERT INTO conversations (pipeline_run_id, agent_role, title)
+			 VALUES ($1, $2, $3)
+			 RETURNING id, created_at, updated_at`,
+			conv.PipelineRunID,
+			conv.AgentRole,
+			nullString(conv.Title),
+		)
+	} else {
+		row = r.pool.QueryRow(ctx,
+			`INSERT INTO conversations (id, pipeline_run_id, agent_role, title)
+			 VALUES ($1, $2, $3, $4)
+			 RETURNING id, created_at, updated_at`,
+			conv.ID,
+			conv.PipelineRunID,
+			conv.AgentRole,
+			nullString(conv.Title),
+		)
+	}
 
 	if err := row.Scan(&conv.ID, &conv.CreatedAt, &conv.UpdatedAt); err != nil {
 		return fmt.Errorf("postgres: create conversation: %w", err)
@@ -90,14 +103,27 @@ func (r *ConversationRepo) ListConversations(ctx context.Context, filter reposit
 // AddMessage inserts a new message for the given conversation and populates the
 // generated fields on the provided struct.
 func (r *ConversationRepo) AddMessage(ctx context.Context, convID uuid.UUID, msg *domain.ConversationMessage) error {
-	row := r.pool.QueryRow(ctx,
-		`INSERT INTO conversation_messages (conversation_id, role, content)
-		 VALUES ($1, $2, $3)
-		 RETURNING id, created_at`,
-		convID,
-		msg.Role,
-		msg.Content,
-	)
+	var row scanner
+	if msg.ID == uuid.Nil {
+		row = r.pool.QueryRow(ctx,
+			`INSERT INTO conversation_messages (conversation_id, role, content)
+			 VALUES ($1, $2, $3)
+			 RETURNING id, created_at`,
+			convID,
+			msg.Role,
+			msg.Content,
+		)
+	} else {
+		row = r.pool.QueryRow(ctx,
+			`INSERT INTO conversation_messages (id, conversation_id, role, content)
+			 VALUES ($1, $2, $3, $4)
+			 RETURNING id, created_at`,
+			msg.ID,
+			convID,
+			msg.Role,
+			msg.Content,
+		)
+	}
 
 	if err := row.Scan(&msg.ID, &msg.CreatedAt); err != nil {
 		return fmt.Errorf("postgres: add conversation message: %w", err)

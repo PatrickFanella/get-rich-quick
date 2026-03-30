@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -33,7 +32,7 @@ func TestBuildConversationListQuery_NoFilters(t *testing.T) {
 	assertNotContains(t, query, "WHERE")
 }
 
-func TestBuildConversationListQuery_AllFilters(t *testing.T) {
+func TestBuildConversationListQuery_WithFilters(t *testing.T) {
 	runID := uuid.New()
 	query, args := buildConversationListQuery(repository.ConversationFilter{
 		PipelineRunID: &runID,
@@ -103,6 +102,7 @@ func TestConversationRepoIntegration_AddMessagesAndGetMessagesChronological(t *t
 	conv := createTestConversation(t, ctx, repo, uuid.New(), domain.AgentRoleMarketAnalyst, "Analysis thread")
 
 	first := &domain.ConversationMessage{
+		ID:      mustParseConversationUUID(t, "00000000-0000-0000-0000-000000000001"),
 		Role:    domain.ConversationMessageRoleUser,
 		Content: "What changed?",
 	}
@@ -110,9 +110,8 @@ func TestConversationRepoIntegration_AddMessagesAndGetMessagesChronological(t *t
 		t.Fatalf("AddMessage(first) error = %v", err)
 	}
 
-	time.Sleep(2 * time.Millisecond)
-
 	second := &domain.ConversationMessage{
+		ID:      mustParseConversationUUID(t, "00000000-0000-0000-0000-000000000002"),
 		Role:    domain.ConversationMessageRoleAssistant,
 		Content: "Momentum improved.",
 	}
@@ -145,11 +144,9 @@ func TestConversationRepoIntegration_ListConversationsFiltersAndPagination(t *te
 	runID := uuid.New()
 	otherRunID := uuid.New()
 
-	conv1 := createTestConversation(t, ctx, repo, runID, domain.AgentRoleTrader, "First")
-	time.Sleep(2 * time.Millisecond)
-	conv2 := createTestConversation(t, ctx, repo, runID, domain.AgentRoleTrader, "Second")
-	time.Sleep(2 * time.Millisecond)
-	conv3 := createTestConversation(t, ctx, repo, otherRunID, domain.AgentRoleMarketAnalyst, "Third")
+	conv1 := createTestConversationWithID(t, ctx, repo, mustParseConversationUUID(t, "00000000-0000-0000-0000-000000000001"), runID, domain.AgentRoleTrader, "First")
+	conv2 := createTestConversationWithID(t, ctx, repo, mustParseConversationUUID(t, "00000000-0000-0000-0000-000000000002"), runID, domain.AgentRoleTrader, "Second")
+	conv3 := createTestConversationWithID(t, ctx, repo, mustParseConversationUUID(t, "00000000-0000-0000-0000-000000000003"), otherRunID, domain.AgentRoleMarketAnalyst, "Third")
 
 	byRun, err := repo.ListConversations(ctx, repository.ConversationFilter{
 		PipelineRunID: &runID,
@@ -199,17 +196,27 @@ func TestConversationRepoIntegration_MessagePagination(t *testing.T) {
 	repo := NewConversationRepo(pool)
 	conv := createTestConversation(t, ctx, repo, uuid.New(), domain.AgentRoleTrader, "Paginated messages")
 
-	first := &domain.ConversationMessage{Role: domain.ConversationMessageRoleUser, Content: "First"}
+	first := &domain.ConversationMessage{
+		ID:      mustParseConversationUUID(t, "00000000-0000-0000-0000-000000000011"),
+		Role:    domain.ConversationMessageRoleUser,
+		Content: "First",
+	}
 	if err := repo.AddMessage(ctx, conv.ID, first); err != nil {
 		t.Fatalf("AddMessage(first) error = %v", err)
 	}
-	time.Sleep(2 * time.Millisecond)
-	second := &domain.ConversationMessage{Role: domain.ConversationMessageRoleAssistant, Content: "Second"}
+	second := &domain.ConversationMessage{
+		ID:      mustParseConversationUUID(t, "00000000-0000-0000-0000-000000000012"),
+		Role:    domain.ConversationMessageRoleAssistant,
+		Content: "Second",
+	}
 	if err := repo.AddMessage(ctx, conv.ID, second); err != nil {
 		t.Fatalf("AddMessage(second) error = %v", err)
 	}
-	time.Sleep(2 * time.Millisecond)
-	third := &domain.ConversationMessage{Role: domain.ConversationMessageRoleUser, Content: "Third"}
+	third := &domain.ConversationMessage{
+		ID:      mustParseConversationUUID(t, "00000000-0000-0000-0000-000000000013"),
+		Role:    domain.ConversationMessageRoleUser,
+		Content: "Third",
+	}
 	if err := repo.AddMessage(ctx, conv.ID, third); err != nil {
 		t.Fatalf("AddMessage(third) error = %v", err)
 	}
@@ -229,7 +236,14 @@ func TestConversationRepoIntegration_MessagePagination(t *testing.T) {
 func createTestConversation(t *testing.T, ctx context.Context, repo *ConversationRepo, runID uuid.UUID, role domain.AgentRole, title string) *domain.Conversation {
 	t.Helper()
 
+	return createTestConversationWithID(t, ctx, repo, uuid.Nil, runID, role, title)
+}
+
+func createTestConversationWithID(t *testing.T, ctx context.Context, repo *ConversationRepo, id, runID uuid.UUID, role domain.AgentRole, title string) *domain.Conversation {
+	t.Helper()
+
 	conv := &domain.Conversation{
+		ID:            id,
 		PipelineRunID: runID,
 		AgentRole:     role,
 		Title:         title,
@@ -239,6 +253,17 @@ func createTestConversation(t *testing.T, ctx context.Context, repo *Conversatio
 	}
 
 	return conv
+}
+
+func mustParseConversationUUID(t *testing.T, value string) uuid.UUID {
+	t.Helper()
+
+	id, err := uuid.Parse(value)
+	if err != nil {
+		t.Fatalf("failed to parse uuid %q: %v", value, err)
+	}
+
+	return id
 }
 
 func newConversationIntegrationPool(t *testing.T, ctx context.Context) (*pgxpool.Pool, func()) {
