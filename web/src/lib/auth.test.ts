@@ -1,0 +1,82 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { clearTokens, isAuthenticated, setTokens } from '@/lib/auth'
+
+describe('auth', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('returns false when the token expiry is missing', () => {
+    localStorage.setItem('access_token', 'access-token')
+
+    expect(isAuthenticated()).toBe(false)
+  })
+
+  it('accepts millisecond expiry timestamps in the future', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-30T08:00:00Z'))
+
+    setTokens('access-token', 'refresh-token', Date.now() + 60_000)
+
+    expect(isAuthenticated()).toBe(true)
+  })
+
+  it('accepts second-based expiry timestamps in the future', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-30T08:00:00Z'))
+
+    setTokens('access-token', 'refresh-token', Math.floor((Date.now() + 60_000) / 1000))
+
+    expect(isAuthenticated()).toBe(true)
+  })
+
+  it('returns false when the token expiry is invalid', () => {
+    localStorage.setItem('access_token', 'access-token')
+    localStorage.setItem('expires_at', 'not-a-number')
+
+    expect(isAuthenticated()).toBe(false)
+  })
+
+  it('returns false when the token expiry is in the past', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-30T08:00:00Z'))
+
+    setTokens('access-token', 'refresh-token', Date.now() - 1)
+
+    expect(isAuthenticated()).toBe(false)
+  })
+
+  it('returns false after clearing tokens', () => {
+    setTokens('access-token', 'refresh-token', Date.now() + 60_000)
+
+    clearTokens()
+
+    expect(isAuthenticated()).toBe(false)
+  })
+
+  it('fails closed when localStorage access throws', () => {
+    const descriptor = Object.getOwnPropertyDescriptor(window, 'localStorage')
+
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new DOMException('Access denied', 'SecurityError')
+      },
+    })
+
+    try {
+      expect(isAuthenticated()).toBe(false)
+      expect(() => setTokens('access-token', 'refresh-token', Date.now() + 60_000)).not.toThrow()
+      expect(() => clearTokens()).not.toThrow()
+    } finally {
+      if (descriptor) {
+        Object.defineProperty(window, 'localStorage', descriptor)
+      }
+    }
+  })
+})
