@@ -1652,7 +1652,7 @@ func TestExecute_PersistsPipelineFailedStructuredEvent(t *testing.T) {
 
 	lastEvent := eventRepo.created[len(eventRepo.created)-1]
 	if lastEvent.EventKind != AgentEventKindPipelineFailed.String() {
-		t.Fatalf("last event kind = %q, want %q", lastEvent.EventKind, AgentEventKindPipelineFailed)
+		t.Fatalf("last event kind = %q, want %q", lastEvent.EventKind, AgentEventKindPipelineFailed.String())
 	}
 	assertStructuredEventMetadata(t, lastEvent, "phase", PhaseTrading.String())
 	assertStructuredEventMetadata(t, lastEvent, "error_message", tradeErr.Error())

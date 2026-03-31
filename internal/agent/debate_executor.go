@@ -51,6 +51,8 @@ func (d *DebateExecutor) Execute(ctx context.Context, state *PipelineState) erro
 	}
 
 	for i := 1; i <= rounds; i++ {
+		roundNumber := i
+
 		// Check for context cancellation before starting the round.
 		if err := phaseCtx.Err(); err != nil {
 			return err
@@ -74,7 +76,7 @@ func (d *DebateExecutor) Execute(ctx context.Context, state *PipelineState) erro
 				map[string]any{
 					"phase":        d.config.Phase.String(),
 					"agent_role":   debater.Role().String(),
-					"round_number": i,
+					"round_number": roundNumber,
 				},
 				[]string{"agent", d.config.Phase.String()},
 			))
@@ -95,7 +97,6 @@ func (d *DebateExecutor) Execute(ctx context.Context, state *PipelineState) erro
 					return err
 				}
 			}
-			roundNumber := i
 			output, llmResponse, err := d.pipeline.decisionPayload(state, debater, &roundNumber)
 			if err != nil {
 				return err
@@ -127,7 +128,7 @@ func (d *DebateExecutor) Execute(ctx context.Context, state *PipelineState) erro
 			"",
 			map[string]any{
 				"phase":        d.config.Phase.String(),
-				"round_number": i,
+				"round_number": roundNumber,
 			},
 			[]string{"debate", d.config.Phase.String()},
 		))
