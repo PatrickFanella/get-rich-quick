@@ -106,7 +106,7 @@ func formatRoundsForPrompt(rounds []agent.DebateRound) string {
 			builder.WriteString("\n\n")
 		}
 
-		builder.WriteString(fmt.Sprintf("Round %d:", round.Number))
+		_, _ = fmt.Fprintf(&builder, "Round %d:", round.Number)
 		if len(round.Contributions) == 0 {
 			builder.WriteString("\n- No contributions recorded.")
 			continue
@@ -121,7 +121,7 @@ func formatRoundsForPrompt(rounds []agent.DebateRound) string {
 		})
 
 		for _, role := range roles {
-			builder.WriteString(fmt.Sprintf("\n- %s: %s", role, round.Contributions[role]))
+			_, _ = fmt.Fprintf(&builder, "\n- %s: %s", role, round.Contributions[role])
 		}
 	}
 
@@ -146,7 +146,7 @@ func formatAnalystReportsForPrompt(reports map[agent.AgentRole]string) string {
 		if i > 0 {
 			builder.WriteString("\n\n")
 		}
-		builder.WriteString(fmt.Sprintf("%s:\n%s", role, reports[role]))
+		_, _ = fmt.Fprintf(&builder, "%s:\n%s", role, reports[role])
 	}
 
 	return builder.String()

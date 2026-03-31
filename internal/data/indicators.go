@@ -8,23 +8,23 @@ import (
 )
 
 const (
-	defaultSMAPeriod          = 20
-	defaultEMAPeriod          = 12
-	defaultMACDFastPeriod     = 12
-	defaultMACDSlowPeriod     = 26
-	defaultMACDSignalPeriod   = 9
-	defaultRSIPeriod          = 14
-	defaultMFIPeriod          = 14
-	defaultStochasticKPeriod  = 14
-	defaultStochasticDPeriod  = 3
-	defaultStochasticSmooth   = 3
-	defaultWilliamsRPeriod    = 14
-	defaultCCIPeriod          = 20
-	defaultROCPeriod          = 12
-	defaultBollingerPeriod    = 20
-	defaultBollingerStdDev    = 2.0
-	defaultATRPeriod          = 14
-	defaultVWMAPeriod         = 20
+	defaultSMAPeriod         = 20
+	defaultEMAPeriod         = 12
+	defaultMACDFastPeriod    = 12
+	defaultMACDSlowPeriod    = 26
+	defaultMACDSignalPeriod  = 9
+	defaultRSIPeriod         = 14
+	defaultMFIPeriod         = 14
+	defaultStochasticKPeriod = 14
+	defaultStochasticDPeriod = 3
+	defaultStochasticSmooth  = 3
+	defaultWilliamsRPeriod   = 14
+	defaultCCIPeriod         = 20
+	defaultROCPeriod         = 12
+	defaultBollingerPeriod   = 20
+	defaultBollingerStdDev   = 2.0
+	defaultATRPeriod         = 14
+	defaultVWMAPeriod        = 20
 )
 
 // SMA returns the simple moving average of closing prices for each completed window.

@@ -20,7 +20,7 @@ type stubNode struct {
 	callLog *[]string
 }
 
-func (s *stubNode) Name() string         { return s.name }
+func (s *stubNode) Name() string          { return s.name }
 func (s *stubNode) Role() agent.AgentRole { return s.role }
 func (s *stubNode) Phase() agent.Phase    { return s.phase }
 

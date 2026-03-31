@@ -71,8 +71,8 @@ func TestValidateNoGoInsufficientDays(t *testing.T) {
 	t.Parallel()
 
 	metrics := backtest.Metrics{
-		SharpeRatio:  1.5,
-		MaxDrawdown:  0.10,
+		SharpeRatio: 1.5,
+		MaxDrawdown: 0.10,
 	}
 	analytics := backtest.TradeAnalytics{ClosedTrades: 25, WinRate: 0.55, ProfitFactor: 2.0}
 	th := DefaultThresholds()
@@ -97,9 +97,9 @@ func TestValidateNoGoFailedMetrics(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		metrics  backtest.Metrics
-		analytics backtest.TradeAnalytics
+		name         string
+		metrics      backtest.Metrics
+		analytics    backtest.TradeAnalytics
 		failedMetric string
 	}{
 		{

@@ -249,7 +249,7 @@ func TestNewsAnalystExecuteNilProvider(t *testing.T) {
 	}
 }
 
-func TestNewsAnalystImplementsNode(t *testing.T) {
+func TestNewsAnalystImplementsNode(_ *testing.T) {
 	// Compile-time check that *NewsAnalyst satisfies agent.Node.
 	var _ agent.Node = (*NewsAnalyst)(nil)
 }

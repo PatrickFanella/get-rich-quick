@@ -19,9 +19,11 @@ import (
 	"github.com/PatrickFanella/get-rich-quick/internal/risk"
 )
 
-const defaultStrategyPageSize = 100
-const defaultBacktestConfigPageSize = 100
-const defaultJobTimeout = 10 * time.Minute
+const (
+	defaultStrategyPageSize       = 100
+	defaultBacktestConfigPageSize = 100
+	defaultJobTimeout             = 10 * time.Minute
+)
 
 var ErrAlreadyStarted = errors.New("scheduler: already started")
 
@@ -425,4 +427,3 @@ func (s *Scheduler) jobContext() (context.Context, context.CancelFunc) {
 
 	return context.WithTimeout(baseCtx, timeout)
 }
-

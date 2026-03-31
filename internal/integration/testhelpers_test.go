@@ -313,7 +313,7 @@ func createPosition(t *testing.T, ctx context.Context, r *postgres.PositionRepo,
 		StrategyID: &strategyID,
 		Ticker:     ticker,
 		Side:       side,
-		Quantity:    quantity,
+		Quantity:   quantity,
 		AvgEntry:   avgEntry,
 	}
 	if err := r.Create(ctx, pos); err != nil {

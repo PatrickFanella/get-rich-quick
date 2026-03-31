@@ -28,9 +28,9 @@ var (
 // historical data and a simulated clock. Only data with timestamps at or
 // before the clock's current time is returned, preventing look-ahead bias.
 type HistoricalDataProvider struct {
-	bars         []domain.OHLCV       // sorted ascending by Timestamp
-	news         []data.NewsArticle   // sorted ascending by PublishedAt
-	fundamentals *data.Fundamentals   // static; always returned when non-nil
+	bars         []domain.OHLCV         // sorted ascending by Timestamp
+	news         []data.NewsArticle     // sorted ascending by PublishedAt
+	fundamentals *data.Fundamentals     // static; always returned when non-nil
 	social       []data.SocialSentiment // sorted ascending by MeasuredAt
 	clock        Clock
 }

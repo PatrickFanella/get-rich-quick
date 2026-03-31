@@ -8,13 +8,13 @@ import (
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
 )
 
-func makeBar(ts time.Time, close float64) domain.OHLCV {
+func makeBar(ts time.Time, closePrice float64) domain.OHLCV {
 	return domain.OHLCV{
 		Timestamp: ts,
-		Open:      close - 1,
-		High:      close + 1,
-		Low:       close - 2,
-		Close:     close,
+		Open:      closePrice - 1,
+		High:      closePrice + 1,
+		Low:       closePrice - 2,
+		Close:     closePrice,
 		Volume:    1000,
 	}
 }
@@ -468,38 +468,38 @@ func TestFullReplayLoop(t *testing.T) {
 		t.Fatalf("NewReplayIterator() error = %v", err)
 	}
 
-	step_i := 0
+	stepI := 0
 	for iter.Next() {
 		current, err := iter.Current()
 		if err != nil {
-			t.Fatalf("Current() error = %v at step %d", err, step_i)
+			t.Fatalf("Current() error = %v at step %d", err, stepI)
 		}
-		if current.Close != float64(100+step_i) {
-			t.Fatalf("bar[%d].Close = %f, want %f", step_i, current.Close, float64(100+step_i))
+		if current.Close != float64(100+stepI) {
+			t.Fatalf("bar[%d].Close = %f, want %f", stepI, current.Close, float64(100+stepI))
 		}
 
 		visible, err := iter.Bars()
 		if err != nil {
-			t.Fatalf("Bars() error = %v at step %d", err, step_i)
+			t.Fatalf("Bars() error = %v at step %d", err, stepI)
 		}
-		if len(visible) != step_i+1 {
-			t.Fatalf("len(Bars()) = %d at step %d, want %d", len(visible), step_i, step_i+1)
+		if len(visible) != stepI+1 {
+			t.Fatalf("len(Bars()) = %d at step %d, want %d", len(visible), stepI, stepI+1)
 		}
 
 		// Attempting to access future data should fail.
-		if step_i < 4 {
-			futureTime := bars[step_i+1].Timestamp
+		if stepI < 4 {
+			futureTime := bars[stepI+1].Timestamp
 			_, err := iter.BarAt(futureTime)
 			if !errors.Is(err, ErrFutureAccess) {
-				t.Fatalf("BarAt(future) error = %v at step %d, want %v", err, step_i, ErrFutureAccess)
+				t.Fatalf("BarAt(future) error = %v at step %d, want %v", err, stepI, ErrFutureAccess)
 			}
 		}
 
-		step_i++
+		stepI++
 	}
 
-	if step_i != 5 {
-		t.Fatalf("consumed %d bars, want 5", step_i)
+	if stepI != 5 {
+		t.Fatalf("consumed %d bars, want 5", stepI)
 	}
 
 	if !iter.Done() {

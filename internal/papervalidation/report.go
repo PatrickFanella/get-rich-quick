@@ -10,15 +10,15 @@ import (
 // paper trading validation period. It summarises current performance, metric
 // pass/fail status, and the go/no-go decision.
 type ValidationReport struct {
-	ReportDate       time.Time        `json:"report_date"`
-	PaperStartDate   time.Time        `json:"paper_start_date"`
-	ElapsedDays      int              `json:"elapsed_days"`
-	DaysRemaining    int              `json:"days_remaining"`
-	Metrics          []MetricResult   `json:"metrics"`
-	AllMetricsPassed bool             `json:"all_metrics_passed"`
-	GoDecision       bool             `json:"go_decision"`
-	Decision         string           `json:"decision"`
-	TransitionPlan   *TransitionPlan  `json:"transition_plan,omitempty"`
+	ReportDate       time.Time       `json:"report_date"`
+	PaperStartDate   time.Time       `json:"paper_start_date"`
+	ElapsedDays      int             `json:"elapsed_days"`
+	DaysRemaining    int             `json:"days_remaining"`
+	Metrics          []MetricResult  `json:"metrics"`
+	AllMetricsPassed bool            `json:"all_metrics_passed"`
+	GoDecision       bool            `json:"go_decision"`
+	Decision         string          `json:"decision"`
+	TransitionPlan   *TransitionPlan `json:"transition_plan,omitempty"`
 }
 
 // TransitionPlan describes the phased rollout when a GO decision is reached.

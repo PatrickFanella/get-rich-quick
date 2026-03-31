@@ -327,10 +327,10 @@ func TestIntegration_PipelineExecution_PersistRunAndDecisions(t *testing.T) {
 			OutputText:    "Valuation is stretched after recent run-up",
 		},
 		{
-			PipelineRunID: run.ID,
-			AgentRole:     domain.AgentRoleTrader,
-			Phase:         domain.PhaseTrading,
-			OutputText:    "Execute buy order for 10 shares at market",
+			PipelineRunID:    run.ID,
+			AgentRole:        domain.AgentRoleTrader,
+			Phase:            domain.PhaseTrading,
+			OutputText:       "Execute buy order for 10 shares at market",
 			OutputStructured: json.RawMessage(`{"signal":"buy","quantity":10}`),
 		},
 	}

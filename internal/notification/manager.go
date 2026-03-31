@@ -118,7 +118,8 @@ func (m *Manager) RecordLLMRequest(ctx context.Context, provider string, success
 
 	m.mu.Lock()
 	window := m.rules.LLMProviderDown.Window
-	samples := append(m.llmSamples[provider], llmRequestSample{occurredAt: occurredAt, success: success})
+	samples := append([]llmRequestSample(nil), m.llmSamples[provider]...)
+	samples = append(samples, llmRequestSample{occurredAt: occurredAt, success: success})
 	cutoff := occurredAt.Add(-window)
 	filtered := samples[:0]
 	for _, sample := range samples {

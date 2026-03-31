@@ -202,7 +202,7 @@ func TestPositionSizingProperties(t *testing.T) {
 	t.Run("kelly stays within account value and half kelly halves result", func(t *testing.T) {
 		t.Parallel()
 
-		err := quick.Check(func(account uint32, winRatePct uint8, winLossRatio uint8) bool {
+		err := quick.Check(func(account uint32, winRatePct, winLossRatio uint8) bool {
 			accountValue := float64(account%1_000_000) + 1
 			winRate := float64(winRatePct%101) / 100
 			ratio := float64(winLossRatio%20) + 1
@@ -227,7 +227,7 @@ func TestPositionSizingProperties(t *testing.T) {
 	t.Run("atr and fixed fractional scale linearly with account value", func(t *testing.T) {
 		t.Parallel()
 
-		err := quick.Check(func(account uint32, riskPct uint8, atr uint16, multiplier uint8, fractionPct uint8, price uint16) bool {
+		err := quick.Check(func(account uint32, riskPct uint8, atr uint16, multiplier, fractionPct uint8, price uint16) bool {
 			accountValue := float64(account%1_000_000) + 1
 			doubleAccountValue := accountValue * 2
 			risk := float64(riskPct%20+1) / 1000

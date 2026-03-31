@@ -10,12 +10,12 @@ import (
 // 60-day paper trading validation plan.
 func DefaultThresholds() Thresholds {
 	return Thresholds{
-		MinSharpeRatio:    1.0,
-		MaxDrawdown:       0.15,
-		MinWinRate:        0.40,
-		MinProfitFactor:   1.5,
+		MinSharpeRatio:     1.0,
+		MaxDrawdown:        0.15,
+		MinWinRate:         0.40,
+		MinProfitFactor:    1.5,
 		MinRoundTripTrades: 20,
-		MinCalendarDays:   60,
+		MinCalendarDays:    60,
 	}
 }
 

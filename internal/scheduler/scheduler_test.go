@@ -21,8 +21,10 @@ import (
 	"github.com/PatrickFanella/get-rich-quick/internal/risk"
 )
 
-const disabledJobTimeout = time.Duration(0)
-const testScheduleSpec = "@every 1m"
+const (
+	disabledJobTimeout = time.Duration(0)
+	testScheduleSpec   = "@every 1m"
+)
 
 type mockStrategyRepo struct {
 	mu         sync.Mutex

@@ -61,7 +61,9 @@ func (r *MarketDataCacheRepo) upsertHistoricalOHLCVBatch(ctx context.Context, ba
 	}
 
 	results := r.pool.SendBatch(ctx, &batch)
-	defer results.Close()
+	defer func() {
+		_ = results.Close()
+	}()
 
 	for range bars {
 		if _, err := results.Exec(); err != nil {

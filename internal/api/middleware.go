@@ -107,8 +107,8 @@ type RateLimiter struct {
 }
 
 type clientWindow struct {
-	count    int
-	resetAt  time.Time
+	count   int
+	resetAt time.Time
 }
 
 // NewRateLimiter creates a rate limiter that allows limit requests per window

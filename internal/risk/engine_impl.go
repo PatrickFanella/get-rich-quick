@@ -204,7 +204,7 @@ func (e *RiskEngineImpl) isKillSwitchActiveUnlocked(apiKS KillSwitchStatus) (boo
 }
 
 // CheckPreTrade evaluates whether an order should be allowed before submission.
-func (e *RiskEngineImpl) CheckPreTrade(ctx context.Context, order *domain.Order, portfolio Portfolio) (bool, string, error) {
+func (e *RiskEngineImpl) CheckPreTrade(ctx context.Context, order *domain.Order, _ Portfolio) (bool, string, error) {
 	e.state.mu.Lock()
 	cooldownReset := e.checkCooldownLocked()
 	apiKS := e.state.ks

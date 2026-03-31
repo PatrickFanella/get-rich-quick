@@ -392,7 +392,9 @@ func TestWebSocketEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+	}()
 
 	if resp.StatusCode != http.StatusSwitchingProtocols {
 		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusSwitchingProtocols)
@@ -456,7 +458,9 @@ func TestWebSocketSubscriptionFiltering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+	}()
 
 	targetStrategy := uuid.New()
 
@@ -525,7 +529,7 @@ func TestWebSocketDisconnection(t *testing.T) {
 	waitFor(t, func() bool { return srv.hub.ClientCount() == 1 })
 
 	// Close the connection from client side.
-	conn.Close()
+	_ = conn.Close()
 
 	// Hub should unregister the client.
 	waitFor(t, func() bool { return srv.hub.ClientCount() == 0 })

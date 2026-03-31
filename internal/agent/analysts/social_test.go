@@ -201,7 +201,7 @@ func TestSocialMediaAnalystExecuteNilProvider(t *testing.T) {
 	}
 }
 
-func TestSocialMediaAnalystImplementsNode(t *testing.T) {
+func TestSocialMediaAnalystImplementsNode(_ *testing.T) {
 	// Compile-time check that *SocialMediaAnalyst satisfies agent.Node.
 	var _ agent.Node = (*SocialMediaAnalyst)(nil)
 }

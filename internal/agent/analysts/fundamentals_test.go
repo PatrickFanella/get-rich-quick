@@ -239,7 +239,7 @@ func TestFundamentalsAnalystExecuteNilFundamentalsNilProvider(t *testing.T) {
 	}
 }
 
-func TestFundamentalsAnalystImplementsNode(t *testing.T) {
+func TestFundamentalsAnalystImplementsNode(_ *testing.T) {
 	// Compile-time check that *FundamentalsAnalyst satisfies agent.Node.
 	var _ agent.Node = (*FundamentalsAnalyst)(nil)
 }
