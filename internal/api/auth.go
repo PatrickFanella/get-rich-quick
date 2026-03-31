@@ -18,6 +18,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
 	"github.com/PatrickFanella/get-rich-quick/internal/repository"
@@ -412,6 +413,10 @@ func bearerTokenFromHeader(header string) string {
 		return ""
 	}
 	return strings.TrimSpace(header[len("Bearer "):])
+}
+
+func verifyPassword(passwordHash, password string) error {
+	return bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password))
 }
 
 func generateAPIKey() (string, string, error) {

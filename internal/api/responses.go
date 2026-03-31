@@ -31,6 +31,13 @@ type ListResponse struct {
 	Offset int `json:"offset"`
 }
 
+// LoginResponse is returned after a successful authentication request.
+type LoginResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresAt    string `json:"expires_at"`
+}
+
 // respondJSON writes a JSON response with the given status code.
 func respondJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
 	"github.com/PatrickFanella/get-rich-quick/internal/repository"
@@ -62,6 +63,7 @@ func testDeps() Deps {
 		Trades:      &stubTradeRepo{},
 		Memories:    &stubMemoryRepo{},
 		APIKeys:     newStubAPIKeyRepo(),
+		Users:       newStubUserRepo(),
 		Risk:        &stubRiskEngine{},
 		DBHealth:    &stubHealthCheck{},
 		RedisHealth: &stubHealthCheck{},
@@ -124,6 +126,27 @@ func decodeJSON[T any](t *testing.T, rr *httptest.ResponseRecorder) T {
 		t.Fatalf("decode response: %v\nbody: %s", err, rr.Body.String())
 	}
 	return v
+}
+
+func doUnauthenticatedRequest(t *testing.T, srv *Server, method, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+
+	var reqBody *bytes.Buffer
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("marshal body: %v", err)
+		}
+		reqBody = bytes.NewBuffer(b)
+	} else {
+		reqBody = &bytes.Buffer{}
+	}
+
+	req := httptest.NewRequest(method, path, reqBody)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rr, req)
+	return rr
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +335,132 @@ func TestMetricsEndpointIsPublic(t *testing.T) {
 	}
 	if got := rr.Header().Get("Content-Type"); got == "" {
 		t.Fatal("missing content type")
+	}
+}
+
+func TestLoginSuccess(t *testing.T) {
+	t.Parallel()
+
+	users := newStubUserRepo()
+	users.mustStore(t, "alice", "correct-horse-battery-staple")
+
+	deps := testDeps()
+	deps.Users = users
+	srv := newTestServerWithDeps(t, deps)
+
+	rr := doUnauthenticatedRequest(t, srv, http.MethodPost, "/api/v1/auth/login", map[string]string{
+		"username": "alice",
+		"password": "correct-horse-battery-staple",
+	})
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d\nbody: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	resp := decodeJSON[LoginResponse](t, rr)
+	if resp.AccessToken == "" {
+		t.Fatal("access_token should not be empty")
+	}
+	if resp.RefreshToken == "" {
+		t.Fatal("refresh_token should not be empty")
+	}
+	if resp.ExpiresAt == "" {
+		t.Fatal("expires_at should not be empty")
+	}
+
+	expiresAt, err := time.Parse(time.RFC3339, resp.ExpiresAt)
+	if err != nil {
+		t.Fatalf("time.Parse() error = %v", err)
+	}
+	if expiresAt.Before(time.Now().UTC()) {
+		t.Fatalf("expires_at = %s, want future timestamp", resp.ExpiresAt)
+	}
+
+	principal, err := srv.auth.ValidateAccessToken(resp.AccessToken)
+	if err != nil {
+		t.Fatalf("ValidateAccessToken() error = %v", err)
+	}
+	if principal.Subject != "alice" {
+		t.Fatalf("principal.Subject = %q, want %q", principal.Subject, "alice")
+	}
+}
+
+func TestLoginWrongPassword(t *testing.T) {
+	t.Parallel()
+
+	users := newStubUserRepo()
+	users.mustStore(t, "alice", "correct-horse-battery-staple")
+
+	deps := testDeps()
+	deps.Users = users
+	srv := newTestServerWithDeps(t, deps)
+
+	rr := doUnauthenticatedRequest(t, srv, http.MethodPost, "/api/v1/auth/login", map[string]string{
+		"username": "alice",
+		"password": "wrong-password",
+	})
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+	resp := decodeJSON[ErrorResponse](t, rr)
+	if resp.Error != "invalid username or password" {
+		t.Fatalf("error = %q, want %q", resp.Error, "invalid username or password")
+	}
+}
+
+func TestLoginNonexistentUser(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+
+	rr := doUnauthenticatedRequest(t, srv, http.MethodPost, "/api/v1/auth/login", map[string]string{
+		"username": "missing",
+		"password": "secret",
+	})
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+	resp := decodeJSON[ErrorResponse](t, rr)
+	if resp.Error != "invalid username or password" {
+		t.Fatalf("error = %q, want %q", resp.Error, "invalid username or password")
+	}
+}
+
+func TestLoginMalformedRequest(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"username":`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+	resp := decodeJSON[ErrorResponse](t, rr)
+	if resp.Error != "invalid request body" {
+		t.Fatalf("error = %q, want %q", resp.Error, "invalid request body")
+	}
+}
+
+func TestLoginRequiresCredentials(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+
+	rr := doUnauthenticatedRequest(t, srv, http.MethodPost, "/api/v1/auth/login", map[string]string{})
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+	resp := decodeJSON[ErrorResponse](t, rr)
+	if resp.Error != "username and password are required" {
+		t.Fatalf("error = %q, want %q", resp.Error, "username and password are required")
 	}
 }
 
@@ -1189,8 +1338,40 @@ type stubAPIKeyRepo struct {
 	items map[string]domain.APIKey
 }
 
+type stubUserRepo struct {
+	mu               sync.Mutex
+	items            map[string]domain.User
+	getByUsernameErr error
+}
+
 func newStubAPIKeyRepo() *stubAPIKeyRepo {
 	return &stubAPIKeyRepo{items: make(map[string]domain.APIKey)}
+}
+
+func newStubUserRepo() *stubUserRepo {
+	return &stubUserRepo{items: make(map[string]domain.User)}
+}
+
+func (s *stubUserRepo) mustStore(t *testing.T, username, password string) {
+	t.Helper()
+
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("GenerateFromPassword() error = %v", err)
+	}
+
+	now := time.Now().UTC()
+	user := domain.User{
+		ID:           uuid.New(),
+		Username:     username,
+		PasswordHash: string(passwordHash),
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.items[username] = user
 }
 
 func (s *stubAPIKeyRepo) Create(_ context.Context, key *domain.APIKey) error {
@@ -1258,6 +1439,43 @@ func (s *stubAPIKeyRepo) TouchLastUsed(_ context.Context, id uuid.UUID, lastUsed
 		}
 	}
 	return fmt.Errorf("api key %s: %w", id, repository.ErrNotFound)
+}
+
+func (s *stubUserRepo) Create(_ context.Context, user *domain.User) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.items[user.Username] = *user
+	return nil
+}
+
+func (s *stubUserRepo) GetByUsername(_ context.Context, username string) (*domain.User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.getByUsernameErr != nil {
+		return nil, s.getByUsernameErr
+	}
+
+	user, ok := s.items[username]
+	if !ok {
+		return nil, fmt.Errorf("user %s: %w", username, repository.ErrNotFound)
+	}
+	userCopy := user
+	return &userCopy, nil
+}
+
+func (s *stubUserRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, user := range s.items {
+		if user.ID == id {
+			userCopy := user
+			return &userCopy, nil
+		}
+	}
+	return nil, fmt.Errorf("user %s: %w", id, repository.ErrNotFound)
 }
 
 func (s *stubStrategyRepo) Create(_ context.Context, strategy *domain.Strategy) error {

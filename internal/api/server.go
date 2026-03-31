@@ -32,6 +32,7 @@ type Server struct {
 	positions  repository.PositionRepository
 	trades     repository.TradeRepository
 	memories   repository.MemoryRepository
+	users      repository.UserRepository
 
 	// Risk engine
 	risk     risk.RiskEngine
@@ -108,6 +109,7 @@ type Deps struct {
 	Trades      repository.TradeRepository
 	Memories    repository.MemoryRepository
 	APIKeys     repository.APIKeyRepository
+	Users       repository.UserRepository
 	Risk        risk.RiskEngine
 	Settings    SettingsService
 	Runner      StrategyRunner
@@ -140,6 +142,9 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 	}
 	if deps.Memories == nil {
 		return nil, fmt.Errorf("memories repository is required")
+	}
+	if deps.Users == nil {
+		return nil, fmt.Errorf("users repository is required")
 	}
 	if deps.Risk == nil {
 		return nil, fmt.Errorf("risk engine is required")
@@ -185,6 +190,7 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 		positions:   deps.Positions,
 		trades:      deps.Trades,
 		memories:    deps.Memories,
+		users:       deps.Users,
 		risk:        deps.Risk,
 		settings:    settingsService,
 		runner:      deps.Runner,
@@ -221,6 +227,10 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 	r.Get("/ws", s.handleWebSocket)
 
 	// API v1
+	r.Route("/api/v1/auth", func(auth chi.Router) {
+		auth.Post("/login", s.handleLogin)
+	})
+
 	r.Route("/api/v1", func(v1 chi.Router) {
 		v1.Use(s.authMiddleware)
 

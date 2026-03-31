@@ -44,6 +44,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 	memoryRepo := pgrepo.NewMemoryRepo(db.Pool)
 	apiKeyRepo := pgrepo.NewAPIKeyRepo(db.Pool)
 	auditLogRepo := pgrepo.NewAuditLogRepo(db.Pool)
+	userRepo := pgrepo.NewUserRepo(db.Pool)
 
 	riskEngine := risk.NewRiskEngine(
 		risk.PositionLimits{
@@ -71,6 +72,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 		Trades:      tradeRepo,
 		Memories:    memoryRepo,
 		APIKeys:     apiKeyRepo,
+		Users:       userRepo,
 		Risk:        riskEngine,
 		Settings:    api.NewMemorySettingsServiceFromConfig(cfg),
 		DBHealth:    api.HealthCheckFunc(db.Pool.Ping),
