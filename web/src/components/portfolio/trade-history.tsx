@@ -36,6 +36,36 @@ function formatNetTotal(price?: number | null, quantity?: number | null, fee?: n
   return formatCurrency(price * quantity - fee)
 }
 
+function getTradeKey(trade: {
+  id?: string | null
+  order_id?: string | null
+  position_id?: string | null
+  executed_at?: string | null
+  created_at?: string | null
+  ticker?: string | null
+  side?: string | null
+  quantity?: number | null
+  price?: number | null
+  fee?: number | null
+}) {
+  if (trade.id) {
+    return `trade-id-${trade.id}`
+  }
+
+  return [
+    'trade',
+    trade.order_id ?? 'missing-order-id',
+    trade.position_id ?? 'missing-position-id',
+    trade.executed_at ?? 'missing-executed-at',
+    trade.created_at ?? 'missing-created-at',
+    trade.ticker ?? 'missing-ticker',
+    trade.side ?? 'missing-side',
+    trade.quantity ?? 'missing-quantity',
+    trade.price ?? 'missing-price',
+    trade.fee ?? 'missing-fee',
+  ].join(':')
+}
+
 export function TradeHistory() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['portfolio', 'trades'],
@@ -86,7 +116,7 @@ export function TradeHistory() {
                 </tr>
               </thead>
               <tbody>
-                {trades.map((trade, index) => {
+                {trades.map((trade) => {
                   const sideVariant =
                     trade.side === 'buy'
                       ? 'success'
@@ -96,7 +126,7 @@ export function TradeHistory() {
 
                   return (
                     <tr
-                      key={trade.id ? `trade-id-${trade.id}` : `trade-index-${index}`}
+                      key={getTradeKey(trade)}
                       className="border-b last:border-0 transition-colors hover:bg-secondary/40"
                     >
                       <td className="py-2 text-muted-foreground">

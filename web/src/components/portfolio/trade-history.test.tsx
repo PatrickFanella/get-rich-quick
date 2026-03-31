@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { TradeHistory } from '@/components/portfolio/trade-history'
 
+const expectedFallbackDashCount = 7
+
 function Wrapper({ children }: { children: React.ReactNode }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>
@@ -116,6 +118,6 @@ describe('TradeHistory', () => {
 
     expect(screen.queryByTestId('trade-history-error')).not.toBeInTheDocument()
     expect(screen.queryByTestId('trade-history-empty')).not.toBeInTheDocument()
-    expect(screen.getAllByText('—')).toHaveLength(7)
+    expect(screen.getAllByText('—')).toHaveLength(expectedFallbackDashCount)
   })
 })
