@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -91,19 +92,7 @@ func TestPipelineRunSnapshotsMigrationAppliesAgainstExistingSchema(t *testing.T)
 	}
 	t.Cleanup(pool.Close)
 
-	for _, filename := range []string{
-		"000001_initial_schema.up.sql",
-		"000002_historical_ohlcv.up.sql",
-		"000003_backtest_configs.up.sql",
-		"000004_backtest_runs.up.sql",
-		"000005_backtest_config_schedule.up.sql",
-		"000006_api_keys.up.sql",
-		"000007_users.up.sql",
-		"000008_agent_decisions_prompt_cost.up.sql",
-		"000009_conversations.up.sql",
-		"000009_agent_events.up.sql",
-		"000010_pipeline_run_snapshots.up.sql",
-	} {
+	for _, filename := range sortedUpMigrationsThrough(t, "000010_pipeline_run_snapshots.up.sql") {
 		if _, err := pool.Exec(ctx, readMigrationFile(t, filename)); err != nil {
 			t.Fatalf("failed to apply %s: %v", filename, err)
 		}
@@ -163,16 +152,16 @@ VALUES ($1, $2, $3::jsonb)
 		t.Fatalf("failed to insert pipeline snapshot: %v", err)
 	}
 
-	var storedPayload string
+	var storedHeadline string
 	if err := pool.QueryRow(ctx, `
-SELECT payload::text
+SELECT payload->>'headline'
 FROM pipeline_run_snapshots
 WHERE pipeline_run_id = $1
-`, pipelineRunID).Scan(&storedPayload); err != nil {
-		t.Fatalf("failed to query pipeline snapshot payload: %v", err)
+`, pipelineRunID).Scan(&storedHeadline); err != nil {
+		t.Fatalf("failed to query pipeline snapshot headline: %v", err)
 	}
-	if !strings.Contains(storedPayload, `"headline": "Market opens higher"`) {
-		t.Fatalf("expected stored payload to contain headline, got %q", storedPayload)
+	if storedHeadline != "Market opens higher" {
+		t.Fatalf("expected stored headline to be %q, got %q", "Market opens higher", storedHeadline)
 	}
 
 	var dataTypeErr *pgconn.PgError
@@ -192,4 +181,30 @@ VALUES ($1, $2, $3::jsonb)
 	}
 
 	assertTableDropped(t, ctx, pool, "pipeline_run_snapshots")
+}
+
+func sortedUpMigrationsThrough(t *testing.T, lastFilename string) []string {
+	t.Helper()
+
+	entries, err := os.ReadDir(migrationsDir(t))
+	if err != nil {
+		t.Fatalf("failed to read migrations directory: %v", err)
+	}
+
+	filenames := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".up.sql") || name > lastFilename {
+			continue
+		}
+		filenames = append(filenames, name)
+	}
+
+	sort.Strings(filenames)
+
+	if len(filenames) == 0 || filenames[len(filenames)-1] != lastFilename {
+		t.Fatalf("failed to collect migrations through %s", lastFilename)
+	}
+
+	return filenames
 }
