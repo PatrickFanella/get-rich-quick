@@ -39,7 +39,8 @@ func TestDocsReferenceContainsNoStalePythonReferences(t *testing.T) {
 		if walkErr != nil {
 			return walkErr
 		}
-		if d.IsDir() || filepath.Ext(path) != ".md" {
+		ext := strings.ToLower(filepath.Ext(path))
+		if d.IsDir() || (ext != ".md" && ext != ".markdown") {
 			return nil
 		}
 
