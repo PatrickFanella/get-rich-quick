@@ -18,9 +18,11 @@ import (
 
 // Server is the HTTP REST API server that exposes all system functionality.
 type Server struct {
-	router     chi.Router
-	httpServer *http.Server
-	logger     *slog.Logger
+	router      chi.Router
+	httpServer  *http.Server
+	logger      *slog.Logger
+	dbHealth    HealthCheck
+	redisHealth HealthCheck
 
 	// Repositories
 	strategies repository.StrategyRepository
@@ -56,6 +58,19 @@ type StrategyRunner interface {
 	RunStrategy(ctx context.Context, strategy domain.Strategy) (*StrategyRunResult, error)
 }
 
+// HealthCheck verifies a runtime dependency is reachable.
+type HealthCheck interface {
+	Check(ctx context.Context) error
+}
+
+// HealthCheckFunc adapts a function into a HealthCheck.
+type HealthCheckFunc func(context.Context) error
+
+// Check runs the health check function.
+func (f HealthCheckFunc) Check(ctx context.Context) error {
+	return f(ctx)
+}
+
 // ServerConfig holds configuration for the API server.
 type ServerConfig struct {
 	Host            string
@@ -85,17 +100,19 @@ func DefaultServerConfig() ServerConfig {
 
 // Deps groups the repository and service dependencies required by the Server.
 type Deps struct {
-	Strategies repository.StrategyRepository
-	Runs       repository.PipelineRunRepository
-	Decisions  repository.AgentDecisionRepository
-	Orders     repository.OrderRepository
-	Positions  repository.PositionRepository
-	Trades     repository.TradeRepository
-	Memories   repository.MemoryRepository
-	APIKeys    repository.APIKeyRepository
-	Risk       risk.RiskEngine
-	Settings   SettingsService
-	Runner     StrategyRunner
+	Strategies  repository.StrategyRepository
+	Runs        repository.PipelineRunRepository
+	Decisions   repository.AgentDecisionRepository
+	Orders      repository.OrderRepository
+	Positions   repository.PositionRepository
+	Trades      repository.TradeRepository
+	Memories    repository.MemoryRepository
+	APIKeys     repository.APIKeyRepository
+	Risk        risk.RiskEngine
+	Settings    SettingsService
+	Runner      StrategyRunner
+	DBHealth    HealthCheck
+	RedisHealth HealthCheck
 }
 
 // NewServer creates a new API server with all routes and middleware registered.
@@ -127,6 +144,12 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 	if deps.Risk == nil {
 		return nil, fmt.Errorf("risk engine is required")
 	}
+	if deps.DBHealth == nil {
+		return nil, fmt.Errorf("db health check is required")
+	}
+	if deps.RedisHealth == nil {
+		return nil, fmt.Errorf("redis health check is required")
+	}
 
 	if strings.TrimSpace(cfg.JWTSecret) == "" {
 		return nil, fmt.Errorf("jwt secret is required")
@@ -152,20 +175,22 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 	}
 
 	s := &Server{
-		logger:     logger,
-		strategies: deps.Strategies,
-		runs:       deps.Runs,
-		decisions:  deps.Decisions,
-		orders:     deps.Orders,
-		positions:  deps.Positions,
-		trades:     deps.Trades,
-		memories:   deps.Memories,
-		risk:       deps.Risk,
-		settings:   settingsService,
-		runner:     deps.Runner,
-		auth:       authManager,
-		hub:        hub,
-		wsUpgrader: newUpgrader(cfg.CORSConfig.AllowedOrigins),
+		logger:      logger,
+		dbHealth:    deps.DBHealth,
+		redisHealth: deps.RedisHealth,
+		strategies:  deps.Strategies,
+		runs:        deps.Runs,
+		decisions:   deps.Decisions,
+		orders:      deps.Orders,
+		positions:   deps.Positions,
+		trades:      deps.Trades,
+		memories:    deps.Memories,
+		risk:        deps.Risk,
+		settings:    settingsService,
+		runner:      deps.Runner,
+		auth:        authManager,
+		hub:         hub,
+		wsUpgrader:  newUpgrader(cfg.CORSConfig.AllowedOrigins),
 	}
 
 	r := chi.NewRouter()
@@ -343,9 +368,42 @@ func (s *Server) broadcastRunResult(result *StrategyRunResult) {
 	}
 }
 
-// handleHealth returns 200 OK with a simple status payload.
-func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	respondJSON(w, http.StatusOK, map[string]string{"status": "all-ok"})
+type healthStatusResponse struct {
+	Status string `json:"status"`
+	DB     string `json:"db"`
+	Redis  string `json:"redis"`
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	resp := healthStatusResponse{
+		Status: "ok",
+		DB:     "ok",
+		Redis:  "ok",
+	}
+	statusCode := http.StatusOK
+
+	if err := s.runHealthCheck(r.Context(), s.dbHealth); err != nil {
+		resp.Status = "degraded"
+		resp.DB = "error"
+		statusCode = http.StatusServiceUnavailable
+		s.logger.Warn("health check failed", "dependency", "db", "error", err)
+	}
+
+	if err := s.runHealthCheck(r.Context(), s.redisHealth); err != nil {
+		resp.Status = "degraded"
+		resp.Redis = "error"
+		statusCode = http.StatusServiceUnavailable
+		s.logger.Warn("health check failed", "dependency", "redis", "error", err)
+	}
+
+	respondJSON(w, statusCode, resp)
+}
+
+func (s *Server) runHealthCheck(ctx context.Context, check HealthCheck) error {
+	checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	return check.Check(checkCtx)
 }
 
 // handleMetrics returns a placeholder Prometheus-compatible metrics payload.
