@@ -31,12 +31,16 @@ func newTestServer(t *testing.T) *Server {
 }
 
 func newTestServerWithDeps(t *testing.T, deps Deps) *Server {
+	return newTestServerWithDepsAndLogger(t, deps, slog.Default())
+}
+
+func newTestServerWithDepsAndLogger(t *testing.T, deps Deps, logger *slog.Logger) *Server {
 	t.Helper()
 
 	cfg := DefaultServerConfig()
 	cfg.JWTSecret = "test-jwt-secret"
 
-	srv, err := NewServer(cfg, deps, slog.Default())
+	srv, err := NewServer(cfg, deps, logger)
 	if err != nil {
 		t.Fatalf("NewServer() error = %v", err)
 	}
@@ -224,6 +228,74 @@ func TestHealthEndpointRedisDown(t *testing.T) {
 	}
 	if redisHealth.calls.Load() != 1 {
 		t.Fatalf("redis health calls = %d, want 1", redisHealth.calls.Load())
+	}
+}
+
+func TestHealthEndpointUsesSharedTimeout(t *testing.T) {
+	const maxExpectedElapsed = 175 * time.Millisecond
+
+	originalTimeout := healthCheckTimeout
+	healthCheckTimeout = 100 * time.Millisecond
+	defer func() {
+		healthCheckTimeout = originalTimeout
+	}()
+
+	deps := testDeps()
+	dbHealth := &blockingHealthCheck{}
+	redisHealth := &blockingHealthCheck{}
+	deps.DBHealth = dbHealth
+	deps.RedisHealth = redisHealth
+	srv := newTestServerWithDeps(t, deps)
+
+	start := time.Now()
+	rr := doRequest(t, srv, http.MethodGet, "/healthz", nil)
+	elapsed := time.Since(start)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusServiceUnavailable)
+	}
+	body := decodeJSON[map[string]string](t, rr)
+	if body["status"] != "degraded" {
+		t.Fatalf("status = %q, want %q", body["status"], "degraded")
+	}
+	if body["db"] != "error" {
+		t.Fatalf("db = %q, want %q", body["db"], "error")
+	}
+	if body["redis"] != "error" {
+		t.Fatalf("redis = %q, want %q", body["redis"], "error")
+	}
+	if elapsed >= maxExpectedElapsed {
+		t.Fatalf("elapsed = %v, want < %v", elapsed, maxExpectedElapsed)
+	}
+	if dbHealth.calls.Load() != 1 {
+		t.Fatalf("db health calls = %d, want 1", dbHealth.calls.Load())
+	}
+	if redisHealth.calls.Load() != 1 {
+		t.Fatalf("redis health calls = %d, want 1", redisHealth.calls.Load())
+	}
+}
+
+func TestHealthEndpointLogsFailuresAtInfo(t *testing.T) {
+	t.Parallel()
+
+	var logOutput bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logOutput, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	deps := testDeps()
+	deps.DBHealth = &stubHealthCheck{err: errors.New("db unavailable")}
+	deps.RedisHealth = &stubHealthCheck{}
+	srv := newTestServerWithDepsAndLogger(t, deps, logger)
+
+	rr := doRequest(t, srv, http.MethodGet, "/healthz", nil)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusServiceUnavailable)
+	}
+	if !strings.Contains(logOutput.String(), "level=INFO") {
+		t.Fatalf("log output = %q, want INFO level entry", logOutput.String())
+	}
+	if strings.Contains(logOutput.String(), "level=WARN") {
+		t.Fatalf("log output = %q, want no WARN entries", logOutput.String())
 	}
 }
 
@@ -1182,6 +1254,17 @@ func (s *stubHealthCheck) Check(context.Context) error {
 	s.calls.Add(1)
 	return s.err
 }
+
+type blockingHealthCheck struct {
+	calls atomic.Int32
+}
+
+func (b *blockingHealthCheck) Check(ctx context.Context) error {
+	b.calls.Add(1)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
 func (stubRiskEngine) IsKillSwitchActive(context.Context) (bool, error)           { return false, nil }
 func (stubRiskEngine) ActivateKillSwitch(context.Context, string) error           { return nil }
 func (stubRiskEngine) DeactivateKillSwitch(context.Context) error                 { return nil }

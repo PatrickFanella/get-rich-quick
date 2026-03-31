@@ -374,6 +374,13 @@ type healthStatusResponse struct {
 	Redis  string `json:"redis"`
 }
 
+var healthCheckTimeout = 2 * time.Second
+
+type healthCheckResult struct {
+	dependency string
+	err        error
+}
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	resp := healthStatusResponse{
 		Status: "ok",
@@ -382,28 +389,42 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	statusCode := http.StatusOK
 
-	if err := s.runHealthCheck(r.Context(), s.dbHealth); err != nil {
-		resp.Status = "degraded"
-		resp.DB = "error"
-		statusCode = http.StatusServiceUnavailable
-		s.logger.Warn("health check failed", "dependency", "db", "error", err)
-	}
+	checkCtx, cancel := context.WithTimeout(r.Context(), healthCheckTimeout)
+	defer cancel()
 
-	if err := s.runHealthCheck(r.Context(), s.redisHealth); err != nil {
+	results := make(chan healthCheckResult, 2)
+	go s.runDependencyHealthCheck(checkCtx, "db", s.dbHealth, results)
+	go s.runDependencyHealthCheck(checkCtx, "redis", s.redisHealth, results)
+
+	for range 2 {
+		result := <-results
+		if result.err == nil {
+			continue
+		}
+
 		resp.Status = "degraded"
-		resp.Redis = "error"
 		statusCode = http.StatusServiceUnavailable
-		s.logger.Warn("health check failed", "dependency", "redis", "error", err)
+		switch result.dependency {
+		case "db":
+			resp.DB = "error"
+		case "redis":
+			resp.Redis = "error"
+		}
+		s.logger.Info("health check failed", "dependency", result.dependency, "error", result.err)
 	}
 
 	respondJSON(w, statusCode, resp)
 }
 
-func (s *Server) runHealthCheck(ctx context.Context, check HealthCheck) error {
-	checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
+func (s *Server) runDependencyHealthCheck(ctx context.Context, dependency string, check HealthCheck, results chan<- healthCheckResult) {
+	results <- healthCheckResult{
+		dependency: dependency,
+		err:        s.runHealthCheck(ctx, check),
+	}
+}
 
-	return check.Check(checkCtx)
+func (s *Server) runHealthCheck(ctx context.Context, check HealthCheck) error {
+	return check.Check(ctx)
 }
 
 // handleMetrics returns a placeholder Prometheus-compatible metrics payload.
