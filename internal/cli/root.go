@@ -137,17 +137,10 @@ func (g *shutdownGuard) Begin(sig os.Signal, inFlightCount int) {
 	})
 }
 
-func (g *shutdownGuard) Finish() {
-	g.onceDone.Do(func() {
-		g.mu.Lock()
-		g.done = true
-		timer := g.shutdownTimer
-		g.mu.Unlock()
-		if timer != nil {
-			timer.Stop()
-		}
+func (g *shutdownGuard) Complete() {
+	if g.stop() {
 		g.logger.Info("shutdown complete")
-	})
+	}
 }
 
 func (g *shutdownGuard) forceExit(inFlightCount int) {
@@ -162,6 +155,25 @@ func (g *shutdownGuard) forceExit(inFlightCount int) {
 		slog.Duration(shutdownTimeoutKey, g.timeout),
 	)
 	g.exitFunc(forcedShutdownExitCode)
+}
+
+func (g *shutdownGuard) Stop() {
+	g.stop()
+}
+
+func (g *shutdownGuard) stop() bool {
+	started := false
+	g.onceDone.Do(func() {
+		g.mu.Lock()
+		g.done = true
+		timer := g.shutdownTimer
+		started = timer != nil
+		g.mu.Unlock()
+		if timer != nil {
+			timer.Stop()
+		}
+	})
+	return started
 }
 
 func newSignalContext(parent context.Context, signals ...os.Signal) (context.Context, func(), func() os.Signal) {
@@ -293,7 +305,7 @@ func (s *rootState) newServeCommand() *cobra.Command {
 				return fmt.Errorf("build api server: %w", err)
 			}
 			shutdown := newShutdownGuard(logger, forcedShutdownTimeout, nil)
-			defer shutdown.Finish()
+			defer shutdown.Stop()
 			// cleanup closes the DB pool; it must run after the scheduler has
 			// drained so in-flight pipeline runs can still write their final
 			// status before the pool is closed.
@@ -328,6 +340,7 @@ func (s *rootState) newServeCommand() *cobra.Command {
 			}); err != nil {
 				return fmt.Errorf("serve http: %w", err)
 			}
+			shutdown.Complete()
 
 			logger.Info("trading agent stopped")
 			return nil

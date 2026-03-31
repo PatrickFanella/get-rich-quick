@@ -261,7 +261,7 @@ func TestShutdownGuard_LogsStructuredLifecycleMessages(t *testing.T) {
 	guard := newShutdownGuard(logger, time.Minute, func(int) {})
 
 	guard.Begin(syscall.SIGTERM, 3)
-	guard.Finish()
+	guard.Complete()
 
 	entries := parseLogEntries(t, buf.String())
 	if len(entries) != 3 {
@@ -331,7 +331,7 @@ func TestShutdownGuard_FinishPreventsForcedExitAfterCompletion(t *testing.T) {
 		t.Fatalf("afterFunc timeout = %v, want %v", gotTimeout, time.Hour)
 	}
 
-	guard.Finish()
+	guard.Complete()
 	timer.Fire()
 
 	select {
@@ -345,6 +345,45 @@ func TestShutdownGuard_FinishPreventsForcedExitAfterCompletion(t *testing.T) {
 		t.Fatalf("expected 3 log entries, got %d", len(entries))
 	}
 	assertLogEntry(t, entries[2], "INFO", "shutdown complete", nil)
+}
+
+func TestShutdownGuard_StopDoesNotLogCompletion(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	exitCalled := make(chan int, 1)
+	timer := &fakeStopTimer{}
+
+	guard := newShutdownGuard(logger, time.Minute, func(code int) {
+		exitCalled <- code
+	})
+	guard.afterFunc = func(_ time.Duration, fn func()) stopTimer {
+		timer.callback = fn
+		return timer
+	}
+
+	guard.Begin(syscall.SIGTERM, 1)
+	guard.Stop()
+	timer.Fire()
+
+	select {
+	case code := <-exitCalled:
+		t.Fatalf("unexpected forced exit code %d after Stop", code)
+	default:
+	}
+
+	entries := parseLogEntries(t, buf.String())
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 log entries, got %d", len(entries))
+	}
+	assertLogEntry(t, entries[0], "INFO", "shutdown initiated", map[string]any{
+		inFlightPipelineRunsKey: float64(1),
+		shutdownSignalKey:       syscall.SIGTERM.String(),
+	})
+	assertLogEntry(t, entries[1], "INFO", "waiting for in-flight pipeline runs", map[string]any{
+		inFlightPipelineRunsKey: float64(1),
+	})
 }
 
 type fakeStopTimer struct {
