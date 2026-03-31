@@ -74,9 +74,9 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 
 	var sched *scheduler.Scheduler
 	if strings.EqualFold(cfg.Environment, "smoke") {
-		smokePipeline := newSmokePipeline(runRepo, snapshotRepo, decisionRepo, eventRepo, logger)
+		pipeline := newSmokePipeline(runRepo, snapshotRepo, decisionRepo, eventRepo, logger)
 		deps.Runner = newSmokeStrategyRunner(runRepo, snapshotRepo, decisionRepo, eventRepo, orderRepo, positionRepo, tradeRepo, auditLogRepo, riskEngine, logger)
-		sched = scheduler.NewScheduler(strategyRepo, smokePipeline, riskEngine, logger)
+		sched = scheduler.NewScheduler(strategyRepo, pipeline, riskEngine, logger)
 	}
 
 	apiCfg := api.DefaultServerConfig()

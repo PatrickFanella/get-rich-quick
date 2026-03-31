@@ -82,6 +82,35 @@ func (s *recordingScheduler) Stop() {
 }
 
 // --------------------------------------------------------------------------
+// blockingServe is a helper that returns functions suitable for
+// runServerLifecycle/runServeLifecycle.  serveStarted is closed once
+// serve() is entered; shutdown() unblocks serve() and returns immediately.
+// --------------------------------------------------------------------------
+type blockingServe struct {
+	started chan struct{}
+	done    chan struct{}
+	once    sync.Once
+}
+
+func newBlockingServe() *blockingServe {
+	return &blockingServe{
+		started: make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+}
+
+func (b *blockingServe) serve() error {
+	b.once.Do(func() { close(b.started) })
+	<-b.done
+	return http.ErrServerClosed
+}
+
+func (b *blockingServe) shutdown(_ context.Context) error {
+	close(b.done)
+	return nil
+}
+
+// --------------------------------------------------------------------------
 // runServerLifecycle tests
 // --------------------------------------------------------------------------
 
@@ -90,26 +119,24 @@ func (s *recordingScheduler) Stop() {
 func TestRunServerLifecycle_CallsShutdownOnContextCancel(t *testing.T) {
 	t.Parallel()
 
-	serverDone := make(chan struct{})
-	serve := func() error {
-		<-serverDone
-		return http.ErrServerClosed
-	}
-
+	bs := newBlockingServe()
 	shutdownCalled := make(chan struct{}, 1)
-	shutdown := func(_ context.Context) error {
-		close(serverDone)
+	shutdown := func(ctx context.Context) error {
 		shutdownCalled <- struct{}{}
-		return nil
+		return bs.shutdown(ctx)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	done := make(chan error, 1)
-	go func() { done <- runServerLifecycle(ctx, serve, shutdown) }()
+	go func() { done <- runServerLifecycle(ctx, bs.serve, shutdown) }()
 
-	// Let the goroutine start.
-	time.Sleep(10 * time.Millisecond)
+	// Wait for serve() to be entered before triggering shutdown.
+	select {
+	case <-bs.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("serve() was not entered within 3 s")
+	}
 
 	cancel()
 
@@ -150,26 +177,24 @@ func TestRunServerLifecycle_ReturnsServerErrorWhenServeFails(t *testing.T) {
 func TestRunServerLifecycle_HonorsShutdownTimeout(t *testing.T) {
 	t.Parallel()
 
-	serverDone := make(chan struct{})
-	serve := func() error {
-		<-serverDone
-		return http.ErrServerClosed
-	}
-
+	bs := newBlockingServe()
 	var shutdownCtx context.Context
 	shutdown := func(ctx context.Context) error {
 		shutdownCtx = ctx
-		close(serverDone)
-		return nil
+		return bs.shutdown(ctx)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- runServerLifecycle(ctx, serve, shutdown) }()
+	go func() { done <- runServerLifecycle(ctx, bs.serve, shutdown) }()
 
-	time.Sleep(10 * time.Millisecond)
+	select {
+	case <-bs.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("serve() was not entered within 3 s")
+	}
+
 	cancel()
-
 	<-done
 
 	if _, ok := shutdownCtx.Deadline(); !ok {
@@ -212,27 +237,23 @@ func TestGracefulShutdown_SchedulerStartsBeforeServe(t *testing.T) {
 	t.Parallel()
 
 	sched := newMockScheduler()
+	bs := newBlockingServe()
 
-	serveStarted := make(chan struct{})
-	serverDone := make(chan struct{})
 	serve := func() error {
 		if !sched.started.Load() {
 			t.Error("serve was called but scheduler Start() had not been called yet")
 		}
-		close(serveStarted)
-		<-serverDone
-		return http.ErrServerClosed
+		return bs.serve()
 	}
-	shutdown := func(_ context.Context) error { close(serverDone); return nil }
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- runServeLifecycle(ctx, sched, func() {}, serve, shutdown) }()
+	go func() { done <- runServeLifecycle(ctx, sched, func() {}, serve, bs.shutdown) }()
 
 	select {
-	case <-serveStarted:
-	case <-time.After(time.Second):
-		t.Fatal("serve was not started within 1 s")
+	case <-bs.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("serve() was not entered within 3 s")
 	}
 
 	cancel()
@@ -252,19 +273,20 @@ func TestGracefulShutdown_SchedulerStopsBeforeDBClose(t *testing.T) {
 		onStop: func() { rec.record("scheduler.Stop") },
 	}
 	cleanup := func() { rec.record("db.Close") }
-
-	serverDone := make(chan struct{})
-	serve := func() error { <-serverDone; return http.ErrServerClosed }
-	shutdown := func(_ context.Context) error { close(serverDone); return nil }
+	bs := newBlockingServe()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- runServeLifecycle(ctx, sched, cleanup, serve, shutdown)
+		done <- runServeLifecycle(ctx, sched, cleanup, bs.serve, bs.shutdown)
 	}()
 
-	// Wait for serving to start, then cancel (simulate SIGTERM).
-	time.Sleep(20 * time.Millisecond)
+	// Wait for serve to be entered, then cancel (simulate SIGTERM).
+	select {
+	case <-bs.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("serve() was not entered within 3 s")
+	}
 	cancel()
 
 	select {
@@ -304,18 +326,19 @@ func TestGracefulShutdown_ActiveJobsWaitedForBeforeDBClose(t *testing.T) {
 		onStop: func() { rec.record("scheduler.Stop") },
 	}
 	cleanup := func() { rec.record("db.Close") }
-
-	serverDone := make(chan struct{})
-	serve := func() error { <-serverDone; return http.ErrServerClosed }
-	shutdown := func(_ context.Context) error { close(serverDone); return nil }
+	bs := newBlockingServe()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- runServeLifecycle(ctx, sched, cleanup, serve, shutdown)
+		done <- runServeLifecycle(ctx, sched, cleanup, bs.serve, bs.shutdown)
 	}()
 
-	time.Sleep(20 * time.Millisecond)
+	select {
+	case <-bs.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("serve() was not entered within 3 s")
+	}
 	cancel()
 
 	// Wait until Stop() has been entered (job is still running).
@@ -354,18 +377,19 @@ func TestGracefulShutdown_NilSchedulerIsHandled(t *testing.T) {
 
 	cleanupCalled := make(chan struct{}, 1)
 	cleanup := func() { cleanupCalled <- struct{}{} }
-
-	serverDone := make(chan struct{})
-	serve := func() error { <-serverDone; return http.ErrServerClosed }
-	shutdown := func(_ context.Context) error { close(serverDone); return nil }
+	bs := newBlockingServe()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- runServeLifecycle(ctx, nil, cleanup, serve, shutdown)
+		done <- runServeLifecycle(ctx, nil, cleanup, bs.serve, bs.shutdown)
 	}()
 
-	time.Sleep(20 * time.Millisecond)
+	select {
+	case <-bs.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("serve() was not entered within 3 s")
+	}
 	cancel()
 
 	select {
