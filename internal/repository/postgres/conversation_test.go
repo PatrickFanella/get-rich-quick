@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -90,6 +91,22 @@ func TestConversationRepoIntegration_CreateAndGetConversation(t *testing.T) {
 	}
 	if got.Title != conv.Title {
 		t.Errorf("expected Title %q, got %q", conv.Title, got.Title)
+	}
+}
+
+func TestConversationRepoIntegration_GetConversationNotFound(t *testing.T) {
+	ctx := context.Background()
+	pool, cleanup := newConversationIntegrationPool(t, ctx)
+	defer cleanup()
+
+	repo := NewConversationRepo(pool)
+
+	_, err := repo.GetConversation(ctx, uuid.New())
+	if err == nil {
+		t.Fatal("expected GetConversation() to return error for unknown conversation")
+	}
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 

@@ -61,12 +61,14 @@ func (r *MarketDataCacheRepo) upsertHistoricalOHLCVBatch(ctx context.Context, ba
 	}
 
 	results := r.pool.SendBatch(ctx, &batch)
-	defer results.Close()
-
 	for range bars {
 		if _, err := results.Exec(); err != nil {
 			return fmt.Errorf("postgres: upsert historical ohlcv: %w", err)
 		}
+	}
+
+	if err := results.Close(); err != nil {
+		return fmt.Errorf("postgres: close historical ohlcv batch: %w", err)
 	}
 
 	return nil
