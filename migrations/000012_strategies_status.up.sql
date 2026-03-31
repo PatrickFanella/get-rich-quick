@@ -5,9 +5,31 @@ ALTER TABLE strategies
     ADD COLUMN skip_next_run BOOLEAN NOT NULL DEFAULT FALSE;
 
 UPDATE strategies
-SET status = CASE
-    WHEN is_active THEN 'active'
-    ELSE 'inactive'
+SET status = 'inactive'
+WHERE is_active = FALSE;
+
+CREATE OR REPLACE FUNCTION sync_strategy_status_with_is_active() RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.status = 'active' AND NEW.is_active = FALSE THEN
+            NEW.status := 'inactive';
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    IF NEW.status IS NOT DISTINCT FROM OLD.status AND NEW.is_active IS DISTINCT FROM OLD.is_active THEN
+        NEW.status := CASE
+            WHEN NEW.is_active THEN 'active'
+            ELSE 'inactive'
+        END;
+    END IF;
+
+    RETURN NEW;
 END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_strategies_sync_status_with_is_active
+    BEFORE INSERT OR UPDATE OF is_active, status ON strategies
+    FOR EACH ROW EXECUTE FUNCTION sync_strategy_status_with_is_active();
 
 COMMENT ON COLUMN strategies.is_active IS 'Deprecated: use status instead.';

@@ -16,7 +16,10 @@ func TestStrategiesStatusUpMigrationDefinesExpectedSchema(t *testing.T) {
 
 	expectedFragments := []string{
 		"alter table strategies add column status text not null default 'active', add column skip_next_run boolean not null default false;",
-		"update strategies set status = case when is_active then 'active' else 'inactive' end;",
+		"update strategies set status = 'inactive' where is_active = false;",
+		"create or replace function sync_strategy_status_with_is_active() returns trigger as $$",
+		"if new.status = 'active' and new.is_active = false then",
+		"create trigger trg_strategies_sync_status_with_is_active before insert or update of is_active, status on strategies for each row execute function sync_strategy_status_with_is_active();",
 		"comment on column strategies.is_active is 'deprecated: use status instead.';",
 	}
 
@@ -31,6 +34,8 @@ func TestStrategiesStatusDownMigrationDropsNewColumns(t *testing.T) {
 	downSQL := normalizeSQL(t, readMigrationFile(t, "000012_strategies_status.down.sql"))
 
 	for _, fragment := range []string{
+		"drop trigger if exists trg_strategies_sync_status_with_is_active on strategies;",
+		"drop function if exists sync_strategy_status_with_is_active();",
 		"drop column if exists skip_next_run",
 		"drop column if exists status",
 		"comment on column strategies.is_active is null;",
@@ -213,6 +218,74 @@ VALUES ($1, $2, $3, $4, $5, $6)
 		t.Fatalf("failed to insert strategy after status migration: %v", err)
 	}
 
+	legacyActiveStrategyID := uuid.New()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO strategies (id, name, ticker, market_type, is_active)
+VALUES ($1, $2, $3, $4, $5)
+`, legacyActiveStrategyID, "Legacy active strategy", "LTCUSD", "crypto", true); err != nil {
+		t.Fatalf("failed to insert legacy active strategy after status migration: %v", err)
+	}
+
+	var legacyActiveStatus string
+	var legacyActiveIsActive bool
+	if err := pool.QueryRow(ctx, `
+SELECT status, is_active
+FROM strategies
+WHERE id = $1
+`, legacyActiveStrategyID).Scan(&legacyActiveStatus, &legacyActiveIsActive); err != nil {
+		t.Fatalf("failed to query legacy active strategy after status migration: %v", err)
+	}
+	if !legacyActiveIsActive {
+		t.Fatal("expected legacy active strategy to keep is_active = true")
+	}
+	if legacyActiveStatus != "active" {
+		t.Fatalf("expected legacy active strategy status to be %q, got %q", "active", legacyActiveStatus)
+	}
+
+	legacyInactiveStrategyID := uuid.New()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO strategies (id, name, ticker, market_type, is_active)
+VALUES ($1, $2, $3, $4, $5)
+`, legacyInactiveStrategyID, "Legacy inactive strategy", "DOGEUSD", "crypto", false); err != nil {
+		t.Fatalf("failed to insert legacy inactive strategy after status migration: %v", err)
+	}
+
+	var legacyInactiveStatus string
+	var legacyInactiveIsActive bool
+	if err := pool.QueryRow(ctx, `
+SELECT status, is_active
+FROM strategies
+WHERE id = $1
+`, legacyInactiveStrategyID).Scan(&legacyInactiveStatus, &legacyInactiveIsActive); err != nil {
+		t.Fatalf("failed to query legacy inactive strategy after status migration: %v", err)
+	}
+	if legacyInactiveIsActive {
+		t.Fatal("expected legacy inactive strategy to keep is_active = false")
+	}
+	if legacyInactiveStatus != "inactive" {
+		t.Fatalf("expected legacy inactive strategy status to be %q, got %q", "inactive", legacyInactiveStatus)
+	}
+
+	if _, err := pool.Exec(ctx, `
+UPDATE strategies
+SET is_active = FALSE
+WHERE id = $1
+`, legacyActiveStrategyID); err != nil {
+		t.Fatalf("failed to update legacy active strategy after status migration: %v", err)
+	}
+
+	var updatedLegacyStatus string
+	if err := pool.QueryRow(ctx, `
+SELECT status
+FROM strategies
+WHERE id = $1
+`, legacyActiveStrategyID).Scan(&updatedLegacyStatus); err != nil {
+		t.Fatalf("failed to query updated legacy strategy status: %v", err)
+	}
+	if updatedLegacyStatus != "inactive" {
+		t.Fatalf("expected legacy update to synchronize status to %q, got %q", "inactive", updatedLegacyStatus)
+	}
+
 	var strategyColumnCount int
 	if err := pool.QueryRow(ctx, `
 		SELECT COUNT(*)
@@ -257,5 +330,15 @@ VALUES ($1, $2, $3, $4, $5, $6)
 	}
 	if isActiveExists != 1 {
 		t.Fatalf("expected is_active column to remain available after down migration, got count=%d", isActiveExists)
+	}
+
+	var strategySyncFunction *string
+	if err := pool.QueryRow(ctx, `
+SELECT to_regprocedure(current_schema() || '.sync_strategy_status_with_is_active()')::text
+`).Scan(&strategySyncFunction); err != nil {
+		t.Fatalf("failed to verify strategy sync function removal: %v", err)
+	}
+	if strategySyncFunction != nil {
+		t.Fatalf("expected strategy sync function to be dropped, got %q", *strategySyncFunction)
 	}
 }
