@@ -124,6 +124,8 @@ func hashPassword(password string) (string, error) {
 	return string(hash), nil
 }
 
+// normalizeUsername trims surrounding whitespace so create and lookup paths use
+// the same canonical username representation.
 func normalizeUsername(username string) string {
 	return strings.TrimSpace(username)
 }
