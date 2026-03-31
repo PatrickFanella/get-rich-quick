@@ -506,12 +506,171 @@ func TestListOrders(t *testing.T) {
 
 func TestListTrades(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t)
+	tradeRepo := &stubTradeRepo{
+		listTrades: []domain.Trade{
+			{
+				ID:         uuid.MustParse("33333333-3333-3333-3333-333333333333"),
+				Ticker:     "AAPL",
+				Side:       domain.OrderSideBuy,
+				Quantity:   2,
+				Price:      123.45,
+				Fee:        0.12,
+				ExecutedAt: time.Date(2024, 3, 1, 10, 0, 0, 0, time.UTC),
+				CreatedAt:  time.Date(2024, 3, 1, 10, 0, 1, 0, time.UTC),
+			},
+		},
+	}
+	deps := testDeps()
+	deps.Trades = tradeRepo
+	srv := newTestServerWithDeps(t, deps)
+
+	rr := doRequest(t, srv, http.MethodGet, "/api/v1/trades?limit=1&offset=2", nil)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	body := decodeJSON[tradeListResponse](t, rr)
+	if tradeRepo.listCalls != 1 {
+		t.Fatalf("List() calls = %d, want 1", tradeRepo.listCalls)
+	}
+	if tradeRepo.getByOrderCalls != 0 {
+		t.Fatalf("GetByOrder() calls = %d, want 0", tradeRepo.getByOrderCalls)
+	}
+	if tradeRepo.getByPositionCalls != 0 {
+		t.Fatalf("GetByPosition() calls = %d, want 0", tradeRepo.getByPositionCalls)
+	}
+	if tradeRepo.lastLimit != 1 || tradeRepo.lastOffset != 2 {
+		t.Fatalf("pagination = (%d,%d), want (1,2)", tradeRepo.lastLimit, tradeRepo.lastOffset)
+	}
+	if len(body.Data) != 1 {
+		t.Fatalf("len(data) = %d, want 1", len(body.Data))
+	}
+	if body.Data[0].ID != tradeRepo.listTrades[0].ID {
+		t.Fatalf("trade id = %s, want %s", body.Data[0].ID, tradeRepo.listTrades[0].ID)
+	}
+	if body.Limit != 1 || body.Offset != 2 {
+		t.Fatalf("response pagination = (%d,%d), want (1,2)", body.Limit, body.Offset)
+	}
+}
+
+func TestListTradesByOrderID(t *testing.T) {
+	t.Parallel()
+	orderID := uuid.MustParse("44444444-4444-4444-4444-444444444444")
+	tradeRepo := &stubTradeRepo{
+		getByOrderTrades: []domain.Trade{
+			{
+				ID:         uuid.MustParse("55555555-5555-5555-5555-555555555555"),
+				OrderID:    &orderID,
+				Ticker:     "MSFT",
+				Side:       domain.OrderSideSell,
+				Quantity:   1,
+				Price:      234.56,
+				Fee:        0.22,
+				ExecutedAt: time.Date(2024, 3, 2, 10, 0, 0, 0, time.UTC),
+				CreatedAt:  time.Date(2024, 3, 2, 10, 0, 1, 0, time.UTC),
+			},
+		},
+	}
+	deps := testDeps()
+	deps.Trades = tradeRepo
+	srv := newTestServerWithDeps(t, deps)
+
+	rr := doRequest(t, srv, http.MethodGet, "/api/v1/trades?order_id="+orderID.String(), nil)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	body := decodeJSON[tradeListResponse](t, rr)
+	if tradeRepo.listCalls != 0 {
+		t.Fatalf("List() calls = %d, want 0", tradeRepo.listCalls)
+	}
+	if tradeRepo.getByOrderCalls != 1 {
+		t.Fatalf("GetByOrder() calls = %d, want 1", tradeRepo.getByOrderCalls)
+	}
+	if tradeRepo.getByPositionCalls != 0 {
+		t.Fatalf("GetByPosition() calls = %d, want 0", tradeRepo.getByPositionCalls)
+	}
+	if tradeRepo.lastOrderID == nil || *tradeRepo.lastOrderID != orderID {
+		t.Fatalf("order_id = %v, want %s", tradeRepo.lastOrderID, orderID)
+	}
+	if tradeRepo.lastFilter.OrderID == nil || *tradeRepo.lastFilter.OrderID != orderID {
+		t.Fatalf("filter.OrderID = %v, want %s", tradeRepo.lastFilter.OrderID, orderID)
+	}
+	if len(body.Data) != 1 || body.Data[0].OrderID == nil || *body.Data[0].OrderID != orderID {
+		t.Fatalf("response data = %+v, want order_id %s", body.Data, orderID)
+	}
+}
+
+func TestListTradesByPositionID(t *testing.T) {
+	t.Parallel()
+	positionID := uuid.MustParse("66666666-6666-6666-6666-666666666666")
+	tradeRepo := &stubTradeRepo{
+		getByPositionTrades: []domain.Trade{
+			{
+				ID:         uuid.MustParse("77777777-7777-7777-7777-777777777777"),
+				PositionID: &positionID,
+				Ticker:     "NVDA",
+				Side:       domain.OrderSideBuy,
+				Quantity:   3,
+				Price:      345.67,
+				Fee:        0.32,
+				ExecutedAt: time.Date(2024, 3, 3, 10, 0, 0, 0, time.UTC),
+				CreatedAt:  time.Date(2024, 3, 3, 10, 0, 1, 0, time.UTC),
+			},
+		},
+	}
+	deps := testDeps()
+	deps.Trades = tradeRepo
+	srv := newTestServerWithDeps(t, deps)
+
+	rr := doRequest(t, srv, http.MethodGet, "/api/v1/trades?position_id="+positionID.String(), nil)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	body := decodeJSON[tradeListResponse](t, rr)
+	if tradeRepo.listCalls != 0 {
+		t.Fatalf("List() calls = %d, want 0", tradeRepo.listCalls)
+	}
+	if tradeRepo.getByOrderCalls != 0 {
+		t.Fatalf("GetByOrder() calls = %d, want 0", tradeRepo.getByOrderCalls)
+	}
+	if tradeRepo.getByPositionCalls != 1 {
+		t.Fatalf("GetByPosition() calls = %d, want 1", tradeRepo.getByPositionCalls)
+	}
+	if tradeRepo.lastPositionID == nil || *tradeRepo.lastPositionID != positionID {
+		t.Fatalf("position_id = %v, want %s", tradeRepo.lastPositionID, positionID)
+	}
+	if tradeRepo.lastFilter.PositionID == nil || *tradeRepo.lastFilter.PositionID != positionID {
+		t.Fatalf("filter.PositionID = %v, want %s", tradeRepo.lastFilter.PositionID, positionID)
+	}
+	if len(body.Data) != 1 || body.Data[0].PositionID == nil || *body.Data[0].PositionID != positionID {
+		t.Fatalf("response data = %+v, want position_id %s", body.Data, positionID)
+	}
+}
+
+func TestListTradesEmptyDatabaseReturnsEmptyArray(t *testing.T) {
+	t.Parallel()
+	tradeRepo := &stubTradeRepo{}
+	deps := testDeps()
+	deps.Trades = tradeRepo
+	srv := newTestServerWithDeps(t, deps)
 
 	rr := doRequest(t, srv, http.MethodGet, "/api/v1/trades", nil)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	body := decodeJSON[tradeListResponse](t, rr)
+	if body.Data == nil {
+		t.Fatal("data = nil, want empty slice")
+	}
+	if len(body.Data) != 0 {
+		t.Fatalf("len(data) = %d, want 0", len(body.Data))
 	}
 }
 
@@ -1038,19 +1197,56 @@ func (stubPositionRepo) GetByStrategy(context.Context, uuid.UUID, repository.Pos
 
 // stubTradeRepo
 
-type stubTradeRepo struct{}
+type tradeListResponse struct {
+	Data   []domain.Trade `json:"data"`
+	Limit  int            `json:"limit"`
+	Offset int            `json:"offset"`
+}
+
+type stubTradeRepo struct {
+	listTrades          []domain.Trade
+	getByOrderTrades    []domain.Trade
+	getByPositionTrades []domain.Trade
+	lastFilter          repository.TradeFilter
+	lastLimit           int
+	lastOffset          int
+	lastOrderID         *uuid.UUID
+	lastPositionID      *uuid.UUID
+	listCalls           int
+	getByOrderCalls     int
+	getByPositionCalls  int
+}
 
 func (stubTradeRepo) Create(context.Context, *domain.Trade) error { return nil }
-func (stubTradeRepo) List(context.Context, repository.TradeFilter, int, int) ([]domain.Trade, error) {
-	return nil, nil
+
+func (s *stubTradeRepo) List(_ context.Context, filter repository.TradeFilter, limit, offset int) ([]domain.Trade, error) {
+	s.lastFilter = filter
+	s.lastLimit = limit
+	s.lastOffset = offset
+	s.lastOrderID = nil
+	s.lastPositionID = nil
+	s.listCalls++
+	return s.listTrades, nil
 }
 
-func (stubTradeRepo) GetByOrder(context.Context, uuid.UUID, repository.TradeFilter, int, int) ([]domain.Trade, error) {
-	return nil, nil
+func (s *stubTradeRepo) GetByOrder(_ context.Context, orderID uuid.UUID, filter repository.TradeFilter, limit, offset int) ([]domain.Trade, error) {
+	s.lastFilter = filter
+	s.lastLimit = limit
+	s.lastOffset = offset
+	s.lastOrderID = &orderID
+	s.lastPositionID = nil
+	s.getByOrderCalls++
+	return s.getByOrderTrades, nil
 }
 
-func (stubTradeRepo) GetByPosition(context.Context, uuid.UUID, repository.TradeFilter, int, int) ([]domain.Trade, error) {
-	return nil, nil
+func (s *stubTradeRepo) GetByPosition(_ context.Context, positionID uuid.UUID, filter repository.TradeFilter, limit, offset int) ([]domain.Trade, error) {
+	s.lastFilter = filter
+	s.lastLimit = limit
+	s.lastOffset = offset
+	s.lastOrderID = nil
+	s.lastPositionID = &positionID
+	s.getByPositionCalls++
+	return s.getByPositionTrades, nil
 }
 
 // stubMemoryRepo

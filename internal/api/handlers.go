@@ -475,11 +475,28 @@ func (s *Server) handleListTrades(w http.ResponseWriter, r *http.Request) {
 		filter.EndDate = &endDate
 	}
 
-	trades, err := s.trades.List(r.Context(), filter, limit, offset)
+	var (
+		trades []domain.Trade
+		err    error
+	)
+
+	switch {
+	case filter.OrderID != nil:
+		trades, err = s.trades.GetByOrder(r.Context(), *filter.OrderID, filter, limit, offset)
+	case filter.PositionID != nil:
+		trades, err = s.trades.GetByPosition(r.Context(), *filter.PositionID, filter, limit, offset)
+	default:
+		trades, err = s.trades.List(r.Context(), filter, limit, offset)
+	}
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to list trades", ErrCodeInternal)
 		return
 	}
+
+	if trades == nil {
+		trades = []domain.Trade{}
+	}
+
 	respondList(w, trades, limit, offset)
 }
 
