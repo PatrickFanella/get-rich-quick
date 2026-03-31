@@ -36,6 +36,7 @@ func (r *UserRepo) Create(ctx context.Context, user *domain.User) error {
 	if err := user.ValidateForCreate(); err != nil {
 		return fmt.Errorf("postgres: validate user: %w", err)
 	}
+	username := normalizeUsername(user.Username)
 
 	passwordHash, err := hashPassword(user.Password)
 	if err != nil {
@@ -46,7 +47,7 @@ func (r *UserRepo) Create(ctx context.Context, user *domain.User) error {
 		`INSERT INTO users (username, password_hash)
 		 VALUES ($1, $2)
 		 RETURNING id, created_at, updated_at`,
-		user.Username,
+		username,
 		passwordHash,
 	)
 
@@ -54,6 +55,7 @@ func (r *UserRepo) Create(ctx context.Context, user *domain.User) error {
 		return fmt.Errorf("postgres: create user: %w", err)
 	}
 
+	user.Username = username
 	user.PasswordHash = passwordHash
 	user.Password = ""
 
