@@ -1517,6 +1517,7 @@ func TestExecute_HappyPath(t *testing.T) {
 		for dataType := range wantSnapshotPayloads {
 			missing = append(missing, dataType)
 		}
+		slices.Sort(missing)
 		t.Fatalf("missing snapshot data types: %v", missing)
 	}
 
