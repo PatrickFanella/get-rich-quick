@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -40,26 +41,29 @@ func (r *UserRepo) Create(ctx context.Context, user *domain.User) error {
 	if err != nil {
 		return fmt.Errorf("postgres: hash user password: %w", err)
 	}
-	user.PasswordHash = passwordHash
-	user.Password = ""
 
 	row := r.pool.QueryRow(ctx,
 		`INSERT INTO users (username, password_hash)
 		 VALUES ($1, $2)
 		 RETURNING id, created_at, updated_at`,
 		user.Username,
-		user.PasswordHash,
+		passwordHash,
 	)
 
 	if err := row.Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt); err != nil {
 		return fmt.Errorf("postgres: create user: %w", err)
 	}
 
+	user.PasswordHash = passwordHash
+	user.Password = ""
+
 	return nil
 }
 
 // GetByUsername retrieves a user by username.
 func (r *UserRepo) GetByUsername(ctx context.Context, username string) (*domain.User, error) {
+	username = normalizeUsername(username)
+
 	row := r.pool.QueryRow(ctx,
 		userSelectSQL+`
 		 WHERE username = $1`,
@@ -69,7 +73,7 @@ func (r *UserRepo) GetByUsername(ctx context.Context, username string) (*domain.
 	user, err := scanUser(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("postgres: get user by username %s: %w", username, repository.ErrNotFound)
+			return nil, fmt.Errorf("postgres: get user by username %s: %w", username, ErrNotFound)
 		}
 		return nil, fmt.Errorf("postgres: get user by username: %w", err)
 	}
@@ -88,7 +92,7 @@ func (r *UserRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, err
 	user, err := scanUser(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("postgres: get user %s: %w", id, repository.ErrNotFound)
+			return nil, fmt.Errorf("postgres: get user %s: %w", id, ErrNotFound)
 		}
 		return nil, fmt.Errorf("postgres: get user by id: %w", err)
 	}
@@ -116,4 +120,8 @@ func hashPassword(password string) (string, error) {
 		return "", err
 	}
 	return string(hash), nil
+}
+
+func normalizeUsername(username string) string {
+	return strings.TrimSpace(username)
 }

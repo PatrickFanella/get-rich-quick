@@ -21,12 +21,15 @@ func TestUserRepoIntegration_CreateAndGet(t *testing.T) {
 
 	repo := NewUserRepo(pool)
 	user := &domain.User{
-		Username: "alice",
+		Username: " alice ",
 		Password: "correct horse battery staple",
 	}
 
 	if err := repo.Create(ctx, user); err != nil {
 		t.Fatalf("Create() error = %v", err)
+	}
+	if user.Username != "alice" {
+		t.Fatalf("expected normalized username alice, got %q", user.Username)
 	}
 	if user.ID == uuid.Nil {
 		t.Fatal("expected Create() to populate ID")
@@ -47,7 +50,7 @@ func TestUserRepoIntegration_CreateAndGet(t *testing.T) {
 		t.Fatalf("expected PasswordHash to match original password: %v", err)
 	}
 
-	gotByUsername, err := repo.GetByUsername(ctx, user.Username)
+	gotByUsername, err := repo.GetByUsername(ctx, " alice ")
 	if err != nil {
 		t.Fatalf("GetByUsername() error = %v", err)
 	}
@@ -92,6 +95,12 @@ func TestUserRepoIntegration_CreateDuplicateUsername(t *testing.T) {
 	err := repo.Create(ctx, second)
 	if err == nil {
 		t.Fatal("expected duplicate username error, got nil")
+	}
+	if second.Password != "secret-2" {
+		t.Fatalf("expected duplicate create failure to preserve plaintext password, got %q", second.Password)
+	}
+	if second.PasswordHash != "" {
+		t.Fatalf("expected duplicate create failure to avoid setting PasswordHash, got %q", second.PasswordHash)
 	}
 }
 
