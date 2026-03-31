@@ -820,8 +820,8 @@ func (s *stubAPIKeyRepo) GetByPrefix(_ context.Context, prefix string) (*domain.
 	if !ok {
 		return nil, fmt.Errorf("api key %s: %w", prefix, repository.ErrNotFound)
 	}
-	copy := key
-	return &copy, nil
+	keyCopy := key
+	return &keyCopy, nil
 }
 
 func (s *stubAPIKeyRepo) List(_ context.Context, _, _ int) ([]domain.APIKey, error) {
@@ -910,9 +910,11 @@ func (stubRunRepo) Create(context.Context, *domain.PipelineRun) error { return n
 func (stubRunRepo) Get(_ context.Context, _ uuid.UUID, _ time.Time) (*domain.PipelineRun, error) {
 	return nil, fmt.Errorf("run: %w", repository.ErrNotFound)
 }
+
 func (stubRunRepo) List(context.Context, repository.PipelineRunFilter, int, int) ([]domain.PipelineRun, error) {
 	return nil, nil
 }
+
 func (stubRunRepo) UpdateStatus(context.Context, uuid.UUID, time.Time, repository.PipelineRunStatusUpdate) error {
 	return nil
 }
@@ -943,6 +945,7 @@ func (stubOrderRepo) Create(context.Context, *domain.Order) error { return nil }
 func (stubOrderRepo) Get(_ context.Context, _ uuid.UUID) (*domain.Order, error) {
 	return nil, fmt.Errorf("order: %w", repository.ErrNotFound)
 }
+
 func (stubOrderRepo) List(context.Context, repository.OrderFilter, int, int) ([]domain.Order, error) {
 	return nil, nil
 }
@@ -951,6 +954,7 @@ func (stubOrderRepo) Delete(context.Context, uuid.UUID) error     { return nil }
 func (stubOrderRepo) GetByStrategy(context.Context, uuid.UUID, repository.OrderFilter, int, int) ([]domain.Order, error) {
 	return nil, nil
 }
+
 func (stubOrderRepo) GetByRun(context.Context, uuid.UUID, repository.OrderFilter, int, int) ([]domain.Order, error) {
 	return nil, nil
 }
@@ -963,6 +967,7 @@ func (stubPositionRepo) Create(context.Context, *domain.Position) error { return
 func (stubPositionRepo) Get(_ context.Context, _ uuid.UUID) (*domain.Position, error) {
 	return nil, fmt.Errorf("position: %w", repository.ErrNotFound)
 }
+
 func (stubPositionRepo) List(context.Context, repository.PositionFilter, int, int) ([]domain.Position, error) {
 	return nil, nil
 }
@@ -971,6 +976,7 @@ func (stubPositionRepo) Delete(context.Context, uuid.UUID) error        { return
 func (stubPositionRepo) GetOpen(context.Context, repository.PositionFilter, int, int) ([]domain.Position, error) {
 	return nil, nil
 }
+
 func (stubPositionRepo) GetByStrategy(context.Context, uuid.UUID, repository.PositionFilter, int, int) ([]domain.Position, error) {
 	return nil, nil
 }
@@ -983,9 +989,11 @@ func (stubTradeRepo) Create(context.Context, *domain.Trade) error { return nil }
 func (stubTradeRepo) List(context.Context, repository.TradeFilter, int, int) ([]domain.Trade, error) {
 	return nil, nil
 }
+
 func (stubTradeRepo) GetByOrder(context.Context, uuid.UUID, repository.TradeFilter, int, int) ([]domain.Trade, error) {
 	return nil, nil
 }
+
 func (stubTradeRepo) GetByPosition(context.Context, uuid.UUID, repository.TradeFilter, int, int) ([]domain.Trade, error) {
 	return nil, nil
 }
@@ -1007,9 +1015,11 @@ type stubRiskEngine struct{}
 func (stubRiskEngine) CheckPreTrade(context.Context, *domain.Order, risk.Portfolio) (bool, string, error) {
 	return true, "", nil
 }
+
 func (stubRiskEngine) CheckPositionLimits(context.Context, string, float64, risk.Portfolio) (bool, string, error) {
 	return true, "", nil
 }
+
 func (stubRiskEngine) GetStatus(context.Context) (risk.EngineStatus, error) {
 	return risk.EngineStatus{
 		RiskStatus: domain.RiskStatusNormal,

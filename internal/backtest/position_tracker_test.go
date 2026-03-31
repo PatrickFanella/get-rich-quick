@@ -213,7 +213,7 @@ func TestPositionTrackerUpdateMarketPriceRejectsBlankTicker(t *testing.T) {
 	}
 }
 
-func assertFloatEqual(t *testing.T, got float64, want float64, label string) {
+func assertFloatEqual(t *testing.T, got, want float64, label string) {
 	t.Helper()
 
 	if math.Abs(got-want) > 1e-9 {

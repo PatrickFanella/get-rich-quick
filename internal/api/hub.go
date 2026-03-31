@@ -27,11 +27,11 @@ const (
 
 // WSMessage is the envelope for every WebSocket event sent to clients.
 type WSMessage struct {
-	Type       EventType   `json:"type"`
-	StrategyID uuid.UUID   `json:"strategy_id,omitempty"`
-	RunID      uuid.UUID   `json:"run_id,omitempty"`
-	Data       any         `json:"data,omitempty"`
-	Timestamp  time.Time   `json:"timestamp"`
+	Type       EventType `json:"type"`
+	StrategyID uuid.UUID `json:"strategy_id,omitempty"`
+	RunID      uuid.UUID `json:"run_id,omitempty"`
+	Data       any       `json:"data,omitempty"`
+	Timestamp  time.Time `json:"timestamp"`
 }
 
 // broadcastMessage carries pre-parsed routing info alongside the raw JSON

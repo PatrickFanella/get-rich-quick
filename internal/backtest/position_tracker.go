@@ -234,7 +234,7 @@ func (t *PositionTracker) refreshPositionMetrics(position *domain.Position, pric
 	position.UnrealizedPnL = trackerFloatPtr(unrealized)
 }
 
-func newTrackedPosition(ticker string, side domain.PositionSide, quantity float64, price float64, fee float64, openedAt time.Time) *domain.Position {
+func newTrackedPosition(ticker string, side domain.PositionSide, quantity, price, fee float64, openedAt time.Time) *domain.Position {
 	return &domain.Position{
 		Ticker:     ticker,
 		Side:       side,
@@ -262,14 +262,14 @@ func trackerPositionSide(side domain.OrderSide) domain.PositionSide {
 	return domain.PositionSideLong
 }
 
-func openingCostBasis(side domain.PositionSide, price float64, quantity float64, fee float64) float64 {
+func openingCostBasis(side domain.PositionSide, price, quantity, fee float64) float64 {
 	if side == domain.PositionSideShort {
 		return (price * quantity) - fee
 	}
 	return (price * quantity) + fee
 }
 
-func closingPnL(side domain.PositionSide, avgEntry float64, fillPrice float64, quantity float64, fee float64) float64 {
+func closingPnL(side domain.PositionSide, avgEntry, fillPrice, quantity, fee float64) float64 {
 	if side == domain.PositionSideShort {
 		return (avgEntry * quantity) - (fillPrice * quantity) - fee
 	}

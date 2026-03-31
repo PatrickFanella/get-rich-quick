@@ -207,16 +207,6 @@ func (t *Trader) Trade(ctx context.Context, input agent.TradingInput) (agent.Tra
 	}, nil
 }
 
-// buildUserPrompt constructs the user message from the pipeline state,
-// including the investment plan and analyst reports.
-func buildUserPrompt(state *agent.PipelineState) string {
-	return buildUserPromptFromInput(agent.TradingInput{
-		Ticker:         state.Ticker,
-		InvestmentPlan: state.ResearchDebate.InvestmentPlan,
-		AnalystReports: state.AnalystReports,
-	})
-}
-
 // buildUserPromptFromInput constructs the user message from a TradingInput,
 // including the investment plan and analyst reports.
 func buildUserPromptFromInput(input agent.TradingInput) string {
@@ -243,7 +233,7 @@ func buildUserPromptFromInput(input agent.TradingInput) string {
 			return roles[i] < roles[j]
 		})
 		for _, role := range roles {
-			b.WriteString(fmt.Sprintf("%s:\n%s\n\n", role, input.AnalystReports[role]))
+			_, _ = fmt.Fprintf(&b, "%s:\n%s\n\n", role, input.AnalystReports[role])
 		}
 	}
 

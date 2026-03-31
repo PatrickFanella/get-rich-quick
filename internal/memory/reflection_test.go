@@ -86,9 +86,9 @@ type mockPositionRepo struct {
 	err      error
 }
 
-func (m *mockPositionRepo) Create(context.Context, *domain.Position) error  { return nil }
-func (m *mockPositionRepo) Update(context.Context, *domain.Position) error  { return nil }
-func (m *mockPositionRepo) Delete(context.Context, uuid.UUID) error         { return nil }
+func (m *mockPositionRepo) Create(context.Context, *domain.Position) error { return nil }
+func (m *mockPositionRepo) Update(context.Context, *domain.Position) error { return nil }
+func (m *mockPositionRepo) Delete(context.Context, uuid.UUID) error        { return nil }
 
 func (m *mockPositionRepo) Get(_ context.Context, _ uuid.UUID) (*domain.Position, error) {
 	return m.position, m.err

@@ -2,16 +2,16 @@ package agent
 
 // Hardcoded defaults used as the final fallback in ResolveConfig.
 const (
-	defaultLLMProvider               = "openai"
-	defaultLLMDeepThinkModel         = "gpt-5.2"
-	defaultLLMQuickThinkModel        = "gpt-5-mini"
-	defaultPipelineDebateRounds      = 3
-	defaultAnalysisTimeoutSeconds    = 30
-	defaultDebateTimeoutSeconds      = 60
-	defaultPositionSizePct           = 5.0
-	defaultStopLossMultiplier        = 1.5
-	defaultTakeProfitMultiplier      = 2.0
-	defaultMinConfidence             = 0.65
+	defaultLLMProvider            = "openai"
+	defaultLLMDeepThinkModel      = "gpt-5.2"
+	defaultLLMQuickThinkModel     = "gpt-5-mini"
+	defaultPipelineDebateRounds   = 3
+	defaultAnalysisTimeoutSeconds = 30
+	defaultDebateTimeoutSeconds   = 60
+	defaultPositionSizePct        = 5.0
+	defaultStopLossMultiplier     = 1.5
+	defaultTakeProfitMultiplier   = 2.0
+	defaultMinConfidence          = 0.65
 )
 
 // GlobalSettings holds optional system-wide defaults for strategy execution.

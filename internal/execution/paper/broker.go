@@ -36,7 +36,7 @@ type PaperBroker struct {
 }
 
 // NewPaperBroker constructs an in-memory paper trading broker.
-func NewPaperBroker(initialBalance float64, slippageBps float64, feePct float64) *PaperBroker {
+func NewPaperBroker(initialBalance, slippageBps, feePct float64) *PaperBroker {
 	if slippageBps < 0 {
 		slippageBps = 0
 	}
@@ -298,7 +298,7 @@ func (b *PaperBroker) simulateFillPrice(order *domain.Order) (float64, bool, err
 	}
 }
 
-func (b *PaperBroker) applyFillLocked(ticker string, side domain.OrderSide, quantity float64, fillPrice float64, filledAt time.Time) {
+func (b *PaperBroker) applyFillLocked(ticker string, side domain.OrderSide, quantity, fillPrice float64, filledAt time.Time) {
 	currentPrice := floatPtr(fillPrice)
 	position, ok := b.positions[ticker]
 	if !ok {
@@ -395,7 +395,7 @@ func resolveReferencePrice(order *domain.Order) (float64, bool) {
 	return 0, false
 }
 
-func limitCrossed(side domain.OrderSide, referencePrice float64, limitPrice float64) bool {
+func limitCrossed(side domain.OrderSide, referencePrice, limitPrice float64) bool {
 	if side == domain.OrderSideBuy {
 		return referencePrice <= limitPrice
 	}
@@ -410,7 +410,7 @@ func applySlippage(price float64, side domain.OrderSide, slippageBps float64) fl
 	return math.Max(price*(1-slippageFraction), minFillPrice)
 }
 
-func realizedPnL(side domain.PositionSide, avgEntry float64, fillPrice float64, quantity float64) float64 {
+func realizedPnL(side domain.PositionSide, avgEntry, fillPrice, quantity float64) float64 {
 	if side == domain.PositionSideLong {
 		return (fillPrice - avgEntry) * quantity
 	}

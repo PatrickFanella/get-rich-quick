@@ -137,7 +137,7 @@ func GenerateEquityCurveReport(curve []EquityPoint) EquityCurveReport {
 	}
 }
 
-func drawdownPct(peakEquity float64, currentEquity float64) float64 {
+func drawdownPct(peakEquity, currentEquity float64) float64 {
 	if peakEquity <= 0 {
 		return 0
 	}

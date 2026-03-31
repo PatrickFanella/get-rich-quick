@@ -381,7 +381,7 @@ func TestCheckPositionLimits_InvalidInputs(t *testing.T) {
 	}
 
 	// Inf quantity.
-	approved, reason, err = engine.CheckPositionLimits(context.Background(), "AAPL", math.Inf(1), portfolio)
+	approved, _, err = engine.CheckPositionLimits(context.Background(), "AAPL", math.Inf(1), portfolio)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1088,10 +1088,8 @@ func TestKillSwitch_AnyMechanismBlocksTrading(t *testing.T) {
 				if reason == "" {
 					t.Fatal("expected non-empty reason when kill switch active")
 				}
-			} else {
-				if !approved {
-					t.Fatalf("expected trade approved, got rejected: %s", reason)
-				}
+			} else if !approved {
+				t.Fatalf("expected trade approved, got rejected: %s", reason)
 			}
 		})
 	}

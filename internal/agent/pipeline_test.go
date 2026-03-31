@@ -2005,12 +2005,22 @@ type typedTraderNode struct {
 	fn   func(ctx context.Context, input TradingInput) (TradingOutput, error)
 }
 
-func (n *typedTraderNode) Name() string    { return n.name }
-func (n *typedTraderNode) Role() AgentRole { return n.role }
-func (n *typedTraderNode) Phase() Phase    { return PhaseTrading }
+func (n *typedTraderNode) Name() string {
+	return n.name
+}
+
+func (n *typedTraderNode) Role() AgentRole {
+	return n.role
+}
+
+func (n *typedTraderNode) Phase() Phase {
+	return PhaseTrading
+}
+
 func (n *typedTraderNode) Execute(_ context.Context, _ *PipelineState) error {
 	panic("Execute should not be called on a typed TraderNode; use Trade() instead")
 }
+
 func (n *typedTraderNode) Trade(ctx context.Context, input TradingInput) (TradingOutput, error) {
 	return n.fn(ctx, input)
 }

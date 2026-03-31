@@ -375,7 +375,7 @@ func TestPaperBrokerGetAccountBalance_ReturnsSnapshot(t *testing.T) {
 	assertFloatClose(t, refetched.Cash, 850, 1e-9)
 }
 
-func assertFloatClose(t *testing.T, got float64, want float64, epsilon float64) {
+func assertFloatClose(t *testing.T, got, want, epsilon float64) {
 	t.Helper()
 	if math.Abs(got-want) > epsilon {
 		t.Fatalf("float mismatch: got %v, want %v (epsilon %v)", got, want, epsilon)

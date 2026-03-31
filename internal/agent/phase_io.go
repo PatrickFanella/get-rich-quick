@@ -77,9 +77,9 @@ func analysisInputFromState(state *PipelineState) AnalysisInput {
 // applyAnalysisOutput maps an AnalysisOutput back to the pipeline state.
 func applyAnalysisOutput(state *PipelineState, role AgentRole, output AnalysisOutput) {
 	state.SetAnalystReport(role, output.Report)
-	if output.LLMResponse != nil {
-		state.RecordDecision(role, PhaseAnalysis, nil, output.Report, output.LLMResponse)
-	}
+	// Persist skipped/static analyst outputs too so downstream persistence sees
+	// the same decision record shape regardless of whether an LLM call occurred.
+	state.RecordDecision(role, PhaseAnalysis, nil, output.Report, output.LLMResponse)
 }
 
 // debateInputFromState constructs a DebateInput from the pipeline state for
@@ -89,18 +89,6 @@ func debateInputFromState(state *PipelineState) DebateInput {
 		Ticker:         state.Ticker,
 		Rounds:         state.ResearchDebate.Rounds,
 		ContextReports: state.AnalystReports,
-	}
-}
-
-// riskDebateInputFromState constructs a DebateInput from the pipeline state for
-// risk debate nodes, including the trading plan as context.
-func riskDebateInputFromState(state *PipelineState) DebateInput {
-	return DebateInput{
-		Ticker: state.Ticker,
-		Rounds: state.RiskDebate.Rounds,
-		ContextReports: map[AgentRole]string{
-			AgentRoleTrader: MarshalTradingPlanSafe(state.TradingPlan),
-		},
 	}
 }
 

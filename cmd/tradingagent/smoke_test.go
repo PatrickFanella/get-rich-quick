@@ -73,7 +73,9 @@ func TestSmokeEndToEnd(t *testing.T) {
 		"schedule_cron": "",
 	}
 	createResp := doSmokeJSONRequest(t, http.MethodPost, baseURL+"/api/v1/strategies", strategyPayload, tokenPair.AccessToken)
-	defer createResp.Body.Close()
+	defer func() {
+		_ = createResp.Body.Close()
+	}()
 	if createResp.StatusCode != http.StatusCreated {
 		t.Fatalf("create strategy status = %d, want %d", createResp.StatusCode, http.StatusCreated)
 	}
@@ -93,10 +95,14 @@ func TestSmokeEndToEnd(t *testing.T) {
 	}
 
 	wsConn := openSmokeWebSocket(t, baseURL, createdStrategy.ID)
-	defer wsConn.Close()
+	defer func() {
+		_ = wsConn.Close()
+	}()
 
 	runResp := doSmokeJSONRequest(t, http.MethodPost, fmt.Sprintf("%s/api/v1/strategies/%s/run", baseURL, createdStrategy.ID), nil, tokenPair.AccessToken)
-	defer runResp.Body.Close()
+	defer func() {
+		_ = runResp.Body.Close()
+	}()
 	if runResp.StatusCode != http.StatusOK {
 		t.Fatalf("manual run status = %d, want %d", runResp.StatusCode, http.StatusOK)
 	}
@@ -183,7 +189,7 @@ func waitForSmokeHealth(t *testing.T, ctx context.Context, healthURL string) {
 		}
 		resp, err := client.Do(req)
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				return
 			}

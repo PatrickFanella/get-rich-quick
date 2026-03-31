@@ -35,7 +35,9 @@ func TestRun_ReturnsStartupErrorWithoutBlocking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Listen() error = %v", err)
 	}
-	defer listener.Close()
+	defer func() {
+		_ = listener.Close()
+	}()
 
 	server := &http.Server{
 		Addr:    listener.Addr().String(),

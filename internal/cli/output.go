@@ -131,8 +131,8 @@ func renderMemoriesTable(w io.Writer, memories []domain.AgentMemory) error {
 		rows = append(rows, []string{
 			memory.ID.String(),
 			memory.AgentRole.String(),
-			truncate(memory.Situation, 32),
-			truncate(memory.Recommendation, 32),
+			truncateString(memory.Situation, 32),
+			truncateString(memory.Recommendation, 32),
 			formatOptionalFloat(memory.RelevanceScore),
 			formatTime(memory.CreatedAt),
 		})
@@ -169,15 +169,15 @@ func formatOptionalTime(value *time.Time) string {
 	return formatTime(*value)
 }
 
-func truncate(value string, max int) string {
+func truncateString(value string, maxLen int) string {
 	runes := []rune(value)
-	if len(runes) <= max {
+	if len(runes) <= maxLen {
 		return value
 	}
-	if max <= 1 {
-		return string(runes[:max])
+	if maxLen <= 1 {
+		return string(runes[:maxLen])
 	}
-	return string(runes[:max-1]) + "…"
+	return string(runes[:maxLen-1]) + "…"
 }
 
 func emptyDash(value string) string {

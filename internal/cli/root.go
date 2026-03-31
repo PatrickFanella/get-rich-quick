@@ -30,11 +30,6 @@ const (
 	formatJSON    = "json"
 )
 
-type server interface {
-	Start() error
-	Shutdown(context.Context) error
-}
-
 type Dependencies struct {
 	Version      string
 	NewAPIServer func(context.Context, config.Config, *slog.Logger) (*api.Server, func(), error)

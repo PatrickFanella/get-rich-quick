@@ -45,11 +45,11 @@ Rules:
 // research manager's LLM response. It captures the recommendation direction,
 // conviction level, key supporting evidence, and acknowledged risks.
 type InvestmentPlanOutput struct {
-	Direction        string   `json:"direction"`
-	Conviction       int      `json:"conviction"`
-	KeyEvidence      []string `json:"key_evidence"`
+	Direction         string   `json:"direction"`
+	Conviction        int      `json:"conviction"`
+	KeyEvidence       []string `json:"key_evidence"`
 	AcknowledgedRisks []string `json:"acknowledged_risks"`
-	Rationale        string   `json:"rationale"`
+	Rationale         string   `json:"rationale"`
 }
 
 // ResearchManager is a research-debate-phase Node that acts as the judge,

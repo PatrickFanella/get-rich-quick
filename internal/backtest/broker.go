@@ -378,7 +378,7 @@ func (b *BrokerAdapter) processRestingOrdersLocked(ticker string, bar domain.OHL
 	}
 }
 
-func (b *BrokerAdapter) applyFillLocked(ticker string, side domain.OrderSide, quantity float64, fillPrice float64, markPrice float64, filledAt time.Time) {
+func (b *BrokerAdapter) applyFillLocked(ticker string, side domain.OrderSide, quantity, fillPrice, markPrice float64, filledAt time.Time) {
 	currentPrice := floatPtr(markPrice)
 	position, ok := b.positions[ticker]
 	if !ok {
@@ -468,7 +468,7 @@ func validateOrder(order *domain.Order) error {
 	return nil
 }
 
-func realizedPnL(side domain.PositionSide, avgEntry float64, fillPrice float64, quantity float64) float64 {
+func realizedPnL(side domain.PositionSide, avgEntry, fillPrice, quantity float64) float64 {
 	if side == domain.PositionSideLong {
 		return (fillPrice - avgEntry) * quantity
 	}
@@ -536,7 +536,7 @@ func currentBarTime(bar domain.OHLCV) time.Time {
 	return bar.Timestamp.UTC()
 }
 
-func weightedFillPrice(existing *float64, existingQty float64, fillPrice float64, fillQty float64) *float64 {
+func weightedFillPrice(existing *float64, existingQty, fillPrice, fillQty float64) *float64 {
 	if fillQty <= 0 {
 		return cloneFloatPtr(existing)
 	}

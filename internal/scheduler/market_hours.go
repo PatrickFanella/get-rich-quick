@@ -3,6 +3,7 @@ package scheduler
 import (
 	"strings"
 	"time"
+	// Embed tzdata so market-hours calculations work in minimal/container environments.
 	_ "time/tzdata"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
@@ -37,9 +38,9 @@ func isUSEquityMarketOpen(t time.Time) bool {
 	}
 
 	open := time.Date(et.Year(), et.Month(), et.Day(), 9, 30, 0, 0, newYorkLocation)
-	close := time.Date(et.Year(), et.Month(), et.Day(), 16, 0, 0, 0, newYorkLocation)
+	marketClose := time.Date(et.Year(), et.Month(), et.Day(), 16, 0, 0, 0, newYorkLocation)
 
-	return !et.Before(open) && et.Before(close)
+	return !et.Before(open) && et.Before(marketClose)
 }
 
 func isNYSEHoliday(t time.Time) bool {

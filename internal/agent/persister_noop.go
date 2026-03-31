@@ -17,6 +17,7 @@ func (NoopPersister) RecordRunStart(context.Context, *domain.PipelineRun) error 
 func (NoopPersister) RecordRunComplete(context.Context, uuid.UUID, time.Time, domain.PipelineStatus, time.Time, string) error {
 	return nil
 }
+
 func (NoopPersister) PersistDecision(context.Context, uuid.UUID, Node, *int, string, *DecisionLLMResponse) error {
 	return nil
 }

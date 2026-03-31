@@ -24,7 +24,7 @@ var (
 	tabStyle = lipgloss.NewStyle().
 			Padding(0, 2).
 			Foreground(lipgloss.Color("245"))
-	activeTabStyle = tabStyle.Copy().
+	activeTabStyle = tabStyle.
 			Bold(true).
 			Foreground(lipgloss.Color("230")).
 			Background(lipgloss.Color("62"))
@@ -108,7 +108,9 @@ func Run(ctx context.Context, opts Options) error {
 				Details:    err.Error(),
 			})
 		} else {
-			defer source.Close()
+			defer func() {
+				_ = source.Close()
+			}()
 			model.events = source.Messages()
 		}
 	}
@@ -182,7 +184,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
-	contentWidth := max(60, m.width-6)
+	contentWidth := maxInt(60, m.width-6)
 	tabParts := make([]string, 0, len(m.tabs))
 	for i, tab := range m.tabs {
 		style := tabStyle
@@ -249,19 +251,19 @@ func (m *Model) applyEvent(event internalapi.WSMessage) {
 	switch event.Type {
 	case internalapi.EventPipelineStart:
 		m.latestRun.Status = domain.PipelineStatusRunning
-		m.runProgress = max(m.runProgress, 10)
+		m.runProgress = maxInt(m.runProgress, 10)
 	case internalapi.EventAgentDecision:
 		m.latestRun.Status = domain.PipelineStatusRunning
-		m.runProgress = max(m.runProgress, 35)
+		m.runProgress = maxInt(m.runProgress, 35)
 	case internalapi.EventDebateRound:
 		m.latestRun.Status = domain.PipelineStatusRunning
-		m.runProgress = max(m.runProgress, 55)
+		m.runProgress = maxInt(m.runProgress, 55)
 	case internalapi.EventSignal:
 		m.latestRun.Status = domain.PipelineStatusRunning
-		m.runProgress = max(m.runProgress, 80)
+		m.runProgress = maxInt(m.runProgress, 80)
 	case internalapi.EventOrderSubmitted, internalapi.EventPositionUpdate:
 		m.latestRun.Status = domain.PipelineStatusRunning
-		m.runProgress = max(m.runProgress, 90)
+		m.runProgress = maxInt(m.runProgress, 90)
 	case internalapi.EventOrderFilled:
 		m.latestRun.Status = domain.PipelineStatusCompleted
 		m.runProgress = 100
@@ -283,7 +285,7 @@ func (m *Model) appendActivity(item ActivityItem) {
 }
 
 func (m Model) renderDashboard(width int) string {
-	leftWidth := max(34, width/2-1)
+	leftWidth := maxInt(34, width/2-1)
 	rightWidth := width - leftWidth - 2
 
 	left := lipgloss.JoinVertical(
@@ -447,12 +449,12 @@ func (m Model) renderStatusBar(ratio float64, width int) string {
 	return renderFilledBar(clampPercent(ratio), width, lipgloss.Color("214"))
 }
 
-func (m Model) renderProgressBar(progress int, width int) string {
+func (m Model) renderProgressBar(progress, width int) string {
 	return renderFilledBar(float64(progress)/100, width, lipgloss.Color("42"))
 }
 
 func renderFilledBar(ratio float64, width int, color lipgloss.Color) string {
-	barWidth := max(10, width)
+	barWidth := maxInt(10, width)
 	filled := int(clampPercent(ratio) * float64(barWidth))
 	if filled > barWidth {
 		filled = barWidth
@@ -499,8 +501,7 @@ func formatEventType(eventType internalapi.EventType) string {
 }
 
 func describeEvent(event internalapi.WSMessage) string {
-	switch data := event.Data.(type) {
-	case map[string]any:
+	if data, ok := event.Data.(map[string]any); ok {
 		parts := make([]string, 0, len(data))
 		for _, key := range []string{"ticker", "signal", "status", "reason"} {
 			if value, ok := data[key]; ok && strings.TrimSpace(fmt.Sprint(value)) != "" {
@@ -551,7 +552,7 @@ func emptyDash(value string) string {
 	return value
 }
 
-func max(a, b int) int {
+func maxInt(a, b int) int {
 	if a > b {
 		return a
 	}
