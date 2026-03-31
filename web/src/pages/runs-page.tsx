@@ -204,7 +204,7 @@ export function RunsPage() {
                   <tbody>
                     {runs.map((run) => (
                       <RunsTableRow
-                        key={`${run.id}-${run.trade_date}`}
+                        key={run.id}
                         run={run}
                         strategyName={strategyNames.get(run.strategy_id)}
                       />
