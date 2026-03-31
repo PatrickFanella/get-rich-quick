@@ -1,10 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { TradeHistory } from '@/components/portfolio/trade-history'
-
-const expectedFallbackDashCount = 7
 
 function Wrapper({ children }: { children: React.ReactNode }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -13,6 +11,7 @@ function Wrapper({ children }: { children: React.ReactNode }) {
 
 afterEach(() => {
   cleanup()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
@@ -87,6 +86,7 @@ describe('TradeHistory', () => {
   })
 
   it('renders fallback values when trade fields are null', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -102,8 +102,18 @@ describe('TradeHistory', () => {
             executed_at: null,
             created_at: '2025-02-01T14:30:00Z',
           },
+          {
+            id: null,
+            ticker: null,
+            side: null,
+            quantity: null,
+            price: null,
+            fee: null,
+            executed_at: null,
+            created_at: '2025-02-01T14:30:00Z',
+          },
         ],
-        total: 1,
+        total: 2,
         limit: 50,
         offset: 0,
       }),
@@ -118,6 +128,33 @@ describe('TradeHistory', () => {
 
     expect(screen.queryByTestId('trade-history-error')).not.toBeInTheDocument()
     expect(screen.queryByTestId('trade-history-empty')).not.toBeInTheDocument()
-    expect(screen.getAllByText('—')).toHaveLength(expectedFallbackDashCount)
+
+    const rows = screen.getAllByRole('row')
+    const firstMalformedRowCells = within(rows[1]).getAllByRole('cell')
+    const secondMalformedRowCells = within(rows[2]).getAllByRole('cell')
+
+    expect(firstMalformedRowCells.map((cell) => cell.textContent)).toEqual([
+      '—',
+      '—',
+      '—',
+      '—',
+      '—',
+      '—',
+      '—',
+    ])
+    expect(secondMalformedRowCells.map((cell) => cell.textContent)).toEqual([
+      '—',
+      '—',
+      '—',
+      '—',
+      '—',
+      '—',
+      '—',
+    ])
+    expect(
+      consoleErrorSpy.mock.calls.some((args) =>
+        args.some((arg) => String(arg).includes('Encountered two children with the same key')),
+      ),
+    ).toBe(false)
   })
 })
