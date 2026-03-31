@@ -315,16 +315,21 @@ func TestShutdownGuard_FinishPreventsForcedExitAfterCompletion(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&buf, nil))
 	exitCalled := make(chan int, 1)
 	timer := &fakeStopTimer{}
+	var gotTimeout time.Duration
 
 	guard := newShutdownGuard(logger, time.Hour, func(code int) {
 		exitCalled <- code
 	})
-	guard.afterFunc = func(_ time.Duration, fn func()) stopTimer {
+	guard.afterFunc = func(timeout time.Duration, fn func()) stopTimer {
+		gotTimeout = timeout
 		timer.callback = fn
 		return timer
 	}
 
 	guard.Begin(nil, 1)
+	if gotTimeout != time.Hour {
+		t.Fatalf("afterFunc timeout = %v, want %v", gotTimeout, time.Hour)
+	}
 
 	guard.Finish()
 	timer.Fire()
