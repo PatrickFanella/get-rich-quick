@@ -207,7 +207,7 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if startDateStr := q.Get("start_date"); startDateStr != "" {
-		startDate, err := time.Parse(time.RFC3339, startDateStr)
+		startDate, err := time.Parse(time.RFC3339Nano, startDateStr)
 		if err != nil {
 			respondError(w, http.StatusBadRequest, "invalid start_date", ErrCodeBadRequest)
 			return
@@ -215,7 +215,7 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		filter.StartedAfter = &startDate
 	}
 	if endDateStr := q.Get("end_date"); endDateStr != "" {
-		endDate, err := time.Parse(time.RFC3339, endDateStr)
+		endDate, err := time.Parse(time.RFC3339Nano, endDateStr)
 		if err != nil {
 			respondError(w, http.StatusBadRequest, "invalid end_date", ErrCodeBadRequest)
 			return

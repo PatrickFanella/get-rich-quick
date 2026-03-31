@@ -424,8 +424,8 @@ func TestListRunsAppliesDateRangeFilters(t *testing.T) {
 	deps.Runs = runRepo
 	srv := newTestServerWithDeps(t, deps)
 
-	startDate := "2026-03-14T09:30:00Z"
-	endDate := "2026-03-15T16:00:00Z"
+	startDate := "2026-03-14T09:30:00.000Z"
+	endDate := "2026-03-15T16:00:00.999Z"
 	rr := doRequest(
 		t,
 		srv,
@@ -450,8 +450,14 @@ func TestListRunsAppliesDateRangeFilters(t *testing.T) {
 		t.Fatalf("status filter = %q, want %q", runRepo.lastFilter.Status, domain.PipelineStatusCompleted)
 	}
 
-	expectedStartDate, _ := time.Parse(time.RFC3339, startDate)
-	expectedEndDate, _ := time.Parse(time.RFC3339, endDate)
+	expectedStartDate, err := time.Parse(time.RFC3339Nano, startDate)
+	if err != nil {
+		t.Fatalf("time.Parse() start_date error = %v", err)
+	}
+	expectedEndDate, err := time.Parse(time.RFC3339Nano, endDate)
+	if err != nil {
+		t.Fatalf("time.Parse() end_date error = %v", err)
+	}
 	if runRepo.lastFilter.StartedAfter == nil || !runRepo.lastFilter.StartedAfter.Equal(expectedStartDate) {
 		t.Fatalf("start_date filter = %v, want %v", runRepo.lastFilter.StartedAfter, expectedStartDate)
 	}
