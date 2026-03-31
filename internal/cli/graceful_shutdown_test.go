@@ -357,6 +357,12 @@ func TestFakeStopTimer_FireWithNilCallback(t *testing.T) {
 
 	timer := &fakeStopTimer{}
 	timer.Fire()
+	if !timer.Stop() {
+		t.Fatal("Stop() = false, want true after Fire() with nil callback")
+	}
+	if timer.Stop() {
+		t.Fatal("Stop() = true on second call, want false")
+	}
 }
 
 func (ft *fakeStopTimer) Stop() bool {
