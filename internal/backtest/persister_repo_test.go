@@ -18,16 +18,16 @@ type stubRunRepo struct {
 	err     error
 }
 
-func (s *stubRunRepo) Create(ctx context.Context, run *domain.BacktestRun) error {
+func (s *stubRunRepo) Create(_ context.Context, run *domain.BacktestRun) error {
 	s.created = run
 	return s.err
 }
 
-func (s *stubRunRepo) Get(ctx context.Context, id uuid.UUID) (*domain.BacktestRun, error) {
+func (s *stubRunRepo) Get(_ context.Context, _ uuid.UUID) (*domain.BacktestRun, error) {
 	return nil, nil
 }
 
-func (s *stubRunRepo) List(ctx context.Context, filter repository.BacktestRunFilter, limit, offset int) ([]domain.BacktestRun, error) {
+func (s *stubRunRepo) List(_ context.Context, _ repository.BacktestRunFilter, _, _ int) ([]domain.BacktestRun, error) {
 	return nil, nil
 }
 

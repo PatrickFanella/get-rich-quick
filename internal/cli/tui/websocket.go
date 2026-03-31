@@ -36,17 +36,17 @@ func ConnectWebSocket(ctx context.Context, endpoint string, headers http.Header)
 	}
 
 	if err := conn.WriteJSON(map[string]string{"action": "subscribe_all"}); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, err
 	}
 
 	var ack websocketAck
 	if err := conn.ReadJSON(&ack); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, err
 	}
 	if ack.Status != "ok" {
-		conn.Close()
+		_ = conn.Close()
 		if ack.Error != "" {
 			return nil, errors.New(ack.Error)
 		}

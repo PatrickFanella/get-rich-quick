@@ -108,7 +108,7 @@ func TestNilNormalize(t *testing.T) {
 	}
 }
 
-func TestConcurrentAccess(t *testing.T) {
+func TestConcurrentAccess(_ *testing.T) {
 	r := registry.New[int, int](nil)
 
 	var wg sync.WaitGroup

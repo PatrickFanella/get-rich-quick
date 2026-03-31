@@ -24,14 +24,17 @@ type stubNode struct {
 	phase agent.Phase
 }
 
-func (s *stubNode) Name() string                                              { return s.name }
-func (s *stubNode) Role() agent.AgentRole                                     { return s.role }
-func (s *stubNode) Phase() agent.Phase                                        { return s.phase }
-func (s *stubNode) Execute(_ context.Context, state *agent.PipelineState) error { return nil }
+func (s *stubNode) Name() string { return s.name }
+
+func (s *stubNode) Role() agent.AgentRole { return s.role }
+
+func (s *stubNode) Phase() agent.Phase { return s.phase }
+
+func (s *stubNode) Execute(_ context.Context, _ *agent.PipelineState) error { return nil }
 
 // orderAction describes a deterministic order to place on a specific bar.
 type orderAction struct {
-	barIndex int              // 1-based bar index
+	barIndex int // 1-based bar index
 	side     domain.OrderSide
 	quantity float64
 }

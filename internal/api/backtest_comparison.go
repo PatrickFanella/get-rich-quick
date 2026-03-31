@@ -315,22 +315,6 @@ func (a *BacktestComparisonAPI) listAllConfigs(ctx context.Context, filter repos
 	}
 }
 
-func (a *BacktestComparisonAPI) listAllRuns(ctx context.Context, filter repository.BacktestRunFilter) ([]domain.BacktestRun, error) {
-	offset := 0
-	runs := make([]domain.BacktestRun, 0)
-	for {
-		page, err := a.runs.List(ctx, filter, backtestComparisonPageSize, offset)
-		if err != nil {
-			return nil, fmt.Errorf("api: list backtest runs: %w", err)
-		}
-		runs = append(runs, page...)
-		if len(page) < backtestComparisonPageSize {
-			return runs, nil
-		}
-		offset += len(page)
-	}
-}
-
 func (a *BacktestComparisonAPI) getBacktestConfig(
 	ctx context.Context,
 	configID uuid.UUID,
@@ -410,12 +394,6 @@ func formatComparisonLabel(strategyName string, runTimestamp time.Time, promptVe
 		return label
 	}
 	return label + " @ " + runTimestamp.UTC().Format(time.RFC3339)
-}
-
-func sortHistoricalRuns(runs []HistoricalBacktestRun) {
-	sort.SliceStable(runs, func(i, j int) bool {
-		return historicalRunComesBefore(runs[i], runs[j])
-	})
 }
 
 func historicalRunComesBefore(left, right HistoricalBacktestRun) bool {

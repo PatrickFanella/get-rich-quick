@@ -175,7 +175,7 @@ func TestMarketAnalystExecuteNilProvider(t *testing.T) {
 	}
 }
 
-func TestMarketAnalystImplementsNode(t *testing.T) {
+func TestMarketAnalystImplementsNode(_ *testing.T) {
 	// Compile-time check that *MarketAnalyst satisfies agent.Node.
 	var _ agent.Node = (*MarketAnalyst)(nil)
 }

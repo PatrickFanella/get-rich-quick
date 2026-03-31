@@ -278,7 +278,7 @@ func beta(strategyReturns, benchmarkReturns []float64) (float64, float64) {
 	return covariance / variance, variance
 }
 
-func alpha(strategyReturns, benchmarkReturns []float64, b float64, benchmarkVariance float64) float64 {
+func alpha(strategyReturns, benchmarkReturns []float64, b, benchmarkVariance float64) float64 {
 	meanStrategy := mean(strategyReturns)
 	meanBenchmark := mean(benchmarkReturns)
 

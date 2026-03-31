@@ -308,6 +308,7 @@ type fakeStrategyRepo struct {
 func (f fakeStrategyRepo) Create(context.Context, *domain.Strategy) error {
 	return fmt.Errorf("not implemented")
 }
+
 func (f fakeStrategyRepo) Get(_ context.Context, id uuid.UUID) (*domain.Strategy, error) {
 	strategy, ok := f.byID[id]
 	if !ok {
@@ -315,12 +316,15 @@ func (f fakeStrategyRepo) Get(_ context.Context, id uuid.UUID) (*domain.Strategy
 	}
 	return &strategy, nil
 }
+
 func (f fakeStrategyRepo) List(context.Context, repository.StrategyFilter, int, int) ([]domain.Strategy, error) {
 	return nil, fmt.Errorf("not implemented")
 }
+
 func (f fakeStrategyRepo) Update(context.Context, *domain.Strategy) error {
 	return fmt.Errorf("not implemented")
 }
+
 func (f fakeStrategyRepo) Delete(context.Context, uuid.UUID) error {
 	return fmt.Errorf("not implemented")
 }
@@ -332,6 +336,7 @@ type fakeBacktestConfigRepo struct {
 func (f fakeBacktestConfigRepo) Create(context.Context, *domain.BacktestConfig) error {
 	return fmt.Errorf("not implemented")
 }
+
 func (f fakeBacktestConfigRepo) Get(_ context.Context, id uuid.UUID) (*domain.BacktestConfig, error) {
 	config, ok := f.byID[id]
 	if !ok {
@@ -339,6 +344,7 @@ func (f fakeBacktestConfigRepo) Get(_ context.Context, id uuid.UUID) (*domain.Ba
 	}
 	return &config, nil
 }
+
 func (f fakeBacktestConfigRepo) List(_ context.Context, filter repository.BacktestConfigFilter, limit, offset int) ([]domain.BacktestConfig, error) {
 	configs := make([]domain.BacktestConfig, 0)
 	for _, config := range f.byID {
@@ -362,9 +368,11 @@ func (f fakeBacktestConfigRepo) List(_ context.Context, filter repository.Backte
 	}
 	return configs[offset:end], nil
 }
+
 func (f fakeBacktestConfigRepo) Update(context.Context, *domain.BacktestConfig) error {
 	return fmt.Errorf("not implemented")
 }
+
 func (f fakeBacktestConfigRepo) Delete(context.Context, uuid.UUID) error {
 	return fmt.Errorf("not implemented")
 }
@@ -376,6 +384,7 @@ type fakeBacktestRunRepo struct {
 func (f fakeBacktestRunRepo) Create(context.Context, *domain.BacktestRun) error {
 	return fmt.Errorf("not implemented")
 }
+
 func (f fakeBacktestRunRepo) Get(_ context.Context, id uuid.UUID) (*domain.BacktestRun, error) {
 	run, ok := f.byID[id]
 	if !ok {
@@ -383,6 +392,7 @@ func (f fakeBacktestRunRepo) Get(_ context.Context, id uuid.UUID) (*domain.Backt
 	}
 	return &run, nil
 }
+
 func (f fakeBacktestRunRepo) List(_ context.Context, filter repository.BacktestRunFilter, limit, offset int) ([]domain.BacktestRun, error) {
 	runs := make([]domain.BacktestRun, 0)
 	for _, run := range f.byID {

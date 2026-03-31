@@ -112,10 +112,17 @@ func TestApplyAnalysisOutput_NilLLMResponse(t *testing.T) {
 		t.Errorf("GetAnalystReport = %q, want %q", got, "report without llm")
 	}
 
-	// When LLMResponse is nil, no decision should be recorded.
-	_, ok := state.Decision(AgentRoleNewsAnalyst, PhaseAnalysis, nil)
-	if ok {
-		t.Error("decision should not be recorded when LLMResponse is nil")
+	// Decisions are recorded even when LLMResponse is nil so persistence keeps
+	// skipped/static analyst outputs.
+	decision, ok := state.Decision(AgentRoleNewsAnalyst, PhaseAnalysis, nil)
+	if !ok {
+		t.Fatal("decision should be recorded when LLMResponse is nil")
+	}
+	if decision.OutputText != "report without llm" {
+		t.Errorf("decision output = %q, want %q", decision.OutputText, "report without llm")
+	}
+	if decision.LLMResponse != nil {
+		t.Errorf("decision LLMResponse = %+v, want nil", decision.LLMResponse)
 	}
 }
 
@@ -126,12 +133,22 @@ type typedAnalystNode struct {
 	fn   func(ctx context.Context, input AnalysisInput) (AnalysisOutput, error)
 }
 
-func (n *typedAnalystNode) Name() string    { return n.name }
-func (n *typedAnalystNode) Role() AgentRole { return n.role }
-func (n *typedAnalystNode) Phase() Phase    { return PhaseAnalysis }
+func (n *typedAnalystNode) Name() string {
+	return n.name
+}
+
+func (n *typedAnalystNode) Role() AgentRole {
+	return n.role
+}
+
+func (n *typedAnalystNode) Phase() Phase {
+	return PhaseAnalysis
+}
+
 func (n *typedAnalystNode) Execute(_ context.Context, _ *PipelineState) error {
 	panic("Execute should not be called on a typed AnalystNode")
 }
+
 func (n *typedAnalystNode) Analyze(ctx context.Context, input AnalysisInput) (AnalysisOutput, error) {
 	return n.fn(ctx, input)
 }
@@ -438,7 +455,7 @@ func TestApplyTradingOutput(t *testing.T) {
 
 func TestApplyRiskJudgeOutput(t *testing.T) {
 	state := &PipelineState{
-		mu: &sync.Mutex{},
+		mu:         &sync.Mutex{},
 		RiskDebate: RiskDebateState{},
 	}
 

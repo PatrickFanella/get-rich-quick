@@ -11,7 +11,6 @@ import (
 	"time"
 )
 
-
 func TestAPIClientGet_Success(t *testing.T) {
 	t.Parallel()
 
@@ -165,15 +164,15 @@ func TestAPIClientGet_AuthNone(t *testing.T) {
 	t.Parallel()
 
 	type requestDetails struct {
-		hasApiKeyQuery  bool
-		hasApiKeyHeader bool
+		hasAPIKeyQuery  bool
+		hasAPIKeyHeader bool
 	}
 
 	requests := make(chan requestDetails, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests <- requestDetails{
-			hasApiKeyQuery:  r.URL.Query().Get("apiKey") != "",
-			hasApiKeyHeader: r.Header.Get("X-Api-Key") != "",
+			hasAPIKeyQuery:  r.URL.Query().Get("apiKey") != "",
+			hasAPIKeyHeader: r.Header.Get("X-Api-Key") != "",
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -196,10 +195,10 @@ func TestAPIClientGet_AuthNone(t *testing.T) {
 
 	select {
 	case request := <-requests:
-		if request.hasApiKeyQuery {
+		if request.hasAPIKeyQuery {
 			t.Fatal("apiKey query present, want absent for AuthStyleNone")
 		}
-		if request.hasApiKeyHeader {
+		if request.hasAPIKeyHeader {
 			t.Fatal("X-Api-Key header present, want absent for AuthStyleNone")
 		}
 	case <-time.After(time.Second):

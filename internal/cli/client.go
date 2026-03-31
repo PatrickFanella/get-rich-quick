@@ -97,7 +97,9 @@ func (c *apiClient) do(req *http.Request, dst any) error {
 	if err != nil {
 		return fmt.Errorf("%s %s: %w", req.Method, req.URL.Path, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode >= http.StatusBadRequest {
 		rawBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))

@@ -813,7 +813,7 @@ func TestProcessSignal_SellSignal(t *testing.T) {
 
 func TestProcessSignal_BrokerSubmitError(t *testing.T) {
 	broker := &mockBroker{
-		submitOrderFn: func(ctx context.Context, order *domain.Order) (string, error) {
+		submitOrderFn: func(_ context.Context, _ *domain.Order) (string, error) {
 			return "", errors.New("broker unavailable")
 		},
 	}
@@ -868,7 +868,7 @@ func TestProcessSignal_BrokerSubmitError(t *testing.T) {
 
 func TestProcessSignal_OrderCancelled(t *testing.T) {
 	broker := &mockBroker{
-		getOrderStatusFn: func(ctx context.Context, externalID string) (domain.OrderStatus, error) {
+		getOrderStatusFn: func(_ context.Context, _ string) (domain.OrderStatus, error) {
 			return domain.OrderStatusCancelled, nil
 		},
 	}
@@ -1039,7 +1039,7 @@ func TestProcessSignal_EntryTypeVariants(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			broker := &mockBroker{
-				getOrderStatusFn: func(ctx context.Context, externalID string) (domain.OrderStatus, error) {
+				getOrderStatusFn: func(_ context.Context, _ string) (domain.OrderStatus, error) {
 					return domain.OrderStatusSubmitted, nil
 				},
 			}

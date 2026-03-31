@@ -31,13 +31,13 @@ const reflectionSystemPrompt = "You are a trading reflection assistant. " +
 
 // Reflector generates agent memories by reflecting on closed trade outcomes.
 type Reflector struct {
-	memoryRepo    repository.MemoryRepository
-	pipelineRepo  repository.PipelineRunRepository
-	decisionRepo  repository.AgentDecisionRepository
-	positionRepo  repository.PositionRepository
-	llmProvider   llm.Provider
-	model         string
-	logger        *slog.Logger
+	memoryRepo   repository.MemoryRepository
+	pipelineRepo repository.PipelineRunRepository
+	decisionRepo repository.AgentDecisionRepository
+	positionRepo repository.PositionRepository
+	llmProvider  llm.Provider
+	model        string
+	logger       *slog.Logger
 }
 
 // NewReflector creates a Reflector with the given dependencies.

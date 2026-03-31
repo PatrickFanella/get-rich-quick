@@ -272,6 +272,6 @@ func TestValidateStrategyConfig_OpenRouterModelUnconstrained(t *testing.T) {
 }
 
 // helper pointer constructors used only in tests.
-func strPtr(s string) *string      { return &s }
+func strPtr(s string) *string       { return &s }
 func intPtr(n int) *int             { return &n }
 func float64Ptr(f float64) *float64 { return &f }

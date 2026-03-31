@@ -11,13 +11,13 @@ import (
 
 // ---------- helpers ----------
 
-func testBar(close, high, low, volume float64) domain.OHLCV {
+func testBar(closePrice, high, low, volume float64) domain.OHLCV {
 	return domain.OHLCV{
 		Timestamp: time.Date(2026, 3, 25, 10, 0, 0, 0, time.UTC),
-		Open:      close,
+		Open:      closePrice,
 		High:      high,
 		Low:       low,
-		Close:     close,
+		Close:     closePrice,
 		Volume:    volume,
 	}
 }

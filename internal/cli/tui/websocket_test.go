@@ -35,7 +35,9 @@ func TestConnectWebSocketSubscribesAndStreamsEvents(t *testing.T) {
 			http.Error(w, "failed to upgrade websocket", http.StatusInternalServerError)
 			return
 		}
-		defer conn.Close()
+		defer func() {
+			_ = conn.Close()
+		}()
 
 		var command map[string]string
 		if err := conn.ReadJSON(&command); err != nil {
@@ -74,7 +76,9 @@ func TestConnectWebSocketSubscribesAndStreamsEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConnectWebSocket() error = %v", err)
 	}
-	defer source.Close()
+	defer func() {
+		_ = source.Close()
+	}()
 
 	select {
 	case msg := <-source.Messages():
