@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -152,11 +153,11 @@ func TestHealthEndpoint(t *testing.T) {
 		}
 	}
 
-	if dbHealth.calls != 2 {
-		t.Fatalf("db health calls = %d, want 2", dbHealth.calls)
+	if dbHealth.calls.Load() != 2 {
+		t.Fatalf("db health calls = %d, want 2", dbHealth.calls.Load())
 	}
-	if redisHealth.calls != 2 {
-		t.Fatalf("redis health calls = %d, want 2", redisHealth.calls)
+	if redisHealth.calls.Load() != 2 {
+		t.Fatalf("redis health calls = %d, want 2", redisHealth.calls.Load())
 	}
 }
 
@@ -185,11 +186,11 @@ func TestHealthEndpointDBDown(t *testing.T) {
 	if body["redis"] != "ok" {
 		t.Fatalf("redis = %q, want %q", body["redis"], "ok")
 	}
-	if dbHealth.calls != 1 {
-		t.Fatalf("db health calls = %d, want 1", dbHealth.calls)
+	if dbHealth.calls.Load() != 1 {
+		t.Fatalf("db health calls = %d, want 1", dbHealth.calls.Load())
 	}
-	if redisHealth.calls != 1 {
-		t.Fatalf("redis health calls = %d, want 1", redisHealth.calls)
+	if redisHealth.calls.Load() != 1 {
+		t.Fatalf("redis health calls = %d, want 1", redisHealth.calls.Load())
 	}
 }
 
@@ -218,11 +219,11 @@ func TestHealthEndpointRedisDown(t *testing.T) {
 	if body["redis"] != "error" {
 		t.Fatalf("redis = %q, want %q", body["redis"], "error")
 	}
-	if dbHealth.calls != 1 {
-		t.Fatalf("db health calls = %d, want 1", dbHealth.calls)
+	if dbHealth.calls.Load() != 1 {
+		t.Fatalf("db health calls = %d, want 1", dbHealth.calls.Load())
 	}
-	if redisHealth.calls != 1 {
-		t.Fatalf("redis health calls = %d, want 1", redisHealth.calls)
+	if redisHealth.calls.Load() != 1 {
+		t.Fatalf("redis health calls = %d, want 1", redisHealth.calls.Load())
 	}
 }
 
@@ -1048,11 +1049,12 @@ type stubRunRepo struct {
 }
 
 func (*stubRunRepo) Create(context.Context, *domain.PipelineRun) error { return nil }
+
 func (*stubRunRepo) Get(_ context.Context, _ uuid.UUID, _ time.Time) (*domain.PipelineRun, error) {
 	return nil, fmt.Errorf("run: %w", repository.ErrNotFound)
 }
 
-func (s *stubRunRepo) List(_ context.Context, filter repository.PipelineRunFilter, _ int, _ int) ([]domain.PipelineRun, error) {
+func (s *stubRunRepo) List(_ context.Context, filter repository.PipelineRunFilter, _, _ int) ([]domain.PipelineRun, error) {
 	s.lastFilter = filter
 	return nil, nil
 }
@@ -1173,11 +1175,11 @@ func (stubRiskEngine) ResetCircuitBreaker(context.Context) error        { return
 
 type stubHealthCheck struct {
 	err   error
-	calls int
+	calls atomic.Int32
 }
 
 func (s *stubHealthCheck) Check(context.Context) error {
-	s.calls++
+	s.calls.Add(1)
 	return s.err
 }
 func (stubRiskEngine) IsKillSwitchActive(context.Context) (bool, error)           { return false, nil }
