@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -31,8 +32,8 @@ func TestDocsReferenceContainsNoStalePythonReferences(t *testing.T) {
 		"pip install",
 		"from tradingagents",
 		"import tradingagents",
-		".py",
 	}
+	pythonSourcePathPattern := regexp.MustCompile(`\.py\b`)
 
 	if err := filepath.WalkDir(docsPath, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -57,6 +58,9 @@ func TestDocsReferenceContainsNoStalePythonReferences(t *testing.T) {
 			if strings.Contains(lowerContents, unwanted) {
 				t.Fatalf("%s unexpectedly contains stale Python-era reference %q", relativePath, unwanted)
 			}
+		}
+		if pythonSourcePathPattern.MatchString(lowerContents) {
+			t.Fatalf("%s unexpectedly contains stale Python-era reference matching %q", relativePath, pythonSourcePathPattern.String())
 		}
 
 		return nil
