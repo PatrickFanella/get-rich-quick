@@ -23,7 +23,8 @@ func (u *User) ValidateForCreate() error {
 	if u == nil {
 		return fmt.Errorf("user is required")
 	}
-	if strings.TrimSpace(u.Username) == "" {
+	u.Username = strings.TrimSpace(u.Username)
+	if u.Username == "" {
 		return fmt.Errorf("username is required")
 	}
 	if u.Password == "" {

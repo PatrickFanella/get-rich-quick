@@ -69,7 +69,7 @@ func (r *UserRepo) GetByUsername(ctx context.Context, username string) (*domain.
 	user, err := scanUser(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("postgres: get user by username %s: %w", username, ErrNotFound)
+			return nil, fmt.Errorf("postgres: get user by username %s: %w", username, repository.ErrNotFound)
 		}
 		return nil, fmt.Errorf("postgres: get user by username: %w", err)
 	}
@@ -88,7 +88,7 @@ func (r *UserRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, err
 	user, err := scanUser(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("postgres: get user %s: %w", id, ErrNotFound)
+			return nil, fmt.Errorf("postgres: get user %s: %w", id, repository.ErrNotFound)
 		}
 		return nil, fmt.Errorf("postgres: get user by id: %w", err)
 	}
