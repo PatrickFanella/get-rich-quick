@@ -105,6 +105,38 @@ func TestPipelineStatusIsValid(t *testing.T) {
 	}
 }
 
+func TestAgentDecisionJSONOmitsPromptText(t *testing.T) {
+	decision := AgentDecision{
+		ID:         uuid.New(),
+		OutputText: "final output",
+		PromptText: "sensitive prompt contents",
+	}
+
+	payload, err := json.Marshal(decision)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	if string(payload) == "" {
+		t.Fatal("expected non-empty JSON payload")
+	}
+	if json.Valid(payload) == false {
+		t.Fatalf("expected valid JSON, got %q", string(payload))
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	if _, ok := decoded["prompt_text"]; ok {
+		t.Fatalf("expected prompt_text to be omitted from JSON, got %q", string(payload))
+	}
+	if got := decoded["output_text"]; got != "final output" {
+		t.Fatalf("output_text = %v, want %q", got, "final output")
+	}
+}
+
 func TestPipelineStatusCanTransitionTo(t *testing.T) {
 	tests := []struct {
 		from PipelineStatus
