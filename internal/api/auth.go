@@ -29,6 +29,7 @@ const (
 	refreshTokenType       = "refresh"
 	defaultRefreshTokenTTL = 24 * time.Hour
 	defaultAPIKeyPrefix    = "grq"
+	dummyPasswordHash      = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
 )
 
 var (
@@ -417,6 +418,10 @@ func bearerTokenFromHeader(header string) string {
 
 func verifyPassword(passwordHash, password string) error {
 	return bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password))
+}
+
+func verifyPasswordAgainstDummyHash(password string) {
+	_ = verifyPassword(dummyPasswordHash, password)
 }
 
 func generateAPIKey() (string, string, error) {

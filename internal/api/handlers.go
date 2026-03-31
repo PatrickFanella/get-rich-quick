@@ -61,6 +61,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	user, err := s.users.GetByUsername(r.Context(), req.Username)
 	if err != nil {
 		if isNotFound(err) {
+			verifyPasswordAgainstDummyHash(req.Password)
 			respondError(w, http.StatusUnauthorized, "invalid username or password", ErrCodeUnauthorized)
 			return
 		}
@@ -79,10 +80,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
 	respondJSON(w, http.StatusOK, LoginResponse{
 		AccessToken:  tokenPair.AccessToken,
 		RefreshToken: tokenPair.RefreshToken,
-		ExpiresAt:    tokenPair.ExpiresAt.UTC().Format(time.RFC3339),
+		ExpiresAt:    tokenPair.ExpiresAt.UTC(),
 	})
 }
 

@@ -364,16 +364,17 @@ func TestLoginSuccess(t *testing.T) {
 	if resp.RefreshToken == "" {
 		t.Fatal("refresh_token should not be empty")
 	}
-	if resp.ExpiresAt == "" {
-		t.Fatal("expires_at should not be empty")
+	if rr.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("Cache-Control = %q, want %q", rr.Header().Get("Cache-Control"), "no-store")
 	}
-
-	expiresAt, err := time.Parse(time.RFC3339, resp.ExpiresAt)
-	if err != nil {
-		t.Fatalf("time.Parse() error = %v", err)
+	if rr.Header().Get("Pragma") != "no-cache" {
+		t.Fatalf("Pragma = %q, want %q", rr.Header().Get("Pragma"), "no-cache")
 	}
-	if expiresAt.Before(time.Now().UTC()) {
-		t.Fatalf("expires_at = %s, want future timestamp", resp.ExpiresAt)
+	if resp.ExpiresAt.IsZero() {
+		t.Fatal("expires_at should not be zero")
+	}
+	if resp.ExpiresAt.Before(time.Now().UTC()) {
+		t.Fatalf("expires_at = %v, want future timestamp", resp.ExpiresAt)
 	}
 
 	principal, err := srv.auth.ValidateAccessToken(resp.AccessToken)
@@ -1423,7 +1424,7 @@ func (s *stubAPIKeyRepo) Revoke(_ context.Context, id uuid.UUID, revokedAt time.
 			return nil
 		}
 	}
-	return fmt.Errorf("api key %s: %w", id, repository.ErrNotFound)
+	return fmt.Errorf("api key %v: %w", id, repository.ErrNotFound)
 }
 
 func (s *stubAPIKeyRepo) TouchLastUsed(_ context.Context, id uuid.UUID, lastUsedAt time.Time) error {
@@ -1438,7 +1439,7 @@ func (s *stubAPIKeyRepo) TouchLastUsed(_ context.Context, id uuid.UUID, lastUsed
 			return nil
 		}
 	}
-	return fmt.Errorf("api key %s: %w", id, repository.ErrNotFound)
+	return fmt.Errorf("api key %v: %w", id, repository.ErrNotFound)
 }
 
 func (s *stubUserRepo) Create(_ context.Context, user *domain.User) error {
@@ -1475,7 +1476,7 @@ func (s *stubUserRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.User, e
 			return &userCopy, nil
 		}
 	}
-	return nil, fmt.Errorf("user %s: %w", id, repository.ErrNotFound)
+	return nil, fmt.Errorf("user %v: %w", id, repository.ErrNotFound)
 }
 
 func (s *stubStrategyRepo) Create(_ context.Context, strategy *domain.Strategy) error {
@@ -1486,7 +1487,7 @@ func (s *stubStrategyRepo) Create(_ context.Context, strategy *domain.Strategy) 
 func (s *stubStrategyRepo) Get(_ context.Context, id uuid.UUID) (*domain.Strategy, error) {
 	st, ok := s.items[id]
 	if !ok {
-		return nil, fmt.Errorf("strategy %s: %w", id, repository.ErrNotFound)
+		return nil, fmt.Errorf("strategy %v: %w", id, repository.ErrNotFound)
 	}
 	return &st, nil
 }
@@ -1501,7 +1502,7 @@ func (s *stubStrategyRepo) List(_ context.Context, _ repository.StrategyFilter, 
 
 func (s *stubStrategyRepo) Update(_ context.Context, strategy *domain.Strategy) error {
 	if _, ok := s.items[strategy.ID]; !ok {
-		return fmt.Errorf("strategy %s: %w", strategy.ID, repository.ErrNotFound)
+		return fmt.Errorf("strategy %v: %w", strategy.ID, repository.ErrNotFound)
 	}
 	s.items[strategy.ID] = *strategy
 	return nil
@@ -1509,7 +1510,7 @@ func (s *stubStrategyRepo) Update(_ context.Context, strategy *domain.Strategy) 
 
 func (s *stubStrategyRepo) Delete(_ context.Context, id uuid.UUID) error {
 	if _, ok := s.items[id]; !ok {
-		return fmt.Errorf("strategy %s: %w", id, repository.ErrNotFound)
+		return fmt.Errorf("strategy %v: %w", id, repository.ErrNotFound)
 	}
 	delete(s.items, id)
 	return nil
