@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { RunsPage } from '@/pages/runs-page'
@@ -18,7 +19,12 @@ function Wrapper({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={client}>
-      <MemoryRouter>{children}</MemoryRouter>
+      <MemoryRouter initialEntries={['/runs']}>
+        <Routes>
+          <Route path="runs" element={children} />
+          <Route path="runs/:id" element={<div data-testid="run-detail-route">Run detail route</div>} />
+        </Routes>
+      </MemoryRouter>
     </QueryClientProvider>
   )
 }
@@ -64,20 +70,28 @@ const baseRun = {
   completed_at: '2025-01-03T09:01:00Z',
 }
 
+function createStrategyResponse() {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({ data: strategies, total: strategies.length, limit: 500, offset: 0 }),
+  }
+}
+
+function createRunsResponse(data: typeof baseRun[], total = data.length, offset = 0) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({ data, total, limit: 21, offset }),
+  }
+}
+
 describe('RunsPage', () => {
   it('renders filters and populates the strategy dropdown', async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ data: strategies, total: strategies.length, limit: 500, offset: 0 }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ data: [baseRun], total: 1, limit: 21, offset: 0 }),
-      })
+      .mockResolvedValueOnce(createStrategyResponse())
+      .mockResolvedValueOnce(createRunsResponse([baseRun], 1))
     vi.stubGlobal('fetch', fetchMock)
 
     render(<RunsPage />, { wrapper: Wrapper })
@@ -105,26 +119,10 @@ describe('RunsPage', () => {
 
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ data: strategies, total: strategies.length, limit: 500, offset: 0 }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ data: secondPageRuns, total: 40, limit: 21, offset: 0 }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ data: [baseRun], total: 1, limit: 21, offset: 20 }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ data: [baseRun], total: 1, limit: 21, offset: 0 }),
-      })
+      .mockResolvedValueOnce(createStrategyResponse())
+      .mockResolvedValueOnce(createRunsResponse(secondPageRuns, 40))
+      .mockResolvedValueOnce(createRunsResponse([baseRun], 1, 20))
+      .mockResolvedValueOnce(createRunsResponse([baseRun], 1))
     vi.stubGlobal('fetch', fetchMock)
 
     render(<RunsPage />, { wrapper: Wrapper })
@@ -163,26 +161,10 @@ describe('RunsPage', () => {
   it('clears filters and shows an empty state when nothing matches', async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ data: strategies, total: strategies.length, limit: 500, offset: 0 }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ data: [baseRun], total: 1, limit: 21, offset: 0 }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ data: [], total: 0, limit: 21, offset: 0 }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ data: [baseRun], total: 1, limit: 21, offset: 0 }),
-      })
+      .mockResolvedValueOnce(createStrategyResponse())
+      .mockResolvedValueOnce(createRunsResponse([baseRun], 1))
+      .mockResolvedValueOnce(createRunsResponse([], 0))
+      .mockResolvedValueOnce(createRunsResponse([baseRun], 1))
     vi.stubGlobal('fetch', fetchMock)
 
     render(<RunsPage />, { wrapper: Wrapper })
@@ -206,5 +188,104 @@ describe('RunsPage', () => {
     expect(requestUrl.searchParams.get('status')).toBeNull()
     expect(requestUrl.searchParams.get('offset')).toBe('0')
     expect(await screen.findByText('AAPL')).toBeInTheDocument()
+  })
+
+  it('navigates to the run detail route when a row is clicked', async () => {
+    const user = userEvent.setup()
+    const runId = baseRun.id
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(createStrategyResponse())
+      .mockResolvedValueOnce(createRunsResponse([{ ...baseRun, id: runId }], 1))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<RunsPage />, { wrapper: Wrapper })
+
+    const row = await screen.findByTestId(`run-row-${runId}`)
+    const link = screen.getByTestId(`run-link-${runId}`)
+
+    expect(row).toHaveClass('cursor-pointer')
+    expect(row).toHaveClass('hover:bg-secondary/40')
+    expect(link).toHaveClass('cursor-pointer')
+
+    await user.click(row)
+
+    expect(await screen.findByTestId('run-detail-route')).toBeInTheDocument()
+  })
+
+  it('navigates to the run detail route when the row link is activated with Enter', async () => {
+    const user = userEvent.setup()
+    const runId = baseRun.id
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(createStrategyResponse())
+      .mockResolvedValueOnce(createRunsResponse([{ ...baseRun, id: runId }], 1))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<RunsPage />, { wrapper: Wrapper })
+
+    const link = await screen.findByTestId(`run-link-${runId}`)
+    link.focus()
+
+    expect(link).toHaveFocus()
+
+    await user.keyboard('{Enter}')
+
+    expect(await screen.findByTestId('run-detail-route')).toBeInTheDocument()
+  })
+
+  it('navigates to the run detail route when the row is activated with Enter', async () => {
+    const user = userEvent.setup()
+    const runId = baseRun.id
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(createStrategyResponse())
+      .mockResolvedValueOnce(createRunsResponse([{ ...baseRun, id: runId }], 1))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<RunsPage />, { wrapper: Wrapper })
+
+    const row = await screen.findByTestId(`run-row-${runId}`)
+    row.focus()
+
+    expect(row).toHaveFocus()
+
+    await user.keyboard('{Enter}')
+
+    expect(await screen.findByTestId('run-detail-route')).toBeInTheDocument()
+  })
+
+  it('navigates to the run detail route when the row is activated with Space', async () => {
+    const user = userEvent.setup()
+    const runId = baseRun.id
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(createStrategyResponse())
+      .mockResolvedValueOnce(createRunsResponse([{ ...baseRun, id: runId }], 1))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<RunsPage />, { wrapper: Wrapper })
+
+    const row = await screen.findByTestId(`run-row-${runId}`)
+    row.focus()
+
+    expect(row).toHaveFocus()
+
+    await user.keyboard(' ')
+
+    expect(await screen.findByTestId('run-detail-route')).toBeInTheDocument()
+  })
+
+  it('shows error state when fetch fails', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(createStrategyResponse())
+      .mockRejectedValueOnce(new Error('Network error'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<RunsPage />, { wrapper: Wrapper })
+
+    expect(await screen.findByTestId('runs-error')).toBeInTheDocument()
+    expect(screen.getByText('Unable to load runs')).toBeInTheDocument()
   })
 })

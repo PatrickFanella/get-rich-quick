@@ -1,44 +1,48 @@
 import { useQuery } from '@tanstack/react-query'
-import {
-  AlertCircle,
-  CalendarRange,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Loader2,
-  Search,
-  XCircle,
-} from 'lucide-react'
+import { Activity, ChevronLeft, ChevronRight, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { apiClient } from '@/lib/api/client'
-import type { PipelineRun, PipelineStatus, Strategy, UUID } from '@/lib/api/types'
+import type { PipelineRun, PipelineSignal, PipelineStatus, Strategy, UUID } from '@/lib/api/types'
 
 const PAGE_SIZE = 20
 const PAGE_REQUEST_SIZE = PAGE_SIZE + 1
 const STATUS_OPTIONS: PipelineStatus[] = ['running', 'completed', 'failed', 'cancelled']
+const SIGNAL_VARIANTS: Record<PipelineSignal, 'success' | 'destructive' | 'secondary'> = {
+  buy: 'success',
+  sell: 'destructive',
+  hold: 'secondary',
+}
+const STATUS_VARIANTS: Record<PipelineStatus, 'default' | 'success' | 'destructive' | 'warning'> = {
+  running: 'default',
+  completed: 'success',
+  failed: 'destructive',
+  cancelled: 'warning',
+}
+const INTERACTIVE_SELECTOR = 'a, button, input, select, textarea, [role="button"], [role="link"]'
 
-type BadgeVariant = 'default' | 'secondary' | 'success' | 'destructive' | 'warning'
+function formatDateFilter(value: string, boundary: 'start' | 'end') {
+  if (!value) {
+    return undefined
+  }
 
-interface StatusInfo {
-  icon: typeof CheckCircle2
-  label: string
-  variant: BadgeVariant
+  return boundary === 'start' ? `${value}T00:00:00.000Z` : `${value}T23:59:59.999Z`
 }
 
-const statusConfig: Record<PipelineStatus, StatusInfo> = {
-  completed: { icon: CheckCircle2, label: 'Completed', variant: 'success' },
-  running: { icon: Loader2, label: 'Running', variant: 'default' },
-  failed: { icon: XCircle, label: 'Failed', variant: 'destructive' },
-  cancelled: { icon: AlertCircle, label: 'Cancelled', variant: 'warning' },
+function strategyLabel(strategy: Strategy) {
+  return `${strategy.name} (${strategy.ticker})`
 }
 
-function formatDate(dateStr?: string) {
+function formatStatusLabel(status: PipelineStatus) {
+  return status.charAt(0).toUpperCase() + status.slice(1)
+}
+
+function formatRunDate(dateStr?: string) {
   if (!dateStr) {
     return '—'
   }
@@ -52,31 +56,16 @@ function formatDate(dateStr?: string) {
   })
 }
 
-function formatDateFilter(value: string, boundary: 'start' | 'end') {
-  if (!value) {
-    return undefined
-  }
-
-  return boundary === 'start' ? `${value}T00:00:00.000Z` : `${value}T23:59:59.999Z`
-}
-
 function RunStatusBadge({ status }: { status: PipelineStatus }) {
-  const config = statusConfig[status]
-  const Icon = config.icon
-
-  return (
-    <Badge variant={config.variant} className="gap-1">
-      <Icon className={`size-3 ${status === 'running' ? 'animate-spin' : ''}`} />
-      {config.label}
-    </Badge>
-  )
+  return <Badge variant={STATUS_VARIANTS[status]}>{formatStatusLabel(status)}</Badge>
 }
 
-function strategyLabel(strategy: Strategy) {
-  return `${strategy.name} (${strategy.ticker})`
+function RunSignalBadge({ signal }: { signal: PipelineSignal }) {
+  return <Badge variant={SIGNAL_VARIANTS[signal]}>{signal}</Badge>
 }
 
 export function RunsPage() {
+  const navigate = useNavigate()
   const [draftStrategyId, setDraftStrategyId] = useState<UUID | ''>('')
   const [draftStatus, setDraftStatus] = useState<PipelineStatus | ''>('')
   const [draftStartDate, setDraftStartDate] = useState('')
@@ -103,6 +92,8 @@ export function RunsPage() {
         limit: PAGE_REQUEST_SIZE,
         offset,
       }),
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: false,
   })
 
   const strategies = useMemo(() => strategiesData?.data ?? [], [strategiesData?.data])
@@ -181,7 +172,7 @@ export function RunsPage() {
               <option value="">All statuses</option>
               {STATUS_OPTIONS.map((option) => (
                 <option key={option} value={option}>
-                  {statusConfig[option].label}
+                  {formatStatusLabel(option)}
                 </option>
               ))}
             </select>
@@ -217,9 +208,13 @@ export function RunsPage() {
           <div className="space-y-1.5">
             <CardTitle>Run history</CardTitle>
             <CardDescription>
-              {visibleCount
-                ? `Showing ${offset + 1}-${offset + visibleCount} on page ${pageLabel}`
-                : 'No runs on this page'}
+              {isLoading
+                ? 'Loading…'
+                : isError
+                  ? 'Unable to load runs'
+                  : visibleCount
+                    ? `Showing ${offset + 1}-${offset + visibleCount} on page ${pageLabel}`
+                    : 'No runs on this page'}
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
@@ -258,11 +253,11 @@ export function RunsPage() {
             </div>
           ) : isError ? (
             <p className="text-sm text-muted-foreground" data-testid="runs-error">
-              Unable to load runs right now. Start the API server to browse recent executions.
+              Unable to load runs. Start the API server to see live data.
             </p>
           ) : !visibleRuns.length ? (
             <div className="flex flex-col items-center gap-2 py-8 text-center" data-testid="runs-empty">
-              <CalendarRange className="size-8 text-muted-foreground" />
+              <Activity className="size-8 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
                 {hasActiveFilters ? 'No runs matched the current filters.' : 'No runs yet.'}
               </p>
@@ -274,10 +269,10 @@ export function RunsPage() {
                   <tr className="border-b text-left text-muted-foreground">
                     <th className="pb-2 font-medium">Ticker</th>
                     <th className="pb-2 font-medium">Strategy</th>
+                    <th className="pb-2 font-medium">Status</th>
+                    <th className="pb-2 font-medium">Signal</th>
                     <th className="pb-2 font-medium">Started</th>
                     <th className="pb-2 font-medium">Completed</th>
-                    <th className="pb-2 font-medium">Signal</th>
-                    <th className="pb-2 font-medium">Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -285,23 +280,60 @@ export function RunsPage() {
                     const strategy = strategiesById.get(run.strategy_id)
 
                     return (
-                      <tr key={run.id} className="border-b last:border-0 align-top">
-                        <td className="py-3 font-medium">
-                          <Link to={`/runs/${run.id}`} className="hover:underline">
+                      <tr
+                        key={run.id}
+                        className="cursor-pointer border-b transition-colors hover:bg-secondary/40 focus-within:bg-secondary/40 last:border-0"
+                        data-testid={`run-row-${run.id}`}
+                        tabIndex={0}
+                        onClick={(event) => {
+                          if ((event.target as HTMLElement).closest(INTERACTIVE_SELECTOR)) {
+                            return
+                          }
+
+                          navigate(`/runs/${run.id}`)
+                        }}
+                        onKeyDown={(event) => {
+                          if (
+                            event.key !== 'Enter' &&
+                            event.key !== ' '
+                          ) {
+                            return
+                          }
+                          const interactiveElement = (event.target as HTMLElement).closest(
+                            INTERACTIVE_SELECTOR,
+                          )
+
+                          if (interactiveElement) {
+                            if (event.key === ' ') {
+                              event.preventDefault()
+                            }
+                            return
+                          }
+
+                          event.preventDefault()
+                          navigate(`/runs/${run.id}`)
+                        }}
+                      >
+                        <td className="py-0 font-medium">
+                          <Link
+                            to={`/runs/${run.id}`}
+                            className="block w-full cursor-pointer py-3 hover:underline focus-visible:underline"
+                            data-testid={`run-link-${run.id}`}
+                          >
                             {run.ticker}
                           </Link>
                         </td>
                         <td className="py-3 text-muted-foreground">
                           {strategy ? strategyLabel(strategy) : run.strategy_id}
                         </td>
-                        <td className="py-3 text-muted-foreground">{formatDate(run.started_at)}</td>
-                        <td className="py-3 text-muted-foreground">{formatDate(run.completed_at)}</td>
-                        <td className="py-3">
-                          {run.signal ? <Badge variant="secondary">{run.signal}</Badge> : '—'}
-                        </td>
                         <td className="py-3">
                           <RunStatusBadge status={run.status} />
                         </td>
+                        <td className="py-3">
+                          {run.signal ? <RunSignalBadge signal={run.signal} /> : '—'}
+                        </td>
+                        <td className="py-3">{formatRunDate(run.started_at)}</td>
+                        <td className="py-3">{formatRunDate(run.completed_at)}</td>
                       </tr>
                     )
                   })}
