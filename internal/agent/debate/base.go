@@ -47,39 +47,43 @@ func (b BaseDebater) Model() string { return b.model }
 
 // CallWithContext sends a completion request to the LLM provider with the
 // given system prompt, previous debate rounds, and analyst reports formatted
-// as the user message. It returns the response content, token usage, and any
-// error encountered. Errors are prefixed with "role (phase):" for easier
-// debugging.
+// as the user message. It returns the response content, the concatenated prompt
+// text sent to the LLM (system message followed by user message), token usage,
+// and any error encountered. Errors are prefixed with "role (phase):" for
+// easier debugging.
 func (b BaseDebater) CallWithContext(
 	ctx context.Context,
 	systemPrompt string,
 	previousRounds []agent.DebateRound,
 	analystReports map[agent.AgentRole]string,
-) (string, llm.CompletionUsage, error) {
+) (string, string, llm.CompletionUsage, error) {
 	errorPrefix := fmt.Sprintf("%s (%s)", b.role, b.phase)
 
 	if b.provider == nil {
-		return "", llm.CompletionUsage{}, fmt.Errorf("%s: nil llm provider", errorPrefix)
+		return "", "", llm.CompletionUsage{}, fmt.Errorf("%s: nil llm provider", errorPrefix)
 	}
+
+	messages := []llm.Message{
+		{Role: "system", Content: systemPrompt},
+		{
+			Role:    "user",
+			Content: formatContextForPrompt(previousRounds, analystReports),
+		},
+	}
+	promptText := agent.PromptTextFromMessages(messages)
 
 	resp, err := b.provider.Complete(ctx, llm.CompletionRequest{
-		Model: b.model,
-		Messages: []llm.Message{
-			{Role: "system", Content: systemPrompt},
-			{
-				Role:    "user",
-				Content: formatContextForPrompt(previousRounds, analystReports),
-			},
-		},
+		Model:    b.model,
+		Messages: messages,
 	})
 	if err != nil {
-		return "", llm.CompletionUsage{}, fmt.Errorf("%s: llm completion failed: %w", errorPrefix, err)
+		return "", "", llm.CompletionUsage{}, fmt.Errorf("%s: llm completion failed: %w", errorPrefix, err)
 	}
 	if resp == nil {
-		return "", llm.CompletionUsage{}, fmt.Errorf("%s: nil llm response", errorPrefix)
+		return "", "", llm.CompletionUsage{}, fmt.Errorf("%s: nil llm response", errorPrefix)
 	}
 
-	return resp.Content, resp.Usage, nil
+	return resp.Content, promptText, resp.Usage, nil
 }
 
 func formatContextForPrompt(
