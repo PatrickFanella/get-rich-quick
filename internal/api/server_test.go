@@ -416,6 +416,50 @@ func TestListRuns(t *testing.T) {
 	}
 }
 
+func TestListRunsAppliesDateRangeFilters(t *testing.T) {
+	t.Parallel()
+
+	runRepo := &stubRunRepo{}
+	deps := testDeps()
+	deps.Runs = runRepo
+	srv := newTestServerWithDeps(t, deps)
+
+	startDate := "2026-03-14T09:30:00Z"
+	endDate := "2026-03-15T16:00:00Z"
+	rr := doRequest(
+		t,
+		srv,
+		http.MethodGet,
+		fmt.Sprintf(
+			"/api/v1/runs?status=completed&strategy_id=%s&start_date=%s&end_date=%s",
+			stratA.ID,
+			startDate,
+			endDate,
+		),
+		nil,
+	)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	if runRepo.lastFilter.StrategyID == nil || *runRepo.lastFilter.StrategyID != stratA.ID {
+		t.Fatalf("strategy_id filter = %v, want %s", runRepo.lastFilter.StrategyID, stratA.ID)
+	}
+	if runRepo.lastFilter.Status != domain.PipelineStatusCompleted {
+		t.Fatalf("status filter = %q, want %q", runRepo.lastFilter.Status, domain.PipelineStatusCompleted)
+	}
+
+	expectedStartDate, _ := time.Parse(time.RFC3339, startDate)
+	expectedEndDate, _ := time.Parse(time.RFC3339, endDate)
+	if runRepo.lastFilter.StartedAfter == nil || !runRepo.lastFilter.StartedAfter.Equal(expectedStartDate) {
+		t.Fatalf("start_date filter = %v, want %v", runRepo.lastFilter.StartedAfter, expectedStartDate)
+	}
+	if runRepo.lastFilter.StartedBefore == nil || !runRepo.lastFilter.StartedBefore.Equal(expectedEndDate) {
+		t.Fatalf("end_date filter = %v, want %v", runRepo.lastFilter.StartedBefore, expectedEndDate)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Portfolio
 // ---------------------------------------------------------------------------
@@ -906,18 +950,21 @@ func (s *stubStrategyRepo) Delete(_ context.Context, id uuid.UUID) error {
 
 // stubRunRepo
 
-type stubRunRepo struct{}
+type stubRunRepo struct {
+	lastFilter repository.PipelineRunFilter
+}
 
-func (stubRunRepo) Create(context.Context, *domain.PipelineRun) error { return nil }
-func (stubRunRepo) Get(_ context.Context, _ uuid.UUID, _ time.Time) (*domain.PipelineRun, error) {
+func (*stubRunRepo) Create(context.Context, *domain.PipelineRun) error { return nil }
+func (*stubRunRepo) Get(_ context.Context, _ uuid.UUID, _ time.Time) (*domain.PipelineRun, error) {
 	return nil, fmt.Errorf("run: %w", repository.ErrNotFound)
 }
 
-func (stubRunRepo) List(context.Context, repository.PipelineRunFilter, int, int) ([]domain.PipelineRun, error) {
+func (s *stubRunRepo) List(_ context.Context, filter repository.PipelineRunFilter, _ int, _ int) ([]domain.PipelineRun, error) {
+	s.lastFilter = filter
 	return nil, nil
 }
 
-func (stubRunRepo) UpdateStatus(context.Context, uuid.UUID, time.Time, repository.PipelineRunStatusUpdate) error {
+func (*stubRunRepo) UpdateStatus(context.Context, uuid.UUID, time.Time, repository.PipelineRunStatusUpdate) error {
 	return nil
 }
 

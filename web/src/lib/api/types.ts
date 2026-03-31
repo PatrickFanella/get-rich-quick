@@ -325,6 +325,8 @@ export interface RunListParams {
   ticker?: string
   status?: PipelineStatus
   strategy_id?: UUID
+  start_date?: ISODateString
+  end_date?: ISODateString
 }
 
 export interface PositionListParams {

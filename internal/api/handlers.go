@@ -206,6 +206,22 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 			filter.StrategyID = &id
 		}
 	}
+	if startDateStr := q.Get("start_date"); startDateStr != "" {
+		startDate, err := time.Parse(time.RFC3339, startDateStr)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, "invalid start_date", ErrCodeBadRequest)
+			return
+		}
+		filter.StartedAfter = &startDate
+	}
+	if endDateStr := q.Get("end_date"); endDateStr != "" {
+		endDate, err := time.Parse(time.RFC3339, endDateStr)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, "invalid end_date", ErrCodeBadRequest)
+			return
+		}
+		filter.StartedBefore = &endDate
+	}
 
 	runs, err := s.runs.List(r.Context(), filter, limit, offset)
 	if err != nil {
