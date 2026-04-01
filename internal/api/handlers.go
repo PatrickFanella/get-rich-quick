@@ -190,7 +190,7 @@ func validateStrategyConfigPayload(raw domain.StrategyConfig) error {
 
 	var cfg agent.StrategyConfig
 	if err := json.Unmarshal(raw, &cfg); err != nil {
-		return errors.New("invalid config: " + err.Error())
+		return fmt.Errorf("invalid config: %w", err)
 	}
 
 	return agent.ValidateStrategyConfig(cfg)

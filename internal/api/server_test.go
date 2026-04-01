@@ -144,6 +144,23 @@ func assertValidationError(t *testing.T, rr *httptest.ResponseRecorder, wantSubs
 	}
 }
 
+func TestValidateStrategyConfigPayloadWrapsJSONError(t *testing.T) {
+	t.Parallel()
+
+	err := validateStrategyConfigPayload(domain.StrategyConfig(`{"llm_config":`))
+	if err == nil {
+		t.Fatal("validateStrategyConfigPayload() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "invalid config:") {
+		t.Fatalf("error = %q, want prefix %q", err.Error(), "invalid config:")
+	}
+
+	var syntaxErr *json.SyntaxError
+	if !errors.As(err, &syntaxErr) {
+		t.Fatalf("errors.As(err, *json.SyntaxError) = false, want true; err = %v", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Health check
 // ---------------------------------------------------------------------------
