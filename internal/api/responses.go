@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 )
 
 // Standard error codes used in API error responses.
@@ -29,6 +30,13 @@ type ListResponse struct {
 	Total  int `json:"total,omitempty"`
 	Limit  int `json:"limit"`
 	Offset int `json:"offset"`
+}
+
+// LoginResponse is returned after a successful authentication request.
+type LoginResponse struct {
+	AccessToken  string    `json:"access_token"`
+	RefreshToken string    `json:"refresh_token"`
+	ExpiresAt    time.Time `json:"expires_at"`
 }
 
 // respondJSON writes a JSON response with the given status code.
