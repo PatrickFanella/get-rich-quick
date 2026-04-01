@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -19,6 +20,11 @@ const (
 	defaultLimit = 50
 	maxLimit     = 100
 )
+
+type loginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
 
 // parsePagination extracts limit/offset query params with sane defaults.
 func parsePagination(r *http.Request) (limit, offset int) {
@@ -37,6 +43,50 @@ func parsePagination(r *http.Request) (limit, offset int) {
 		}
 	}
 	return limit, offset
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var req loginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body", ErrCodeBadRequest)
+		return
+	}
+
+	req.Username = strings.TrimSpace(req.Username)
+	if req.Username == "" || req.Password == "" {
+		respondError(w, http.StatusBadRequest, "username and password are required", ErrCodeValidation)
+		return
+	}
+
+	user, err := s.users.GetByUsername(r.Context(), req.Username)
+	if err != nil {
+		if isNotFound(err) {
+			verifyPasswordAgainstDummyHash(req.Password)
+			respondError(w, http.StatusUnauthorized, "invalid username or password", ErrCodeUnauthorized)
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to authenticate user", ErrCodeInternal)
+		return
+	}
+
+	if err := verifyPassword(user.PasswordHash, req.Password); err != nil {
+		respondError(w, http.StatusUnauthorized, "invalid username or password", ErrCodeUnauthorized)
+		return
+	}
+
+	tokenPair, err := s.auth.GenerateTokenPair(user.Username)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to generate auth tokens", ErrCodeInternal)
+		return
+	}
+
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	respondJSON(w, http.StatusOK, LoginResponse{
+		AccessToken:  tokenPair.AccessToken,
+		RefreshToken: tokenPair.RefreshToken,
+		ExpiresAt:    tokenPair.ExpiresAt.UTC(),
+	})
 }
 
 // parseUUID extracts a UUID from a chi URL parameter.

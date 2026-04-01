@@ -18,6 +18,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
 	"github.com/PatrickFanella/get-rich-quick/internal/repository"
@@ -28,6 +29,9 @@ const (
 	refreshTokenType       = "refresh"
 	defaultRefreshTokenTTL = 24 * time.Hour
 	defaultAPIKeyPrefix    = "grq"
+	// dummyPasswordHash is a valid bcrypt hash used to equalize login timing
+	// when a username is not found.
+	dummyPasswordHash = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
 )
 
 var (
@@ -412,6 +416,16 @@ func bearerTokenFromHeader(header string) string {
 		return ""
 	}
 	return strings.TrimSpace(header[len("Bearer "):])
+}
+
+func verifyPassword(passwordHash, password string) error {
+	return bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password))
+}
+
+// verifyPasswordAgainstDummyHash performs a bcrypt comparison on a fixed hash
+// so missing users take a similar amount of time as wrong-password checks.
+func verifyPasswordAgainstDummyHash(password string) {
+	_ = verifyPassword(dummyPasswordHash, password)
 }
 
 func generateAPIKey() (string, string, error) {
