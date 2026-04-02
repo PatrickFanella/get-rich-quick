@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 
 export interface ChatMessage {
   id: string
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'system'
   content: string
   agent_role?: string
   created_at: string
@@ -56,14 +56,20 @@ export function ChatPanel({ messages, onSendMessage, isLoading = false, header }
             <div
               key={msg.id}
               className={`flex ${
-                msg.role === 'user' ? 'justify-end' : 'justify-start'
+                msg.role === 'user'
+                  ? 'justify-end'
+                  : msg.role === 'system'
+                    ? 'justify-center'
+                    : 'justify-start'
               }`}
             >
               <div
-                className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${
+                className={`rounded-lg px-3 py-2 text-sm ${
                   msg.role === 'user'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted'
+                    ? 'max-w-[80%] bg-primary text-primary-foreground'
+                    : msg.role === 'system'
+                      ? 'max-w-full border bg-muted/40 text-center text-muted-foreground'
+                      : 'max-w-[80%] bg-muted'
                 }`}
               >
                 {msg.role === 'assistant' && msg.agent_role ? (

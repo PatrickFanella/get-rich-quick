@@ -238,6 +238,102 @@ describe('RealtimePage', () => {
     )
   })
 
+  it('auto-creates an event conversation with a visible loading state and UI-only context note', async () => {
+    const riskEvent = { ...secondaryEvent, agent_role: 'risk_manager' as const, created_at: '2024-12-31T23:59:00Z' }
+    let resolveCreateConversation: ((response: ReturnType<typeof jsonResponse>) => void) | undefined
+    const createConversationResponse = new Promise<ReturnType<typeof jsonResponse>>((resolve) => {
+      resolveCreateConversation = resolve
+    })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(listResponse([baseEvent, riskEvent], 50)))
+      .mockResolvedValueOnce(jsonResponse(listResponse([traderConversation], 50)))
+      .mockResolvedValueOnce(jsonResponse(listResponse([
+        {
+          id: 'msg-1',
+          conversation_id: 'conv-1',
+          role: 'assistant',
+          content: 'Existing conversation answer.',
+          created_at: '2025-01-01T00:01:00Z',
+        },
+      ], 100)))
+      .mockReturnValueOnce(createConversationResponse)
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<RealtimePage />, { wrapper: Wrapper })
+
+    expect(await screen.findByText('Existing conversation answer.')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('event-card-evt-2'))
+
+    expect(screen.getByTestId('selected-event-panel')).toHaveTextContent('Pipeline failed')
+    expect(screen.getByTestId('typing-indicator')).toBeInTheDocument()
+
+    resolveCreateConversation?.(
+      jsonResponse({
+        id: 'conv-3',
+        pipeline_run_id: 'run-2',
+        agent_role: 'risk_manager',
+        title: 'Chat with Risk Manager — TSLA',
+        created_at: '2025-01-02T00:03:00Z',
+        updated_at: '2025-01-02T00:03:00Z',
+      }, 201),
+    )
+
+    await waitFor(() => expect(screen.getByTestId('conversation-selector')).toHaveValue('conv-3'))
+    expect(screen.getByTestId('chat-panel')).toHaveTextContent('Context note')
+    expect(screen.getByTestId('chat-panel')).toHaveTextContent('not saved to the conversation')
+    expect(screen.getByTestId('chat-panel')).toHaveTextContent('TSLA')
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      expect.objectContaining({ href: 'http://localhost:8080/api/v1/conversations' }),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ pipeline_run_id: 'run-2', agent_role: 'risk_manager' }),
+      }),
+    )
+  })
+
+  it('switches event cards to the matching conversation history', async () => {
+    const riskEvent = { ...secondaryEvent, agent_role: 'risk_manager' as const, created_at: '2024-12-31T23:59:00Z' }
+    const fetchMock = stubFetch(
+      jsonResponse(listResponse([baseEvent, riskEvent], 50)),
+      jsonResponse(listResponse([traderConversation, riskConversation], 50)),
+      jsonResponse(listResponse([
+        {
+          id: 'msg-1',
+          conversation_id: 'conv-1',
+          role: 'assistant',
+          content: 'Trader context answer.',
+          created_at: '2025-01-01T00:01:00Z',
+        },
+      ], 100)),
+      jsonResponse(listResponse([
+        {
+          id: 'msg-2',
+          conversation_id: 'conv-2',
+          role: 'assistant',
+          content: 'Risk manager answer.',
+          created_at: '2025-01-01T00:05:00Z',
+        },
+      ], 100)),
+    )
+
+    render(<RealtimePage />, { wrapper: Wrapper })
+
+    expect(await screen.findByText('Trader context answer.')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('event-card-evt-2'))
+
+    expect(screen.getByTestId('selected-event-panel')).toHaveTextContent('Pipeline failed')
+    expect(await screen.findByText('Risk manager answer.')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText('Trader context answer.')).not.toBeInTheDocument())
+    expect(screen.getByTestId('conversation-selector')).toHaveValue('conv-2')
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      expect.objectContaining({ href: 'http://localhost:8080/api/v1/conversations/conv-2/messages?limit=100' }),
+      expect.any(Object),
+    )
+  })
+
   it('switches conversation history from the selector without changing selected event details', async () => {
     const fetchMock = stubFetch(
       jsonResponse(listResponse([baseEvent], 50)),
