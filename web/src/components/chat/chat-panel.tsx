@@ -19,7 +19,7 @@ export function ChatPanel({ messages }: ChatPanelProps) {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages.length])
+  }, [messages])
 
   return (
     <div

@@ -31,15 +31,16 @@ func NewWebhookNotifier(rawURL, secret string) *WebhookNotifier {
 
 // Notify sends an alert payload to the configured webhook endpoint.
 func (n *WebhookNotifier) Notify(ctx context.Context, alert Alert) error {
-	payload, err := json.Marshal(map[string]any{
+	p := FormatPayload("alert", string(alert.Severity), "", "", map[string]any{
 		"key":         alert.Key,
 		"title":       alert.Title,
 		"body":        alert.Body,
-		"severity":    alert.Severity,
 		"occurred_at": alert.OccurredAt.UTC().Format(time.RFC3339),
 		"metadata":    alert.Metadata,
 		"text":        formatAlertText(alert),
-	})
+	}, "")
+
+	payload, err := json.Marshal(p)
 	if err != nil {
 		return fmt.Errorf("marshal webhook payload: %w", err)
 	}

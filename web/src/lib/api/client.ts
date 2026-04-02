@@ -310,7 +310,14 @@ export class ApiClient {
         }
 
         const data = await response.json() as { access_token: string; refresh_token: string; expires_at: string | number }
-        setTokens(data.access_token, data.refresh_token, data.expires_at)
+        const expiresAt =
+          typeof data.expires_at === 'string' ? Date.parse(data.expires_at) : data.expires_at
+
+        if (Number.isNaN(expiresAt)) {
+          throw new Error('Invalid expires_at value in refresh response')
+        }
+
+        setTokens(data.access_token, data.refresh_token, expiresAt)
       } catch {
         clearTokens()
         this.redirectToLogin()

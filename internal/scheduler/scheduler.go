@@ -304,7 +304,7 @@ func (s *Scheduler) runStrategy(strategy domain.Strategy) {
 	defer s.dedup.Release(strategy.ID)
 
 	// Re-read strategy to get latest status and skip_next_run.
-	fetchCtx, fetchCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	fetchCtx, fetchCancel := context.WithTimeout(s.ctx, 5*time.Second)
 	defer fetchCancel()
 	current, err := s.strategyRepo.Get(fetchCtx, strategy.ID)
 	if err != nil {

@@ -8,7 +8,7 @@ import type { EngineStatus } from '@/lib/api/types'
 const mockEngineStatus: EngineStatus = {
   risk_status: 'normal',
   circuit_breaker: { state: 'open', reason: '' },
-  kill_switch: { active: false, reason: '', mechanisms: [], activated_at: null as unknown as string },
+  kill_switch: { active: false, reason: '', mechanisms: [] },
   position_limits: {
     max_per_position_pct: 10,
     max_total_pct: 80,
