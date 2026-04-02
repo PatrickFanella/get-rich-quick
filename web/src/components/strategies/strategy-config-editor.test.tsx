@@ -13,25 +13,23 @@ const mockStrategy: Strategy = {
   market_type: 'stock',
   schedule_cron: '0 9 * * 1-5',
   config: {
-    llm: {
-      deep_think_provider: 'anthropic',
+    llm_config: {
+      provider: 'anthropic',
       deep_think_model: 'claude-3-opus',
-      quick_think_provider: 'openai',
       quick_think_model: 'gpt-4o-mini',
     },
-    pipeline: {
-      research_debate_rounds: 4,
-      risk_debate_rounds: 2,
-      phase_timeout: '2m',
-      pipeline_timeout: '10m',
+    pipeline_config: {
+      debate_rounds: 4,
+      analysis_timeout_seconds: 120,
+      debate_timeout_seconds: 600,
     },
-    risk: {
-      max_position_size_pct: 0.2,
-      stop_loss_atr_multiplier: 1.5,
-      take_profit_atr_multiplier: 2.5,
-      min_confidence_threshold: 0.7,
+    risk_config: {
+      position_size_pct: 20,
+      stop_loss_multiplier: 1.5,
+      take_profit_multiplier: 2.5,
+      min_confidence: 0.7,
     },
-    analysts: ['market', 'news'],
+    analyst_selection: ['market_analyst', 'news_analyst'],
     prompt_overrides: {
       trader: 'Use custom trader prompt',
     },
@@ -107,9 +105,9 @@ describe('StrategyConfigEditor', () => {
     )
 
     expect(screen.getByLabelText('Research Debate Rounds')).toHaveValue(4)
-    expect(screen.getByLabelText('Risk Debate Rounds')).toHaveValue(2)
-    expect(screen.getByLabelText('Phase Timeout')).toHaveValue('2m')
-    expect(screen.getByLabelText('Pipeline Timeout')).toHaveValue('10m')
+    expect(screen.getByLabelText('Risk Debate Rounds')).toHaveValue(null)
+    expect(screen.getByLabelText('Analysis Timeout (seconds)')).toHaveValue(120)
+    expect(screen.getByLabelText('Debate Timeout (seconds)')).toHaveValue(600)
     expect(screen.getByLabelText('Max Position Size %')).toHaveValue(0.2)
     expect(screen.getByLabelText('Stop Loss ATR Multiplier')).toHaveValue(1.5)
     expect(screen.getByLabelText('Take Profit ATR Multiplier')).toHaveValue(2.5)
@@ -162,8 +160,8 @@ describe('StrategyConfigEditor', () => {
     fireEvent.change(screen.getByLabelText('Quick Think Model'), { target: { value: 'gpt-5' } })
     fireEvent.change(screen.getByLabelText('Research Debate Rounds'), { target: { value: '3' } })
     fireEvent.change(screen.getByLabelText('Risk Debate Rounds'), { target: { value: '2' } })
-    fireEvent.change(screen.getByLabelText('Phase Timeout'), { target: { value: '90s' } })
-    fireEvent.change(screen.getByLabelText('Pipeline Timeout'), { target: { value: '15m' } })
+    fireEvent.change(screen.getByLabelText('Analysis Timeout (seconds)'), { target: { value: '90' } })
+    fireEvent.change(screen.getByLabelText('Debate Timeout (seconds)'), { target: { value: '900' } })
     fireEvent.change(screen.getByLabelText('Max Position Size %'), { target: { value: '0.25' } })
     fireEvent.change(screen.getByLabelText('Stop Loss ATR Multiplier'), { target: { value: '1.8' } })
     fireEvent.change(screen.getByLabelText('Take Profit ATR Multiplier'), { target: { value: '2.8' } })
@@ -188,26 +186,25 @@ describe('StrategyConfigEditor', () => {
       schedule_cron: '0 9 * * 1-5',
       status: 'active',
       is_paper: true,
+      skip_next_run: false,
       config: {
-        llm: {
-          deep_think_provider: 'anthropic',
+        llm_config: {
+          provider: 'anthropic',
           deep_think_model: 'claude-4',
-          quick_think_provider: 'openai',
           quick_think_model: 'gpt-5',
         },
-        pipeline: {
-          research_debate_rounds: 3,
-          risk_debate_rounds: 2,
-          phase_timeout: '90s',
-          pipeline_timeout: '15m',
+        pipeline_config: {
+          debate_rounds: 3,
+          analysis_timeout_seconds: 90,
+          debate_timeout_seconds: 900,
         },
-        risk: {
-          max_position_size_pct: 0.25,
-          stop_loss_atr_multiplier: 1.8,
-          take_profit_atr_multiplier: 2.8,
-          min_confidence_threshold: 0.75,
+        risk_config: {
+          position_size_pct: 25,
+          stop_loss_multiplier: 1.8,
+          take_profit_multiplier: 2.8,
+          min_confidence: 0.75,
         },
-        analysts: ['market', 'news', 'fundamentals', 'social'],
+        analyst_selection: ['market_analyst', 'news_analyst', 'fundamentals_analyst', 'social_media_analyst'],
         prompt_overrides: {
           trader: 'Use concise prompts',
         },

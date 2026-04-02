@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import type { MarketType, Settings, Strategy, StrategyStatus, StrategyUpdateRequest } from '@/lib/api/types'
+import type { AgentRole, MarketType, Settings, Strategy, StrategyStatus, StrategyUpdateRequest } from '@/lib/api/types'
 
 interface StrategyConfigEditorProps {
   strategy: Strategy
@@ -15,7 +15,7 @@ interface StrategyConfigEditorProps {
 }
 
 const marketTypes: MarketType[] = ['stock', 'crypto', 'polymarket']
-const allAnalysts = ['market', 'fundamentals', 'news', 'social']
+const allAnalysts: AgentRole[] = ['market_analyst', 'fundamentals_analyst', 'news_analyst', 'social_media_analyst']
 
 function resolveStrategyStatus(strategy: Strategy): StrategyStatus {
   if (strategy.status) {
@@ -47,16 +47,16 @@ export function StrategyConfigEditor({ strategy, onSave, isSaving, settings }: S
   const [stopLossAtrMultiplier, setStopLossAtrMultiplier] = useState('')
   const [takeProfitAtrMultiplier, setTakeProfitAtrMultiplier] = useState('')
   const [minConfidenceThreshold, setMinConfidenceThreshold] = useState('')
-  const [selectedAnalysts, setSelectedAnalysts] = useState<string[]>(allAnalysts)
+  const [selectedAnalysts, setSelectedAnalysts] = useState<AgentRole[]>(allAnalysts)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [promptOverrides, setPromptOverrides] = useState('{}')
 
   useEffect(() => {
     const cfg = (strategy.config ?? {}) as Record<string, unknown>
-    const llm = (cfg.llm ?? {}) as Record<string, unknown>
-    const pipeline = (cfg.pipeline ?? {}) as Record<string, unknown>
-    const risk = (cfg.risk ?? {}) as Record<string, unknown>
-    const analysts = Array.isArray(cfg.analysts) ? (cfg.analysts as string[]) : allAnalysts
+    const llm = (cfg.llm_config ?? {}) as Record<string, unknown>
+    const pipeline = (cfg.pipeline_config ?? {}) as Record<string, unknown>
+    const risk = (cfg.risk_config ?? {}) as Record<string, unknown>
+    const analysts = Array.isArray(cfg.analyst_selection) ? (cfg.analyst_selection as AgentRole[]) : allAnalysts
 
     setName(strategy.name)
     setDescription(strategy.description ?? '')
@@ -68,31 +68,33 @@ export function StrategyConfigEditor({ strategy, onSave, isSaving, settings }: S
     setConfigJson(JSON.stringify(strategy.config ?? {}, null, 2))
     setConfigError(null)
 
-    setDeepThinkProvider((llm.deep_think_provider as string) ?? '')
+    setDeepThinkProvider((llm.provider as string) ?? '')
     setDeepThinkModel((llm.deep_think_model as string) ?? '')
-    setQuickThinkProvider((llm.quick_think_provider as string) ?? '')
+    setQuickThinkProvider('')
     setQuickThinkModel((llm.quick_think_model as string) ?? '')
 
     setResearchDebateRounds(
-      pipeline.research_debate_rounds == null ? '' : String(pipeline.research_debate_rounds),
+      pipeline.debate_rounds == null ? '' : String(pipeline.debate_rounds),
     )
-    setRiskDebateRounds(
-      pipeline.risk_debate_rounds == null ? '' : String(pipeline.risk_debate_rounds),
+    setRiskDebateRounds('')
+    setPhaseTimeout(
+      pipeline.analysis_timeout_seconds == null ? '' : String(pipeline.analysis_timeout_seconds),
     )
-    setPhaseTimeout((pipeline.phase_timeout as string) ?? '')
-    setPipelineTimeout((pipeline.pipeline_timeout as string) ?? '')
+    setPipelineTimeout(
+      pipeline.debate_timeout_seconds == null ? '' : String(pipeline.debate_timeout_seconds),
+    )
 
     setMaxPositionSizePct(
-      risk.max_position_size_pct == null ? '' : String(risk.max_position_size_pct),
+      risk.position_size_pct == null ? '' : String((risk.position_size_pct as number) / 100),
     )
     setStopLossAtrMultiplier(
-      risk.stop_loss_atr_multiplier == null ? '' : String(risk.stop_loss_atr_multiplier),
+      risk.stop_loss_multiplier == null ? '' : String(risk.stop_loss_multiplier),
     )
     setTakeProfitAtrMultiplier(
-      risk.take_profit_atr_multiplier == null ? '' : String(risk.take_profit_atr_multiplier),
+      risk.take_profit_multiplier == null ? '' : String(risk.take_profit_multiplier),
     )
     setMinConfidenceThreshold(
-      risk.min_confidence_threshold == null ? '' : String(risk.min_confidence_threshold),
+      risk.min_confidence == null ? '' : String(risk.min_confidence),
     )
 
     setSelectedAnalysts(analysts.length > 0 ? analysts : allAnalysts)
@@ -105,7 +107,7 @@ export function StrategyConfigEditor({ strategy, onSave, isSaving, settings }: S
     [settings?.llm?.providers],
   )
 
-  function toggleAnalyst(analyst: string, checked: boolean) {
+  function toggleAnalyst(analyst: AgentRole, checked: boolean) {
     setSelectedAnalysts((prev) => {
       if (checked) {
         return prev.includes(analyst) ? prev : [...prev, analyst]
@@ -149,33 +151,32 @@ export function StrategyConfigEditor({ strategy, onSave, isSaving, settings }: S
     setConfigError(null)
 
     const llmConfig: Record<string, string> = {}
-    if (deepThinkProvider) llmConfig.deep_think_provider = deepThinkProvider
+    if (deepThinkProvider) llmConfig.provider = deepThinkProvider
     if (deepThinkModel) llmConfig.deep_think_model = deepThinkModel
-    if (quickThinkProvider) llmConfig.quick_think_provider = quickThinkProvider
     if (quickThinkModel) llmConfig.quick_think_model = quickThinkModel
     if (Object.keys(llmConfig).length > 0) {
-      config.llm = { ...((config.llm as Record<string, unknown>) ?? {}), ...llmConfig }
+      config.llm_config = { ...((config.llm_config as Record<string, unknown>) ?? {}), ...llmConfig }
     }
 
     const pipelineConfig: Record<string, unknown> = {}
-    if (researchDebateRounds) pipelineConfig.research_debate_rounds = numberValue(researchDebateRounds)
-    if (riskDebateRounds) pipelineConfig.risk_debate_rounds = numberValue(riskDebateRounds)
-    if (phaseTimeout.trim()) pipelineConfig.phase_timeout = phaseTimeout.trim()
-    if (pipelineTimeout.trim()) pipelineConfig.pipeline_timeout = pipelineTimeout.trim()
+    const debateRoundsSource = researchDebateRounds !== '' ? researchDebateRounds : riskDebateRounds
+    if (debateRoundsSource) pipelineConfig.debate_rounds = numberValue(debateRoundsSource)
+    if (phaseTimeout.trim()) pipelineConfig.analysis_timeout_seconds = numberValue(phaseTimeout)
+    if (pipelineTimeout.trim()) pipelineConfig.debate_timeout_seconds = numberValue(pipelineTimeout)
     if (Object.keys(pipelineConfig).length > 0) {
-      config.pipeline = { ...((config.pipeline as Record<string, unknown>) ?? {}), ...pipelineConfig }
+      config.pipeline_config = { ...((config.pipeline_config as Record<string, unknown>) ?? {}), ...pipelineConfig }
     }
 
     const riskConfig: Record<string, unknown> = {}
-    if (maxPositionSizePct) riskConfig.max_position_size_pct = numberValue(maxPositionSizePct)
-    if (stopLossAtrMultiplier) riskConfig.stop_loss_atr_multiplier = numberValue(stopLossAtrMultiplier)
-    if (takeProfitAtrMultiplier) riskConfig.take_profit_atr_multiplier = numberValue(takeProfitAtrMultiplier)
-    if (minConfidenceThreshold) riskConfig.min_confidence_threshold = numberValue(minConfidenceThreshold)
+    if (maxPositionSizePct) riskConfig.position_size_pct = numberValue(maxPositionSizePct) * 100
+    if (stopLossAtrMultiplier) riskConfig.stop_loss_multiplier = numberValue(stopLossAtrMultiplier)
+    if (takeProfitAtrMultiplier) riskConfig.take_profit_multiplier = numberValue(takeProfitAtrMultiplier)
+    if (minConfidenceThreshold) riskConfig.min_confidence = numberValue(minConfidenceThreshold)
     if (Object.keys(riskConfig).length > 0) {
-      config.risk = { ...((config.risk as Record<string, unknown>) ?? {}), ...riskConfig }
+      config.risk_config = { ...((config.risk_config as Record<string, unknown>) ?? {}), ...riskConfig }
     }
 
-    config.analysts = selectedAnalysts
+    config.analyst_selection = selectedAnalysts
 
     if (Object.keys(parsedPromptOverrides).length > 0) {
       config.prompt_overrides = parsedPromptOverrides
@@ -193,6 +194,7 @@ export function StrategyConfigEditor({ strategy, onSave, isSaving, settings }: S
       config,
       status: nextStatus,
       is_paper: isPaper,
+      skip_next_run: strategy.skip_next_run,
     })
   }
 
@@ -321,12 +323,12 @@ export function StrategyConfigEditor({ strategy, onSave, isSaving, settings }: S
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="phase-timeout">Phase Timeout</Label>
-                <Input id="phase-timeout" value={phaseTimeout} onChange={(e) => setPhaseTimeout(e.target.value)} placeholder="2m" />
+                <Label htmlFor="phase-timeout">Analysis Timeout (seconds)</Label>
+                <Input id="phase-timeout" type="number" min={1} value={phaseTimeout} onChange={(e) => setPhaseTimeout(e.target.value)} placeholder="120" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="pipeline-timeout">Pipeline Timeout</Label>
-                <Input id="pipeline-timeout" value={pipelineTimeout} onChange={(e) => setPipelineTimeout(e.target.value)} placeholder="10m" />
+                <Label htmlFor="pipeline-timeout">Debate Timeout (seconds)</Label>
+                <Input id="pipeline-timeout" type="number" min={1} value={pipelineTimeout} onChange={(e) => setPipelineTimeout(e.target.value)} placeholder="600" />
               </div>
             </div>
           </div>
@@ -359,19 +361,19 @@ export function StrategyConfigEditor({ strategy, onSave, isSaving, settings }: S
             <h4 className="text-sm font-medium">Analysts</h4>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={selectedAnalysts.includes('market')} onChange={(e) => toggleAnalyst('market', e.target.checked)} className="rounded border-input" />
+                <input type="checkbox" checked={selectedAnalysts.includes('market_analyst')} onChange={(e) => toggleAnalyst('market_analyst', e.target.checked)} className="rounded border-input" />
                 Market Analyst
               </label>
               <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={selectedAnalysts.includes('fundamentals')} onChange={(e) => toggleAnalyst('fundamentals', e.target.checked)} className="rounded border-input" />
+                <input type="checkbox" checked={selectedAnalysts.includes('fundamentals_analyst')} onChange={(e) => toggleAnalyst('fundamentals_analyst', e.target.checked)} className="rounded border-input" />
                 Fundamentals Analyst
               </label>
               <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={selectedAnalysts.includes('news')} onChange={(e) => toggleAnalyst('news', e.target.checked)} className="rounded border-input" />
+                <input type="checkbox" checked={selectedAnalysts.includes('news_analyst')} onChange={(e) => toggleAnalyst('news_analyst', e.target.checked)} className="rounded border-input" />
                 News Analyst
               </label>
               <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={selectedAnalysts.includes('social')} onChange={(e) => toggleAnalyst('social', e.target.checked)} className="rounded border-input" />
+                <input type="checkbox" checked={selectedAnalysts.includes('social_media_analyst')} onChange={(e) => toggleAnalyst('social_media_analyst', e.target.checked)} className="rounded border-input" />
                 Social Media Analyst
               </label>
             </div>

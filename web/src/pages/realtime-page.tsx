@@ -24,7 +24,7 @@ const MAX_LIVE_EVENTS = 100
 type FeedItem = AgentEvent & { live?: boolean }
 
 function isWebSocketMessage(message: WebSocketServerMessage): message is WebSocketMessage {
-  return 'type' in message && !('status' in message)
+  return 'type' in message && !('error' in message) && !('status' in message)
 }
 
 function eventIcon(kind: string) {

@@ -214,9 +214,9 @@ func validateWebhookNotification(errs *[]string, cfg WebhookNotificationConfig, 
 }
 
 func validateDiscordNotification(errs *[]string, cfg DiscordNotificationConfig) {
-	validateURLIfSet(errs, cfg.SignalWebhookURL, "NOTIFY_DISCORD_SIGNAL_WEBHOOK_URL")
-	validateURLIfSet(errs, cfg.DecisionWebhookURL, "NOTIFY_DISCORD_DECISION_WEBHOOK_URL")
-	validateURLIfSet(errs, cfg.AlertWebhookURL, "NOTIFY_DISCORD_ALERT_WEBHOOK_URL")
+	validateURLIfSet(errs, cfg.SignalWebhookURL, "Discord signal webhook URL")
+	validateURLIfSet(errs, cfg.DecisionWebhookURL, "Discord decision webhook URL")
+	validateURLIfSet(errs, cfg.AlertWebhookURL, "Discord alert webhook URL")
 }
 
 func validateURLIfSet(errs *[]string, rawURL, envName string) {

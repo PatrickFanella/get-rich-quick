@@ -418,4 +418,5 @@ export interface StrategyUpdateRequest {
   status: StrategyStatus
   is_active?: boolean
   is_paper: boolean
+  skip_next_run?: boolean
 }
