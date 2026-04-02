@@ -142,8 +142,8 @@ above.
 | `NOTIFY_SMTP_PASSWORD` | empty | SMTP password |
 | `NOTIFY_EMAIL_FROM` | empty | Sender email address |
 | `NOTIFY_EMAIL_TO` | empty | Comma-separated email recipients |
-| `NOTIFY_WEBHOOK_URL` | empty | Generic webhook destination; use this for n8n. There is no `N8N_WEBHOOK_URL` in the current config loader |
-| `NOTIFY_WEBHOOK_SECRET` | empty | Generic webhook shared secret sent as `X-Webhook-Secret` |
+| `N8N_WEBHOOK_URL` | empty | n8n webhook destination for structured alert, signal, and decision payloads |
+| `N8N_WEBHOOK_SECRET` | empty | Optional n8n shared secret sent as `X-Webhook-Secret` |
 | `NOTIFY_PAGERDUTY_WEBHOOK_URL` | empty | PagerDuty webhook URL |
 | `NOTIFY_PAGERDUTY_WEBHOOK_SECRET` | empty | PagerDuty webhook shared secret |
 | `NOTIFY_DISCORD_SIGNAL_WEBHOOK_URL` | empty | Preferred Discord signal webhook env var; legacy aliases `DISCORD_WEBHOOK_SIGNALS` and `DISCORD_SIGNAL_WEBHOOK_URL` still load |

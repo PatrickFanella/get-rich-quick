@@ -186,7 +186,12 @@ func newLLMProviderFromConfig(cfg config.LLMConfig, logger *slog.Logger) llm.Pro
 }
 
 func newNotificationManager(cfg config.Config) *notification.Manager {
-	notifiers := map[string]notification.Notifier{}
+	notifiers := map[string]notification.Notifier{
+		notification.ChannelN8N: notification.NewWebhookNotifier(
+			cfg.Notifications.N8N.URL,
+			cfg.Notifications.N8N.Secret,
+		),
+	}
 
 	if cfg.Notifications.Telegram.BotToken != "" && cfg.Notifications.Telegram.ChatID != "" {
 		notifiers[notification.ChannelTelegram] = notification.NewTelegramNotifier(
@@ -203,13 +208,6 @@ func newNotificationManager(cfg config.Config) *notification.Manager {
 			cfg.Notifications.Email.Password,
 			cfg.Notifications.Email.From,
 			cfg.Notifications.Email.To,
-		)
-	}
-
-	if cfg.Notifications.Webhook.URL != "" {
-		notifiers[notification.ChannelWebhook] = notification.NewWebhookNotifier(
-			cfg.Notifications.Webhook.URL,
-			cfg.Notifications.Webhook.Secret,
 		)
 	}
 
