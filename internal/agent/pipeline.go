@@ -452,6 +452,18 @@ func (p *Pipeline) ExecuteStrategy(ctx context.Context, strategy domain.Strategy
 
 	resolved := ResolveConfig(stratCfg, globals)
 
+	// Save original config values and restore them when done so that resolved
+	// strategy config does not leak into subsequent runs.
+	origResearchDebateRounds := p.config.ResearchDebateRounds
+	origRiskDebateRounds := p.config.RiskDebateRounds
+	origPhaseTimeout := p.config.PhaseTimeout
+	defer func() {
+		p.config.ResearchDebateRounds = origResearchDebateRounds
+		p.config.RiskDebateRounds = origRiskDebateRounds
+		p.config.PhaseTimeout = origPhaseTimeout
+		p.configSnapshot = nil
+	}()
+
 	// Apply resolved pipeline config to the pipeline's runtime config.
 	p.config.ResearchDebateRounds = resolved.PipelineConfig.DebateRounds
 	p.config.RiskDebateRounds = resolved.PipelineConfig.DebateRounds
@@ -459,12 +471,10 @@ func (p *Pipeline) ExecuteStrategy(ctx context.Context, strategy domain.Strategy
 		p.config.PhaseTimeout = time.Duration(resolved.PipelineConfig.AnalysisTimeoutSeconds) * time.Second
 	}
 
-	// Snapshot the resolved config for auditability.
+	// Snapshot the resolved config for auditability and store it so Execute
+	// can attach it to the PipelineRun.
 	configSnapshot, _ := json.Marshal(resolved)
-
-	// Store the snapshot so Execute can attach it to the PipelineRun.
 	p.configSnapshot = configSnapshot
-	defer func() { p.configSnapshot = nil }()
 
 	return p.Execute(ctx, strategy.ID, strategy.Ticker)
 }

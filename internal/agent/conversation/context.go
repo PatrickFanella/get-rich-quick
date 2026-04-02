@@ -133,14 +133,20 @@ func (b *ContextBuilder) truncate(
 		return systemPrompt, messages
 	}
 
-	// Drop memory section too.
-	systemPrompt = core
-	total = estimateTokens(systemPrompt) + estimateMessages(messages)
+	// Truncate older conversation turns (keep most recent) before dropping memory.
+	for len(messages) > 0 && total > b.maxTokens {
+		total -= estimateTokens(messages[0].Content)
+		messages = messages[1:]
+	}
 	if total <= b.maxTokens {
 		return systemPrompt, messages
 	}
 
-	// Truncate older conversation turns (keep most recent).
+	// As a last resort, drop memory section too.
+	systemPrompt = core
+	total = estimateTokens(systemPrompt) + estimateMessages(messages)
+
+	// Truncate any remaining messages if still over budget.
 	for len(messages) > 0 && total > b.maxTokens {
 		total -= estimateTokens(messages[0].Content)
 		messages = messages[1:]

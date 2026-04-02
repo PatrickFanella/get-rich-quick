@@ -822,14 +822,20 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
 		filter.AgentRole = domain.AgentRole(v)
 	}
 	if v := q.Get("after"); v != "" {
-		if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
-			filter.CreatedAfter = &t
+		t, err := time.Parse(time.RFC3339Nano, v)
+		if err != nil {
+			http.Error(w, "invalid 'after' query parameter: must be RFC3339/RFC3339Nano", http.StatusBadRequest)
+			return
 		}
+		filter.CreatedAfter = &t
 	}
 	if v := q.Get("before"); v != "" {
-		if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
-			filter.CreatedBefore = &t
+		t, err := time.Parse(time.RFC3339Nano, v)
+		if err != nil {
+			http.Error(w, "invalid 'before' query parameter: must be RFC3339/RFC3339Nano", http.StatusBadRequest)
+			return
 		}
+		filter.CreatedBefore = &t
 	}
 
 	events, err := s.events.List(r.Context(), filter, limit, offset)
@@ -961,14 +967,20 @@ func (s *Server) handleListAuditLog(w http.ResponseWriter, r *http.Request) {
 		EntityType: q.Get("entity_type"),
 	}
 	if v := q.Get("after"); v != "" {
-		if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
-			filter.CreatedAfter = &t
+		t, err := time.Parse(time.RFC3339Nano, v)
+		if err != nil {
+			http.Error(w, "invalid 'after' query parameter: must be RFC3339/RFC3339Nano", http.StatusBadRequest)
+			return
 		}
+		filter.CreatedAfter = &t
 	}
 	if v := q.Get("before"); v != "" {
-		if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
-			filter.CreatedBefore = &t
+		t, err := time.Parse(time.RFC3339Nano, v)
+		if err != nil {
+			http.Error(w, "invalid 'before' query parameter: must be RFC3339/RFC3339Nano", http.StatusBadRequest)
+			return
 		}
+		filter.CreatedBefore = &t
 	}
 
 	entries, err := s.auditLog.Query(r.Context(), filter, limit, offset)

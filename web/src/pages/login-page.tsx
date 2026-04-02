@@ -30,7 +30,7 @@ export function LoginPage() {
 
     try {
       const res = await apiClient.login({ username, password })
-      setTokens(res.access_token, res.refresh_token, res.expires_at)
+      setTokens(res.access_token, res.refresh_token, new Date(res.expires_at).getTime())
       const redirectTo = (location.state as { from?: string } | null)?.from ?? '/'
       navigate(redirectTo, { replace: true })
     } catch (err) {

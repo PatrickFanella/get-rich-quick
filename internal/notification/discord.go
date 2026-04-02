@@ -97,7 +97,8 @@ func metadataFields(md map[string]string) []map[string]any {
 }
 
 // Send posts a single embed to the given Discord webhook URL. It handles 429
-// rate-limit responses by reading the Retry-After header and retrying once.
+// rate-limit responses by respecting the Retry-After header and retrying up to
+// maxAttempts times before returning an error.
 func (n *DiscordNotifier) Send(ctx context.Context, webhookURL string, embed map[string]any) error {
 	if strings.TrimSpace(webhookURL) == "" {
 		return nil
@@ -110,34 +111,39 @@ func (n *DiscordNotifier) Send(ctx context.Context, webhookURL string, embed map
 		return fmt.Errorf("discord: marshal payload: %w", err)
 	}
 
-	resp, err := n.doPost(ctx, webhookURL, payload)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode == http.StatusTooManyRequests {
-		retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
-		_ = resp.Body.Close()
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(retryAfter):
-		}
-
-		resp, err = n.doPost(ctx, webhookURL, payload)
+	const maxAttempts = 5
+	for attempt := range maxAttempts {
+		resp, err := n.doPost(ctx, webhookURL, payload)
 		if err != nil {
 			return err
 		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
+			_ = resp.Body.Close()
+
+			if attempt == maxAttempts-1 {
+				return fmt.Errorf("discord: still rate limited after %d attempts", maxAttempts)
+			}
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(retryAfter):
+				continue
+			}
+		}
+
 		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode >= http.StatusBadRequest {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			return fmt.Errorf("discord: webhook returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		}
+		return nil
 	}
 
-	if resp.StatusCode >= http.StatusBadRequest {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("discord: webhook returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
-	}
-	return nil
+	return fmt.Errorf("discord: still rate limited after %d attempts", maxAttempts)
 }
 
 // doPost sends a JSON POST to url with the given body bytes.

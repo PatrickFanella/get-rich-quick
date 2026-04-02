@@ -9,14 +9,14 @@ import (
 	"github.com/PatrickFanella/get-rich-quick/internal/metrics"
 )
 
-// newMetrics creates a Metrics instance for testing. Because promauto registers
-// against the default registry and we can only register each name once per
-// process, all tests share this single instance.
+// metrics.New() uses a private registry per instance, so New() can be called
+// multiple times in the same process without duplicate-registration panics.
+// Each test that needs an isolated registry should call metrics.New() directly.
 var shared = metrics.New()
 
 func TestNew(t *testing.T) {
 	t.Parallel()
-	m := shared
+	m := metrics.New() // each call is now safe
 	if m.PipelineRunsTotal == nil {
 		t.Fatal("PipelineRunsTotal is nil")
 	}
@@ -68,15 +68,22 @@ func TestConvenienceMethods(t *testing.T) {
 
 func TestHandler(t *testing.T) {
 	t.Parallel()
-	m := shared
+	// Use a fresh isolated registry so this test does not depend on the
+	// execution order of TestConvenienceMethods. Vector metrics (counters,
+	// histograms) only appear in the output once at least one label
+	// combination has been observed; record seed data here.
+	m := metrics.New()
+	m.RecordPipelineRun("AAPL", "buy", "success")
+	m.ObservePipelineDuration("AAPL", 1.5)
+	m.RecordLLMCall("openai", "gpt-4", "analyst")
+	m.RecordLLMTokens(100, 200)
+	m.ObserveLLMLatency("openai", "gpt-4", 0.8)
+	m.RecordOrder("alpaca", "buy", "filled")
 
 	h := m.Handler()
 	if h == nil {
 		t.Fatal("Handler() returned nil")
 	}
-
-	// Ensure the handler implements http.Handler.
-	_ = h
 
 	// Fire a request and check that expected metric names appear in the output.
 	rec := httptest.NewRecorder()
