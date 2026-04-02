@@ -189,14 +189,14 @@ func TestManagerRoutesImmediateTelegramAlerts(t *testing.T) {
 	}
 }
 
-func TestManagerRoutesSignalsAndDecisionsToWebhookAndDiscord(t *testing.T) {
+func TestManagerRoutesSignalsAndDecisionsToN8NAndDiscord(t *testing.T) {
 	t.Parallel()
 
-	webhook := &recordingStructuredNotifier{}
+	n8n := &recordingStructuredNotifier{}
 	discord := &recordingStructuredNotifier{}
 	pagerDuty := &recordingStructuredNotifier{}
 	manager := NewManager(testAlertRules(), map[string]Notifier{
-		ChannelWebhook:   webhook,
+		ChannelN8N:       n8n,
 		ChannelDiscord:   discord,
 		ChannelPagerDuty: pagerDuty,
 	})
@@ -232,18 +232,18 @@ func TestManagerRoutesSignalsAndDecisionsToWebhookAndDiscord(t *testing.T) {
 		t.Fatalf("RecordDecision() error = %v", err)
 	}
 
-	if len(webhook.signals) != 1 || len(discord.signals) != 1 {
-		t.Fatalf("signal counts = webhook:%d discord:%d, want 1 each", len(webhook.signals), len(discord.signals))
+	if len(n8n.signals) != 1 || len(discord.signals) != 1 {
+		t.Fatalf("signal counts = n8n:%d discord:%d, want 1 each", len(n8n.signals), len(discord.signals))
 	}
-	if len(webhook.decisions) != 1 || len(discord.decisions) != 1 {
-		t.Fatalf("decision counts = webhook:%d discord:%d, want 1 each", len(webhook.decisions), len(discord.decisions))
+	if len(n8n.decisions) != 1 || len(discord.decisions) != 1 {
+		t.Fatalf("decision counts = n8n:%d discord:%d, want 1 each", len(n8n.decisions), len(discord.decisions))
 	}
 	if len(pagerDuty.signals) != 0 || len(pagerDuty.decisions) != 0 {
 		t.Fatalf("pagerduty structured notifications = signals:%d decisions:%d, want 0", len(pagerDuty.signals), len(pagerDuty.decisions))
 	}
 
-	if got := webhook.signals[0].Signal; got != domain.PipelineSignalBuy {
-		t.Fatalf("webhook signal = %q, want %q", got, domain.PipelineSignalBuy)
+	if got := n8n.signals[0].Signal; got != domain.PipelineSignalBuy {
+		t.Fatalf("n8n signal = %q, want %q", got, domain.PipelineSignalBuy)
 	}
 	if got := discord.decisions[0].AgentRole; got != domain.AgentRoleTrader {
 		t.Fatalf("discord decision role = %q, want %q", got, domain.AgentRoleTrader)

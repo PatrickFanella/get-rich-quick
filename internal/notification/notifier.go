@@ -14,7 +14,7 @@ import (
 const (
 	ChannelTelegram  = "telegram"
 	ChannelEmail     = "email"
-	ChannelWebhook   = "webhook"
+	ChannelN8N       = "n8n"
 	ChannelPagerDuty = "pagerduty"
 	ChannelDiscord   = "discord"
 )

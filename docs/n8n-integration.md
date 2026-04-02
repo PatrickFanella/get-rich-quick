@@ -1,19 +1,19 @@
 # n8n integration guide
 
-The current runtime integrates with n8n through the generic webhook notifier.
+The runtime exposes a dedicated n8n notification surface backed by the structured webhook notifier.
 The canonical variables are:
 
-- `NOTIFY_WEBHOOK_URL`
-- `NOTIFY_WEBHOOK_SECRET`
+- `N8N_WEBHOOK_URL`
+- `N8N_WEBHOOK_SECRET`
 
-There is no `N8N_WEBHOOK_URL` variable in the current config loader.
-If older issue text or old notes mention `N8N_WEBHOOK_URL`, treat that as stale.
+The n8n channel name is `n8n`.
+Use that channel in any `ALERT_*_CHANNELS` variable when you want alerts forwarded to n8n.
 
-## What the runtime can send to a generic webhook
+## What the runtime can send to n8n
 
 | Event type | Sent today | Trigger path | Caveats |
 | --- | --- | --- | --- |
-| `alert` | yes | alert manager -> generic webhook notifier | only if the relevant `ALERT_*_CHANNELS` entry includes `webhook` |
+| `alert` | yes | alert manager -> `n8n` channel | only if the relevant `ALERT_*_CHANNELS` entry includes `n8n` |
 | `signal` | yes | smoke strategy runner -> `RecordSignal` | current runtime only wires manual runs in `APP_ENV=smoke` |
 | `decision` | yes | smoke strategy runner -> `RecordDecision` | same smoke/manual-run caveat |
 
@@ -24,29 +24,29 @@ If older issue text or old notes mention `N8N_WEBHOOK_URL`, treat that as stale.
 3. Set the HTTP method you want to accept. `POST` is the current runtime behavior.
 4. During testing, click **Listen for Test Event** and use the **Test URL**.
 5. Before using the integration for real traffic, activate the workflow and copy the **Production URL**.
-6. Put the Production URL into `NOTIFY_WEBHOOK_URL`.
-7. If you set `NOTIFY_WEBHOOK_SECRET`, add logic in n8n to require the `X-Webhook-Secret` header.
+6. Put the Production URL into `N8N_WEBHOOK_URL`.
+7. If you set `N8N_WEBHOOK_SECRET`, add logic in n8n to require the `X-Webhook-Secret` header.
 
 n8n reference: <https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook/>
 
 ## Example `.env`
 
 ```dotenv
-NOTIFY_WEBHOOK_URL=https://n8n.example.com/webhook/grq-events
-NOTIFY_WEBHOOK_SECRET=super-secret
+N8N_WEBHOOK_URL=https://n8n.example.com/webhook/grq-events
+N8N_WEBHOOK_SECRET=super-secret
 
-# Alerts only arrive when the matching alert rule includes webhook.
-ALERT_PIPELINE_FAILURE_CHANNELS=telegram,email,webhook
-ALERT_CIRCUIT_BREAKER_CHANNELS=telegram,webhook
-ALERT_LLM_PROVIDER_DOWN_CHANNELS=telegram,webhook
-ALERT_HIGH_LATENCY_CHANNELS=email,webhook
-ALERT_KILL_SWITCH_CHANNELS=telegram,webhook
-ALERT_DB_CONNECTION_CHANNELS=email,pagerduty,webhook
+# Alerts only arrive when the matching alert rule includes n8n.
+ALERT_PIPELINE_FAILURE_CHANNELS=telegram,email,n8n
+ALERT_CIRCUIT_BREAKER_CHANNELS=telegram,n8n
+ALERT_LLM_PROVIDER_DOWN_CHANNELS=telegram,n8n
+ALERT_HIGH_LATENCY_CHANNELS=email,n8n
+ALERT_KILL_SWITCH_CHANNELS=telegram,n8n
+ALERT_DB_CONNECTION_CHANNELS=email,pagerduty,n8n
 ```
 
 ## Webhook envelope
 
-All generic webhook events use the same top-level JSON shape:
+All n8n events use the same top-level JSON shape:
 
 ```json
 {
@@ -64,13 +64,13 @@ Current transport details:
 
 - method: `POST`
 - content type: `application/json`
-- optional header: `X-Webhook-Secret: <value from NOTIFY_WEBHOOK_SECRET>`
+- optional header: `X-Webhook-Secret: <value from N8N_WEBHOOK_SECRET>`
 
 Important: `callback_url` exists in the payload type, but the current runtime does not populate it for the built-in alert/signal/decision emitters.
 
 ## Alert payload example
 
-This is the generic webhook payload emitted by the alert notifier path today:
+This is the alert payload emitted by the n8n channel today:
 
 ```json
 {
@@ -164,5 +164,5 @@ Example switch values:
 ## Current limitations
 
 - Signal and decision payloads are only emitted by the smoke/manual-run path today.
-- In non-smoke environments, the manual run endpoint is not configured, so you should expect alert webhooks only unless runtime wiring changes.
-- `NOTIFY_WEBHOOK_URL` is the one generic outbound webhook destination. If you need fan-out, let n8n branch to downstream tools.
+- In non-smoke environments, the manual run endpoint is not configured, so you should expect alert payloads only unless runtime wiring changes.
+- The runtime sends to a single configured n8n endpoint. If you need fan-out, let n8n branch to downstream tools.

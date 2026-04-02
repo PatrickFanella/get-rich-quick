@@ -273,13 +273,13 @@ func (m *Manager) RecordDBConnectionState(ctx context.Context, connected bool, c
 // RecordSignal dispatches a structured signal notification to supported channels.
 func (m *Manager) RecordSignal(ctx context.Context, event SignalEvent) error {
 	event.OccurredAt = normalizeOccurredAt(event.OccurredAt)
-	return m.dispatchSignal(ctx, event, []string{ChannelWebhook, ChannelDiscord})
+	return m.dispatchSignal(ctx, event, []string{ChannelN8N, ChannelDiscord})
 }
 
 // RecordDecision dispatches a structured decision notification to supported channels.
 func (m *Manager) RecordDecision(ctx context.Context, event DecisionEvent) error {
 	event.OccurredAt = normalizeOccurredAt(event.OccurredAt)
-	return m.dispatchDecision(ctx, event, []string{ChannelWebhook, ChannelDiscord})
+	return m.dispatchDecision(ctx, event, []string{ChannelN8N, ChannelDiscord})
 }
 
 func (m *Manager) dispatchSignal(ctx context.Context, event SignalEvent, channels []string) error {
