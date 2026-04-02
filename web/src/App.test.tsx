@@ -7,6 +7,7 @@ import { isAuthenticated } from '@/lib/auth'
 
 vi.mock('@/lib/auth', () => ({
   isAuthenticated: vi.fn(),
+  getAccessToken: vi.fn().mockReturnValue(null),
 }))
 
 vi.mock('@/pages/dashboard-page', () => ({

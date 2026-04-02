@@ -1,3 +1,4 @@
+import { getAccessToken } from '@/lib/auth'
 import { getApiBaseUrl } from '@/lib/config'
 import type {
   AgentDecision,
@@ -5,6 +6,8 @@ import type {
   EngineStatus,
   ErrorResponse,
   HealthStatus,
+  LoginRequest,
+  LoginResponse,
   KillSwitchToggleRequest,
   KillSwitchToggleResponse,
   ListResponse,
@@ -33,6 +36,7 @@ import type {
 interface ApiClientConfig {
   baseUrl?: string
   token?: string
+  tokenGetter?: () => string | null
   apiKey?: string
   headers?: HeadersInit
 }
@@ -65,18 +69,24 @@ export class ApiClientError extends Error {
 export class ApiClient {
   private readonly baseUrl: string
   private readonly token?: string
+  private readonly tokenGetter?: () => string | null
   private readonly apiKey?: string
   private readonly defaultHeaders?: HeadersInit
 
   constructor(config: ApiClientConfig = {}) {
     this.baseUrl = (config.baseUrl || getApiBaseUrl()).replace(/\/$/, '')
     this.token = config.token
+    this.tokenGetter = config.tokenGetter
     this.apiKey = config.apiKey
     this.defaultHeaders = config.headers
   }
 
   async health() {
     return this.request<HealthStatus>('/health')
+  }
+
+  async login(data: LoginRequest) {
+    return this.request<LoginResponse>('/api/v1/auth/login', { method: 'POST', body: data })
   }
 
   async listStrategies(params: StrategyListParams & PaginationParams = {}) {
@@ -218,8 +228,9 @@ export class ApiClient {
     if (options.headers) {
       new Headers(options.headers).forEach((value, key) => headers.set(key, value))
     }
-    if (this.token) {
-      headers.set('Authorization', `Bearer ${this.token}`)
+    const token = this.token ?? this.tokenGetter?.()
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`)
     }
     if (this.apiKey) {
       headers.set('X-API-Key', this.apiKey)
@@ -253,7 +264,7 @@ export class ApiClient {
   }
 }
 
-export const apiClient = new ApiClient()
+export const apiClient = new ApiClient({ tokenGetter: getAccessToken })
 
 function normalizeListResponse<T>(response: NullableListResponse<T>): ListResponse<T> {
   const { data, ...rest } = response
