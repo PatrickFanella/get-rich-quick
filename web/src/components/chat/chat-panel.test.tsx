@@ -22,6 +22,14 @@ const assistantMsg: ChatMessage = {
   created_at: new Date().toISOString(),
 }
 
+const systemMsg: ChatMessage = {
+  id: '3',
+  role: 'system',
+  content: 'Context note (UI only, not saved to the conversation): discussing trader event “Signal emitted” for AAPL.',
+  created_at: new Date().toISOString(),
+}
+
+
 describe('ChatPanel', () => {
   afterEach(() => {
     cleanup()
@@ -68,6 +76,15 @@ describe('ChatPanel', () => {
     const texts = Array.from(panel.querySelectorAll('p.whitespace-pre-wrap')).map((el) => el.textContent)
     expect(texts).toEqual(['Why did you buy?', 'The bull case outweighed bear signals.'])
   })
+
+  it('renders system messages as context notes', () => {
+    render(<ChatPanel messages={[systemMsg]} />)
+
+    expect(screen.getByText(/Context note/)).toBeInTheDocument()
+    expect(screen.getByText(/not saved to the conversation/)).toBeInTheDocument()
+    expect(screen.queryByText('trader')).not.toBeInTheDocument()
+  })
+
 
   it('renders input bar when onSendMessage provided', () => {
     render(<ChatPanel messages={[]} onSendMessage={vi.fn()} />)

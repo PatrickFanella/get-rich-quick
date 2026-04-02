@@ -227,21 +227,33 @@ function mergeConversation(createdConversation: Conversation, current?: ListResp
   }
 }
 
+function buildEventContextMessage(event: FeedItem, conversation?: Conversation) {
+  const agentLabel = event.agent_role ? formatAgentRole(event.agent_role) : 'agent'
+  const ticker = parseConversationTicker(conversation?.title) ?? event.pipeline_run_id ?? 'this run'
+
+  return `Context note (UI only, not saved to the conversation): discussing ${agentLabel} event "${event.title}" for ${ticker}.`
+}
+
+
 export function RealtimePage() {
   const queryClient = useQueryClient()
   const [liveEvents, setLiveEvents] = useState<FeedItem[]>([])
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
+  const [userSelectedEventId, setUserSelectedEventId] = useState<string | null>(null)
   const [autoScroll, setAutoScroll] = useState(true)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [chatSelectionSource, setChatSelectionSource] = useState<ChatSelectionSource>('event')
   const [chatError, setChatError] = useState<string | null>(null)
   const [isSendingMessage, setIsSendingMessage] = useState(false)
   const [isCreatingConversation, setIsCreatingConversation] = useState(false)
+  const [isResolvingEventConversation, setIsResolvingEventConversation] = useState(false)
   const [createConversationDraft, setCreateConversationDraft] = useState<{
     pipelineRunId: string
     agentRole: AgentRole | ''
   }>({ pipelineRunId: '', agentRole: '' })
   const subscribedRef = useRef(false)
+  const autoCreatedEventConversationIdsRef = useRef(new Set<string>())
+  const eventConversationRequestRef = useRef(0)
   const feedRef = useRef<HTMLDivElement>(null)
 
   const { data, isLoading } = useQuery({
@@ -326,16 +338,81 @@ export function RealtimePage() {
 
   useEffect(() => {
     setChatSelectionSource('event')
+    setConversationId(null)
     setChatError(null)
   }, [selectedEventId])
 
   useEffect(() => {
     if (chatSelectionSource !== 'event') {
+      eventConversationRequestRef.current += 1
+      setIsResolvingEventConversation(false)
       return
     }
 
-    setConversationId(findConversationForContext(conversations, eventChatContext)?.id ?? null)
-  }, [chatSelectionSource, conversations, eventChatContext])
+    if (!eventChatContext) {
+      eventConversationRequestRef.current += 1
+      setConversationId(null)
+      setIsResolvingEventConversation(false)
+      return
+    }
+
+    const existingConversation = findConversationForContext(conversations, eventChatContext)
+    if (existingConversation) {
+      setConversationId(existingConversation.id)
+      setIsResolvingEventConversation(false)
+      return
+    }
+
+    if (selectedEventId !== userSelectedEventId) {
+      setConversationId(null)
+      setIsResolvingEventConversation(false)
+      return
+    }
+
+    const requestId = eventConversationRequestRef.current + 1
+    eventConversationRequestRef.current = requestId
+    setConversationId(null)
+    setIsResolvingEventConversation(true)
+
+    void (async () => {
+      try {
+        const createdConversation = await apiClient.createConversation({
+          pipeline_run_id: eventChatContext.pipelineRunId,
+          agent_role: eventChatContext.agentRole,
+        })
+
+        autoCreatedEventConversationIdsRef.current.add(createdConversation.id)
+        queryClient.setQueryData(conversationQueryKey, (current?: ListResponse<Conversation>) =>
+          mergeConversation(createdConversation, current),
+        )
+        queryClient.setQueryData(['conversation-messages', 'realtime-page', createdConversation.id], {
+          data: [],
+          limit: MESSAGE_PAGE_SIZE,
+          offset: 0,
+        })
+
+        if (eventConversationRequestRef.current === requestId) {
+          setConversationId(createdConversation.id)
+        }
+      } catch (error) {
+        if (eventConversationRequestRef.current === requestId) {
+          setChatError(getErrorMessage(error, 'Unable to create conversation.'))
+        }
+      } finally {
+        if (eventConversationRequestRef.current === requestId) {
+          setIsResolvingEventConversation(false)
+        }
+      }
+    })()
+  }, [
+    chatSelectionSource,
+    conversationQueryKey,
+    conversations,
+    eventChatContext,
+    queryClient,
+    selectedEventId,
+    userSelectedEventId,
+  ])
 
   const activeChatContext = useMemo(
     () => toChatContext(selectedConversation?.pipeline_run_id, selectedConversation?.agent_role) ?? eventChatContext,
@@ -362,6 +439,37 @@ export function RealtimePage() {
   const chatMessages = useMemo(
     () => (messagesData?.data ?? []).map((message) => toChatMessage(message, activeChatContext?.agentRole)),
     [activeChatContext?.agentRole, messagesData?.data],
+  )
+
+  const eventContextMessage = useMemo(() => {
+    if (
+      chatSelectionSource !== 'event' ||
+      !selectedConversation ||
+      !selectedEvent ||
+      !eventChatContext ||
+      !sameChatContext(activeChatContext, eventChatContext) ||
+      !autoCreatedEventConversationIdsRef.current.has(selectedConversation.id)
+    ) {
+      return null
+    }
+
+    return {
+      id: `context-${selectedConversation.id}`,
+      role: 'system' as const,
+      content: buildEventContextMessage(selectedEvent, selectedConversation),
+      created_at: selectedConversation.created_at,
+    }
+  }, [
+    activeChatContext,
+    chatSelectionSource,
+    eventChatContext,
+    selectedConversation,
+    selectedEvent,
+  ])
+
+  const visibleChatMessages = useMemo(
+    () => (eventContextMessage ? [eventContextMessage, ...chatMessages] : chatMessages),
+    [chatMessages, eventContextMessage],
   )
 
   const {
@@ -551,7 +659,7 @@ export function RealtimePage() {
     }
   }
 
-  const isChatLoading = isSendingMessage || isConversationLoading || isMessagesLoading
+  const isChatLoading = isSendingMessage || isConversationLoading || isMessagesLoading || isResolvingEventConversation
   const selectorValue = chatSelectionSource === 'creating' ? NEW_CONVERSATION_VALUE : conversationId ?? ''
 
   const chatHeader = (
@@ -718,7 +826,10 @@ export function RealtimePage() {
                   className={`flex w-full flex-col gap-2 rounded-lg border p-3 text-left transition-colors hover:bg-secondary/40 ${
                     isSelected ? 'bg-secondary/60 ring-1 ring-primary' : ''
                   }`}
-                  onClick={() => setSelectedEventId(event.id)}
+                  onClick={() => {
+                    setUserSelectedEventId(event.id)
+                    setSelectedEventId(event.id)
+                  }}
                   data-testid={`event-card-${event.id}`}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -808,7 +919,7 @@ export function RealtimePage() {
               <div className="min-h-0 flex-1 overflow-hidden rounded-lg border">
                 <ChatPanel
                   header={chatHeader}
-                  messages={chatMessages}
+                  messages={visibleChatMessages}
                   onSendMessage={activeChatContext ? handleSendMessage : undefined}
                   isLoading={activeChatContext ? isChatLoading : false}
                 />
