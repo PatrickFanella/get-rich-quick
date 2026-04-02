@@ -58,20 +58,22 @@ An autonomous, multi-agent trading system built in Go. The system uses LLM-power
 
 ## Quick Start
 
-> **Prerequisites:** [Docker](https://docs.docker.com/get-docker/) and [Docker Compose v2+](https://docs.docker.com/compose/install/)
+> **Prerequisites:** [Docker](https://docs.docker.com/get-docker/), [Docker Compose v2+](https://docs.docker.com/compose/install/), and either one supported cloud LLM API key or a local [Ollama](https://ollama.com/download) install.
 
 ```bash
 # 1. Clone the repository
 git clone https://github.com/PatrickFanella/get-rich-quick.git
 cd get-rich-quick
 
-# 2. Copy the example environment file and add your API keys
+# 2. Copy the example environment file and configure an LLM provider
 cp .env.example .env
 
 # 3. Start all services (app + PostgreSQL + Redis)
 docker compose up --build
 ```
 
+
+For cloud LLMs, set one provider key in `.env` (for example `OPENAI_API_KEY`). For local Ollama, install Ollama, run `ollama pull llama3.2`, then set `LLM_DEFAULT_PROVIDER=ollama` and keep `OLLAMA_MODEL=llama3.2`. See the [Development Setup Guide](docs/development-setup.md) for the full prerequisites list and Docker-vs-native Ollama notes.
 The application will be available at [http://localhost:8080](http://localhost:8080). See the [Development Setup Guide](docs/development-setup.md) for native (non-Docker) setup and advanced configuration.
 
 ## Development Setup (Docker Compose)
