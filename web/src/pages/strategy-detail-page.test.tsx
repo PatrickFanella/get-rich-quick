@@ -80,7 +80,7 @@ function stubStrategyFetch({
   let currentStrategy = strategy
   const runs = { data: [], limit: 20, offset: 0 }
 
-  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input.toString()
 
     if (url.includes('/runs')) {
