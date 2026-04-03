@@ -1,3 +1,11 @@
+---
+title: "ADR-009: Human review gate before live trading"
+description: "Architecture decision record."
+status: "canonical"
+updated: "2026-04-03"
+tags: [adr]
+---
+
 # ADR-009: Human review gate before live trading
 
 - **Status:** accepted

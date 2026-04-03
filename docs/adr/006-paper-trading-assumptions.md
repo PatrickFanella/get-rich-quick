@@ -1,3 +1,11 @@
+---
+title: "ADR-006: Paper trading slippage and fee assumptions"
+description: "Architecture decision record."
+status: "canonical"
+updated: "2026-04-03"
+tags: [adr]
+---
+
 # ADR-006: Paper trading slippage and fee assumptions
 
 - **Status:** accepted

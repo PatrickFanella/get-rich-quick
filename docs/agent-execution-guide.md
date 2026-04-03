@@ -1,3 +1,11 @@
+---
+title: "Agent Execution Guide"
+description: "Legacy execution guidance retained for historical context."
+status: "archive"
+updated: "2026-04-03"
+tags: [agents, archive]
+---
+
 # Agent Execution Guide
 
 This guide defines how autonomous coding agents should claim, execute, and complete issue backlog work.

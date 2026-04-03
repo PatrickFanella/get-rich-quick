@@ -1,3 +1,11 @@
+---
+title: "ADR-002: Two-tier LLM model strategy (DeepThink vs QuickThink)"
+description: "Architecture decision record."
+status: "canonical"
+updated: "2026-04-03"
+tags: [adr]
+---
+
 # ADR-002: Two-tier LLM model strategy (DeepThink vs QuickThink)
 
 - **Status:** accepted

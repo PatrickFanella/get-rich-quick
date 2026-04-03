@@ -222,11 +222,15 @@ docs/                   Architecture docs, ADRs, research
 
 ## Documentation
 
-- **[Getting Started: first run](docs/getting-started.md)** — Fresh clone to first visible run in the web UI
-- **[Development Setup Guide](docs/development-setup.md)** — Detailed native setup, database migrations, and troubleshooting
-- **[Architecture & Design](docs/design/system-architecture.md)** — System architecture and data flow
-- **[ADRs](docs/adr/)** — Architecture Decision Records
-- **[Agent Execution Guide](docs/agent-execution-guide.md)** — How agents pick up and complete work
+- **[Documentation Hub](docs/README.md)** — Canonical entry point for all app documentation
+- **[Getting Started](docs/getting-started.md)** — Fastest path from clone to first login, first strategy, and first run
+- **[Development Setup](docs/development-setup.md)** — Full contributor workflow, migrations, testing, and smoke mode
+- **[Reference](docs/reference/README.md)** — Source-of-truth API, CLI, architecture, runtime, config, and UI docs
+- **[Runbooks](docs/runbooks/README.md)** — Incident and operator procedures
+- **[Known Issues](docs/known-issues.md)** — Current gaps and repo-health caveats
+- **[Roadmap](docs/roadmap.md)** — Proposed future work and product direction
+- **[ADRs](docs/adr/README.md)** — Architecture Decision Records
+- **[Research Archive](docs/research/index.md)** — Background research that informed the system
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — Branch strategy, commit conventions, and definition of done
 
 ## Contributing

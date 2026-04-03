@@ -1,35 +1,51 @@
-# Architecture Decision Records (ADRs)
+---
+title: "Architecture Decision Records"
+description: "Index and authoring rules for ADRs in get-rich-quick."
+status: "canonical"
+updated: "2026-04-03"
+tags: [adr, architecture, decisions]
+---
 
-This directory contains Architecture Decision Records (ADRs) that document significant technical decisions.
+# Architecture Decision Records
 
-## Lifecycle
+This directory records material technical decisions that shaped the current system.
 
-ADRs use the following status lifecycle:
+## Current ADR set
 
-- **proposed**: Decision is under discussion and not yet approved.
-- **accepted**: Decision is approved and should be followed.
-- **superseded**: Decision has been replaced by a newer ADR.
-- **deprecated**: Decision is no longer recommended but has not been formally replaced.
+- [ADR-001: Use Go for backend services](001-go-backend.md)
+- [ADR-002: Two-tier LLM strategy](002-two-tier-llm-strategy.md)
+- [ADR-003: PostgreSQL full-text search for memory](003-postgres-fts-memory.md)
+- [ADR-004: Custom DAG/runner engine](004-custom-dag-engine.md)
+- [ADR-005: Position sizing strategy](005-position-sizing-strategy.md)
+- [ADR-006: Paper trading assumptions](006-paper-trading-assumptions.md)
+- [ADR-007: Deployment topology](007-deployment-topology.md)
+- [ADR-008: Correlated exposure controls](008-correlated-exposure.md)
+- [ADR-009: Human review gate](009-human-review-gate.md)
 
-When an ADR becomes **superseded**, update it to reference the replacing ADR.
+## ADR status lifecycle
 
-## Numbering and naming
+- `proposed`: under discussion
+- `accepted`: approved and expected to guide implementation
+- `superseded`: replaced by a newer ADR
+- `deprecated`: no longer recommended, but not directly replaced
 
-- ADRs are numbered sequentially with three digits: `001`, `002`, `003`, ...
-- File format: `<number>-<short-kebab-title>.md`
-- Examples:
-  - `001-go-backend.md`
-  - `002-event-driven-architecture.md`
+## Naming rules
 
-Numbers are never reused, even if an ADR is deprecated or superseded.
+- three-digit numeric prefix
+- kebab-case filename
+- title format inside the document: `ADR-<number>: <Title>`
 
-## Authoring conventions
+Examples:
 
-1. Start from `template.md`.
-2. Keep the title format: `ADR-<number>: <Title>`.
-3. Include required sections:
+- `001-go-backend.md`
+- `002-two-tier-llm-strategy.md`
+
+## Authoring rules
+
+1. Start from [template.md](template.md) or [../templates/adr.md](../templates/adr.md).
+2. Include at least:
    - Context
    - Decision
    - Consequences
-4. Keep consequences balanced (positive, negative, neutral where applicable).
-5. Link related issues/epics in **Technical Story** when available.
+3. When superseding an ADR, update both the old ADR and the replacement ADR with explicit links.
+4. Keep ADRs about decisions, not implementation diaries.

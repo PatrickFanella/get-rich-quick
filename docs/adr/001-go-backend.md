@@ -1,3 +1,11 @@
+---
+title: "ADR-001: Use Go for backend services"
+description: "Architecture decision record."
+status: "canonical"
+updated: "2026-04-03"
+tags: [adr]
+---
+
 # ADR-001: Use Go for backend services
 
 - **Status:** accepted

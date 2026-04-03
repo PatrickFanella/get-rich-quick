@@ -1,173 +1,238 @@
+---
+title: "Architecture Reference"
+description: "Current architecture of the get-rich-quick codebase, including runtime flow, packages, and major interfaces."
+status: "canonical"
+updated: "2026-04-03"
+tags: [architecture, reference]
+---
+
 # Architecture Reference
 
-This document describes the architecture of the Go codebase for the
-multi-agent AI trading system.
+This document describes the architecture that is actually present in the repository today. Where older design material and current code disagree, this file should win.
 
-## Project Structure
+## Project structure
 
-The repository follows standard Go project layout conventions. Application
-entry points live under `cmd/` and all internal packages live under
-`internal/`.
+The repository uses a conventional Go layout:
 
-### Entry Point
+- `cmd/tradingagent` contains the main binary entry point and runtime wiring.
+- `internal/...` contains the application packages.
+- `web/` contains the React frontend.
+- `migrations/` contains SQL migrations.
+
+### Entry point
 
 | Path | Purpose |
-|------|---------|
-| `cmd/tradingagent/` | Main binary. Wires CLI, API server, and TUI dependencies. |
+| --- | --- |
+| `cmd/tradingagent` | main binary, Cobra CLI bootstrap, runtime assembly, strategy runner selection, docs tests |
 
-### Core Packages
+### Core packages
 
-| Package | Import Path | Purpose |
-|---------|-------------|---------|
-| agent | `internal/agent` | Pipeline orchestration engine; defines `Node` interface and executes the four pipeline phases. |
-| agent/analysts | `internal/agent/analysts` | Analyst agent implementations (market, fundamentals, news, social). |
-| agent/debate | `internal/agent/debate` | Debate round execution logic shared by research and risk debate phases. |
-| agent/risk | `internal/agent/risk` | Risk debate agents (aggressive, conservative, neutral). |
-| agent/trader | `internal/agent/trader` | Trader agent for position sizing and order generation. |
-| api | `internal/api` | HTTP handlers, middleware, and WebSocket hub. |
-| backtest | `internal/backtest` | Historical backtesting engine. |
-| cli | `internal/cli` | Cobra CLI commands. |
-| cli/tui | `internal/cli/tui` | Bubble Tea terminal UI. |
-| config | `internal/config` | Application configuration loading and validation. |
-| data | `internal/data` | `DataProvider` interface and provider chain. |
-| data/alphavantage | `internal/data/alphavantage` | Alpha Vantage market data provider. |
-| data/binance | `internal/data/binance` | Binance crypto data provider. |
-| data/newsapi | `internal/data/newsapi` | News API provider. |
-| data/polygon | `internal/data/polygon` | Polygon.io stock data provider. |
-| data/yahoo | `internal/data/yahoo` | Yahoo Finance data provider. |
-| domain | `internal/domain` | Core domain types (Order, Position, Strategy, Pipeline, AgentRole, Phase). |
-| execution | `internal/execution` | `Broker` interface for order execution. |
-| execution/alpaca | `internal/execution/alpaca` | Alpaca securities broker. |
-| execution/binance | `internal/execution/binance` | Binance exchange execution. |
-| execution/paper | `internal/execution/paper` | Paper trading simulator. |
-| execution/polymarket | `internal/execution/polymarket` | Polymarket prediction market execution. |
-| llm | `internal/llm` | LLM provider abstraction, registry, and routing. |
-| llm/anthropic | `internal/llm/anthropic` | Anthropic Claude adapter. |
-| llm/google | `internal/llm/google` | Google Gemini adapter. |
-| llm/ollama | `internal/llm/ollama` | Ollama local LLM adapter. |
-| llm/openai | `internal/llm/openai` | OpenAI adapter. |
-| llm/parse | `internal/llm/parse` | LLM response parsing utilities. |
-| memory | `internal/memory` | Agent memory and learning backed by PostgreSQL full-text search. |
-| notification | `internal/notification` | Alert notifications (email, Telegram, webhook). |
-| papervalidation | `internal/papervalidation` | Paper trading validation. |
-| registry | `internal/registry` | Service registry and dependency injection. |
-| repository | `internal/repository` | Data access interfaces. |
-| repository/postgres | `internal/repository/postgres` | PostgreSQL repository implementations. |
-| risk | `internal/risk` | `RiskEngine` interface and hard risk controls. |
-| scheduler | `internal/scheduler` | Cron-based pipeline triggering. |
+| Package | Purpose |
+| --- | --- |
+| `internal/agent` | runtime orchestration, prompt selection, config resolution, runner logic |
+| `internal/agent/analysts` | analyst agent implementations |
+| `internal/agent/debate` | reusable debate mechanics |
+| `internal/agent/risk` | risk-debate role implementations |
+| `internal/agent/trader` | trade-plan generation |
+| `internal/api` | REST server, auth, handlers, WebSocket hub, settings surface |
+| `internal/backtest` | backtest engine and analytics |
+| `internal/cli` | Cobra commands and API-backed terminal workflows |
+| `internal/cli/tui` | Bubble Tea dashboard |
+| `internal/config` | environment loading and validation |
+| `internal/data` | provider abstraction, chains, caching, historical downloads |
+| `internal/data/alphavantage` | Alpha Vantage integration |
+| `internal/data/binance` | Binance market data integration |
+| `internal/data/newsapi` | News API integration package |
+| `internal/data/polygon` | Polygon integration |
+| `internal/data/yahoo` | Yahoo Finance integration |
+| `internal/domain` | core domain types for strategies, runs, signals, orders, positions, trades, users |
+| `internal/execution` | broker abstraction and order-management helpers |
+| `internal/execution/alpaca` | Alpaca adapter |
+| `internal/execution/binance` | Binance adapter |
+| `internal/execution/paper` | local paper broker |
+| `internal/execution/polymarket` | Polymarket adapter package |
+| `internal/llm` | provider abstraction and common LLM primitives |
+| `internal/llm/anthropic` | Anthropic adapter |
+| `internal/llm/google` | Google adapter |
+| `internal/llm/ollama` | Ollama adapter |
+| `internal/llm/openai` | OpenAI-compatible adapter used directly and as the basis for some compatible providers |
+| `internal/llm/parse` | LLM parsing helpers |
+| `internal/memory` | agent memory logic |
+| `internal/notification` | outbound notifications and alert fan-out |
+| `internal/papervalidation` | paper-trading validation helpers |
+| `internal/registry` | service assembly helpers |
+| `internal/repository` | repository interfaces |
+| `internal/repository/postgres` | PostgreSQL repository implementations |
+| `internal/risk` | hard risk engine and status model |
+| `internal/scheduler` | scheduled strategy and backtest execution |
 
-## Pipeline Execution Flow
+## Runtime flow
 
-The agent pipeline runs in four sequential phases. Each phase is defined by a
-`Phase` constant in `internal/domain`:
+At a high level, the app is a control plane around a strategy execution runtime.
+
+### Surfaces
+
+- REST API for CRUD, runs, risk, settings, memories, and conversations
+- WebSocket feed for real-time events
+- CLI for local control
+- React web UI for operators
+
+### Execution pipeline
+
+The trading runtime moves through these named phases:
 
 ```text
-analysis → research_debate → trading → risk_debate
+analysis -> research_debate -> trading -> risk_debate
 ```
 
-### Phase 1 — Analysis
+The practical flow is:
 
-Four analyst nodes run concurrently using an `errgroup`:
+1. Resolve strategy config against system defaults.
+2. Load initial state from data providers.
+3. Run analyst roles in parallel.
+4. Run the research debate and synthesize an investment plan.
+5. Generate a trading plan.
+6. Run the risk debate and produce the final signal.
+7. Apply hard risk checks and execution routing.
+8. Persist run artifacts and broadcast events.
 
-- **MarketAnalyst** — analyses price action and technical indicators.
-- **FundamentalsAnalyst** — evaluates company fundamentals.
-- **NewsAnalyst** — summarises relevant news articles.
-- **SocialMediaAnalyst** — assesses social-media sentiment.
+## Agent/runtime architecture
 
-Each analyst receives market data from `PipelineState` and writes its report
-back into `PipelineState.AnalystReports`. Partial failures are tolerated; the
-pipeline always continues, even if all analysts fail, though later phases may
-see empty or missing entries in `PipelineState.AnalystReports`.
+There are two important concepts in the repo:
 
-### Phase 2 — Research Debate
+- the legacy `Pipeline` abstraction in `internal/agent`
+- the newer runtime path centered on `agent.Runner` and the production strategy runner under `cmd/tradingagent`
 
-A multi-round debate between a **BullResearcher** and a **BearResearcher**.
-After the configured number of rounds (default 3) an **InvestJudge** evaluates
-the arguments and produces an investment plan stored in
-`PipelineState.ResearchDebate`.
+For real strategy execution, the current code path is the runtime runner wired in `cmd/tradingagent/runtime.go` and `cmd/tradingagent/prod_strategy_runner.go`.
 
-### Phase 3 — Trading
+### Agent roster
 
-A single **Trader** agent receives the investment plan from Phase 2 and
-produces a `TradingPlan` containing position size, entry price, take-profit,
-stop-loss, and related execution parameters. The resulting plan is written to
-`PipelineState.TradingPlan`; hard risk checks using `risk.RiskEngine` are
-applied later in the execution layer (for example, by `internal/execution`
-components such as the `OrderManager`).
+Implemented runtime roles include:
 
-### Phase 4 — Risk Debate
+- market analyst
+- fundamentals analyst
+- news analyst
+- social media analyst
+- bull researcher
+- bear researcher
+- research manager / judge
+- trader
+- aggressive analyst
+- conservative analyst
+- neutral analyst
+- risk manager
 
-Three risk agents — **AggressiveRisk**, **ConservativeRisk**, and
-**NeutralRisk** — debate the proposed trading plan. A **RiskManager** judge
-evaluates the debate and produces the `FinalSignal` (buy, sell, or hold with a
-confidence score). This debate stage governs the recommended action; hard risk
-controls such as circuit breakers, the kill switch, and pre-trade checks are
-enforced later during order execution (for example by `internal/execution/OrderManager`).
+### Config resolution
 
-### Pipeline Executor
+The runtime merges:
 
-The `Pipeline.Execute` method in `internal/agent` drives the flow:
+1. strategy-level overrides
+2. global settings surface
+3. hardcoded defaults
 
-1. Creates a `domain.PipelineRun` and calls `RecordRunStart`.
-2. Initialises `PipelineState` with a mutex for thread-safe access.
-3. Runs each phase sequentially; a phase failure stops the pipeline.
-4. Records completion or failure via `RecordRunComplete`.
-5. Emits `PipelineCompleted` or `PipelineError` events over the event channel.
-
-Phase and pipeline timeouts are configured through `PipelineConfig`.
+This merge happens in `internal/agent/resolve_config.go`.
 
 ## Data Flow
 
-### Market Data Ingestion
-
-External market data APIs are accessed through the `DataProvider` interface
-defined in `internal/data`. The `ProviderChain` (also in `internal/data`)
-wraps multiple providers and falls back to the next provider when one returns
-an error.
+The system’s data flow is:
 
 ```text
-External APIs → DataProvider implementations → ProviderChain → PipelineState
+External APIs / brokers
+  -> internal/data provider chains
+  -> initial runtime state
+  -> agent decisions and run artifacts
+  -> repository layer / Postgres
+  -> API / WebSocket
+  -> web UI and CLI
 ```
 
-### Through the Pipeline
+More concretely:
 
 ```text
-PipelineState (market data, news, fundamentals, social sentiment)
-  │
-  ├─ Phase 1: Analyst nodes read state, write AnalystReports
-  │
-  ├─ Phase 2: Debaters read AnalystReports, judge writes ResearchDebate
-  │
-  ├─ Phase 3: Trader reads ResearchDebate, RiskEngine validates, writes TradingPlan
-  │
-  └─ Phase 4: Risk agents read TradingPlan, judge writes FinalSignal
+OHLCV, fundamentals, news, social
+  -> analyst phase
+  -> research_debate
+  -> trading
+  -> risk_debate
+  -> signal / orders / positions / audit records
 ```
 
-### Order Execution
+## Persistence model
 
-The `FinalSignal` drives order creation. Orders are submitted through the
-`Broker` interface in `internal/execution`, which routes to the configured
-broker implementation (Alpaca, Binance, paper, or Polymarket).
+The repository layer supports durable storage for:
 
-### Persistence
+- strategies
+- backtest configs and runs
+- pipeline runs
+- pipeline run snapshots
+- agent decisions
+- agent events
+- conversations and messages
+- orders
+- positions
+- trades
+- memories
+- market-data cache
+- historical OHLCV
+- audit log
+- API keys
+- users
 
-Pipeline runs, agent decisions, and events are persisted through the
-`DecisionPersister` interface in `internal/agent`. The default implementation
-writes to PostgreSQL via `internal/repository/postgres`.
+Most of the concrete production implementations live under `internal/repository/postgres`.
 
-### Real-Time Events
+## API/server architecture
 
-The pipeline emits events (agent started, decision made, debate round
-completed, pipeline completed/failed) over an event channel. The WebSocket hub
-in `internal/api` broadcasts these events to connected clients such as the TUI
-and web dashboard.
+`internal/api/server.go` assembles:
 
-## Key Interfaces
+- dependency repositories
+- auth manager
+- risk engine
+- settings service
+- manual strategy runner
+- WebSocket hub
+- middleware stack
+
+Public endpoints:
+
+- `/healthz`
+- `/health`
+- `/metrics`
+- `/api/v1/auth/login`
+- `/api/v1/auth/refresh`
+- `/ws`
+
+Protected endpoints are mounted under `/api/v1` with auth middleware.
+
+## Scheduler architecture
+
+`internal/scheduler` provides cron-style orchestration for:
+
+- scheduled strategy runs
+- scheduled backtests
+- in-flight deduplication and stop behavior during shutdown
+
+The scheduler is optional and controlled by feature flags and runtime wiring.
+
+## Risk architecture
+
+There are two separate layers of “risk” in the system:
+
+1. model-driven risk debate inside the agent runtime
+2. hard controls in `internal/risk`
+
+The hard risk engine is authoritative for safety controls such as:
+
+- kill switch
+- circuit breaker
+- max position limits
+- market exposure limits
+- concurrent position caps
+
+## Key interfaces
 
 ### Node
 
-Defined in `internal/agent/node.go`. Every agent in the pipeline implements
-this interface.
+The conceptual building block for agent execution lives in `internal/agent/node.go`.
 
 ```go
 type Node interface {
@@ -178,16 +243,9 @@ type Node interface {
 }
 ```
 
-Specialised optional interfaces extend `Node` for typed input/output:
-
-- `AnalystNode` — adds `Analyze(ctx, AnalysisInput) (AnalysisOutput, error)`
-- `DebaterNode` — adds `Debate(ctx, DebateInput) (DebateOutput, error)`
-- `TraderNode` — adds `Trade(ctx, TradingInput) (TradingOutput, error)`
-- `RiskJudgeNode` — adds `JudgeRisk(ctx, RiskJudgeInput) (RiskJudgeOutput, error)`
-
 ### DataProvider
 
-Defined in `internal/data/provider.go`. Abstracts market data retrieval.
+`internal/data/provider.go` defines the shared market-data contract:
 
 ```go
 type DataProvider interface {
@@ -198,14 +256,9 @@ type DataProvider interface {
 }
 ```
 
-Implementations: `internal/data/polygon`, `internal/data/alphavantage`,
-`internal/data/yahoo`, `internal/data/binance`. The `ProviderChain` in
-`internal/data/chain.go` provides ordered fallback across providers.
-
 ### Broker
 
-Defined in `internal/execution/broker.go`. Market-agnostic order execution
-contract.
+`internal/execution/broker.go` defines the execution contract:
 
 ```go
 type Broker interface {
@@ -217,13 +270,9 @@ type Broker interface {
 }
 ```
 
-Implementations: `internal/execution/alpaca`, `internal/execution/binance`,
-`internal/execution/paper`, `internal/execution/polymarket`.
-
 ### RiskEngine
 
-Defined in `internal/risk/engine.go`. Hard risk controls enforced
-independently of model-driven analysis.
+`internal/risk/engine.go` defines the hard safety-control contract:
 
 ```go
 type RiskEngine interface {
@@ -239,4 +288,10 @@ type RiskEngine interface {
 }
 ```
 
-Implementation: `internal/risk/engine_impl.go`.
+## Important implementation notes
+
+- The production runner supports OpenAI, Anthropic, Google, OpenRouter, xAI, and Ollama.
+- `openrouter` and `xai` are handled through OpenAI-compatible transport wiring in the runtime.
+- The settings service used by the API/UI is currently memory-backed rather than persistent.
+- The repository includes backtest support, but the main API server does not yet expose a full public backtest surface.
+- Some files in the repo currently contain merge-conflict markers; treat repo-health as a real architecture constraint until they are resolved.

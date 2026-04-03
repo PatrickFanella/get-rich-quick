@@ -1,3 +1,11 @@
+---
+title: "CLI Reference"
+description: "Command, flag, and environment reference for the tradingagent CLI."
+status: "canonical"
+updated: "2026-04-03"
+tags: [cli, cobra, tui, reference]
+---
+
 # CLI Reference
 
 This document describes the current Cobra command tree implemented by the
@@ -67,15 +75,15 @@ above.
 
 **Environment variables**
 
-`serve` is the only command that loads the full application configuration. When
-`APP_ENV=development` (the default), the server also attempts to load a local
-`.env` file before parsing environment variables.
+`serve` is the command that loads the full application configuration. When
+`APP_ENV=development`, it also attempts to load a local `.env` file before
+parsing environment variables.
 
 #### Bootstrap and logging
 
 | Environment variable | Default | Notes |
 | --- | --- | --- |
-| `APP_ENV` | `development` | Application environment; also controls whether `.env` is auto-loaded |
+| `APP_ENV` | `development` | Application environment; only `development` auto-loads `.env` |
 | `LOG_LEVEL` | `info` | Logger level used by the `serve` command |
 
 #### Server, auth, and storage
@@ -85,7 +93,7 @@ above.
 | `APP_HOST` | `0.0.0.0` | HTTP bind host |
 | `APP_PORT` | `8080` | HTTP bind port |
 | `JWT_SECRET` | empty | Required for authenticated API features |
-| `DATABASE_URL` | empty | Database connection string |
+| `DATABASE_URL` | empty | PostgreSQL connection string |
 | `DATABASE_POOL_SIZE` | `10` | PostgreSQL connection pool size |
 | `DATABASE_SSL_MODE` | `disable` | PostgreSQL SSL mode |
 | `REDIS_URL` | empty | Redis connection string |
@@ -175,6 +183,7 @@ above.
 | `ENABLE_REDIS_CACHE` | `true` | Enables Redis-backed caching |
 | `ENABLE_AGENT_MEMORY` | `true` | Enables the memory subsystem |
 | `ENABLE_LIVE_TRADING` | `false` | Enables non-paper trading paths |
+
 ### `tradingagent run TICKER`
 
 Resolves a strategy for the given ticker by first requiring a unique exact
@@ -189,102 +198,43 @@ local API.
 tradingagent run TICKER
 ```
 
-**Command-specific flags**
-
-This command has no command-specific flags. It inherits the global flags shown
-above.
-
 **Environment variables**
 
-- `TRADINGAGENT_API_URL` — default API endpoint for the request
-- `TRADINGAGENT_TOKEN` — default bearer token for authenticated requests
-- `TRADINGAGENT_API_KEY` — default API key for authenticated requests
+- `TRADINGAGENT_API_URL`
+- `TRADINGAGENT_TOKEN`
+- `TRADINGAGENT_API_KEY`
 
 ### `tradingagent strategies`
 
 Parent command for strategy management subcommands.
 
-**Usage**
-
-```bash
-tradingagent strategies
-```
-
-**Command-specific flags**
-
-This parent command has no command-specific flags. It inherits the global flags
-shown above.
-
-**Environment variables**
-
-- `TRADINGAGENT_API_URL`
-- `TRADINGAGENT_TOKEN`
-- `TRADINGAGENT_API_KEY`
-
 #### `tradingagent strategies list`
 
 Lists strategy records from the local API.
-
-**Usage**
-
-```bash
-tradingagent strategies list
-```
-
-**Command-specific flags**
-
-This command has no command-specific flags. It inherits the global flags shown
-above.
-
-**Environment variables**
-
-- `TRADINGAGENT_API_URL`
-- `TRADINGAGENT_TOKEN`
-- `TRADINGAGENT_API_KEY`
 
 #### `tradingagent strategies create`
 
 Creates a new strategy record through the local API.
 
-**Usage**
-
-```bash
-tradingagent strategies create [flags]
-```
-
-**Flags**
+Flags:
 
 | Flag | Default | Description |
 | --- | --- | --- |
 | `--name string` | empty | Strategy name |
 | `--description string` | empty | Strategy description |
 | `--ticker string` | empty | Ticker symbol for the strategy |
-| `--market-type string` | empty | Market type: `stock`, `crypto`, or `polymarket` |
+| `--market-type string` | empty | Market type: stock, crypto, or polymarket |
 | `--schedule-cron string` | empty | Optional cron expression for scheduled runs |
 | `--config string` | empty | Optional JSON object for strategy-specific configuration |
 | `--active` | `true` | Whether the strategy is active |
 | `--paper` | `true` | Whether the strategy uses paper trading |
 
-Required flags: `--name`, `--ticker`, and `--market-type`.
-
-**Environment variables**
-
-- `TRADINGAGENT_API_URL`
-- `TRADINGAGENT_TOKEN`
-- `TRADINGAGENT_API_KEY`
-
 ### `tradingagent dashboard`
 
-Launches the terminal dashboard backed by the local API and `/ws` WebSocket
-stream derived from the configured API URL.
+Launches the Bubble Tea dashboard for monitoring portfolio, strategies, risk,
+settings, and recent activity.
 
-**Usage**
-
-```bash
-tradingagent dashboard [flags]
-```
-
-**Flags**
+Flags:
 
 | Flag | Default | Description |
 | --- | --- | --- |
@@ -292,141 +242,40 @@ tradingagent dashboard [flags]
 | `--width int` | `120` | Render width for the terminal dashboard |
 | `--height int` | `34` | Render height for the terminal dashboard |
 
-**Environment variables**
-
-- `TRADINGAGENT_API_URL` — API base URL; the dashboard derives a `ws://` or
-  `wss://` endpoint from it
-- `TRADINGAGENT_TOKEN` — bearer token used for HTTP and WebSocket auth
-- `TRADINGAGENT_API_KEY` — API key used for HTTP and WebSocket auth
-
 ### `tradingagent portfolio`
 
-Fetches the portfolio summary and currently open positions from the local API.
-
-**Usage**
-
-```bash
-tradingagent portfolio
-```
-
-**Command-specific flags**
-
-This command has no command-specific flags. It inherits the global flags shown
-above.
-
-**Environment variables**
-
-- `TRADINGAGENT_API_URL`
-- `TRADINGAGENT_TOKEN`
-- `TRADINGAGENT_API_KEY`
+Fetches portfolio summary information and current open positions from the local
+API.
 
 ### `tradingagent risk`
 
-Parent command for risk inspection and kill-switch operations.
-
-**Usage**
-
-```bash
-tradingagent risk
-```
-
-**Command-specific flags**
-
-This parent command has no command-specific flags. It inherits the global flags
-shown above.
-
-**Environment variables**
-
-- `TRADINGAGENT_API_URL`
-- `TRADINGAGENT_TOKEN`
-- `TRADINGAGENT_API_KEY`
-- `TRADING_AGENT_KILL` — affects the server-side kill-switch state that `risk`
-  commands may report when the server is running
+Parent command for risk-state operations.
 
 #### `tradingagent risk status`
 
-Displays the current risk engine, circuit breaker, and kill-switch state.
-
-**Usage**
-
-```bash
-tradingagent risk status
-```
-
-**Command-specific flags**
-
-This command has no command-specific flags. It inherits the global flags shown
-above.
-
-**Environment variables**
-
-- `TRADINGAGENT_API_URL`
-- `TRADINGAGENT_TOKEN`
-- `TRADINGAGENT_API_KEY`
-- `TRADING_AGENT_KILL`
+Shows the current risk engine status, circuit breaker, and kill switch state.
 
 #### `tradingagent risk kill`
 
-Activates the risk kill switch through the local API.
+Activates the local API risk kill switch.
 
-**Usage**
-
-```bash
-tradingagent risk kill [flags]
-```
-
-**Flags**
+Flags:
 
 | Flag | Default | Description |
 | --- | --- | --- |
 | `--reason string` | `activated from CLI` | Reason recorded when activating the kill switch |
 
-**Environment variables**
-
-- `TRADINGAGENT_API_URL`
-- `TRADINGAGENT_TOKEN`
-- `TRADINGAGENT_API_KEY`
-- `TRADING_AGENT_KILL` — the server can also report an environment-driven kill
-  switch if this is set to `true`
-
 ### `tradingagent memories`
 
-Parent command for searching the stored agent memory index.
-
-**Usage**
-
-```bash
-tradingagent memories
-```
-
-**Command-specific flags**
-
-This parent command has no command-specific flags. It inherits the global flags
-shown above.
-
-**Environment variables**
-
-- `TRADINGAGENT_API_URL`
-- `TRADINGAGENT_TOKEN`
-- `TRADINGAGENT_API_KEY`
+Parent command for memory search.
 
 #### `tradingagent memories search QUERY`
 
-Searches stored memories by natural-language query text.
+Searches the memory index through the API using natural-language text.
 
-**Usage**
+## Practical notes
 
-```bash
-tradingagent memories search QUERY
-```
-
-**Command-specific flags**
-
-This command has no command-specific flags. It inherits the global flags shown
-above.
-
-**Environment variables**
-
-- `TRADINGAGENT_API_URL`
-- `TRADINGAGENT_TOKEN`
-- `TRADINGAGENT_API_KEY`
+- The CLI is API-first; it is not a separate control plane.
+- `dashboard` uses the same REST endpoints as the web UI for initial state and then connects to `/ws` for live events.
+- If the API server is unavailable, most CLI commands fail immediately.
+- The CLI is only as accurate as the currently mounted API surface and inherits the same limitations around WebSocket auth, settings persistence, and unfinished features.

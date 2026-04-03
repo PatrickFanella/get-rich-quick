@@ -1,3 +1,11 @@
+---
+title: "ADR-003: PostgreSQL full-text search for agent memory retrieval"
+description: "Architecture decision record."
+status: "canonical"
+updated: "2026-04-03"
+tags: [adr]
+---
+
 # ADR-003: PostgreSQL full-text search for agent memory retrieval
 
 - **Status:** accepted

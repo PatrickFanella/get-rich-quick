@@ -1,3 +1,11 @@
+---
+title: "n8n integration guide"
+description: "n8n integration notes retained for reference."
+status: "archive"
+updated: "2026-04-03"
+tags: [n8n, archive]
+---
+
 # n8n integration guide
 
 The runtime exposes a dedicated n8n notification surface backed by the structured webhook notifier.

@@ -1,3 +1,11 @@
+---
+title: "Building LLM-driven trading bots across financial markets"
+description: "Imported or raw research artifact kept for traceability."
+status: "archive"
+updated: "2026-04-03"
+tags: [research, archive]
+---
+
 # Building LLM-driven trading bots across financial markets
 
 **Large language models have unlocked a new class of trading systems capable of reasoning over unstructured data — news, filings, social sentiment — in ways traditional algorithmic bots cannot.** The architecture, however, is far more complex than plugging GPT into a broker API. Multi-agent frameworks where specialized LLM "analysts" debate before a "trader" agent acts have emerged as the dominant pattern in 2024–2025, with open-source implementations like TradingAgents demonstrating **26.6% returns** on Apple stock in a three-month backtest. Yet comprehensive benchmarks reveal a sobering reality: the FINSABER study (2025) found that previously reported LLM advantages **deteriorate significantly** when tested across broader stock universes and longer timeframes, and StockBench showed most LLM agents struggle to outperform simple buy-and-hold. This guide covers the full implementation landscape — architecture, strategy development, execution, risk management, backtesting, and market-specific considerations — to help practitioners build these systems with clear-eyed realism about both their potential and limitations.

@@ -1,392 +1,296 @@
-# Development Setup Guide
-
-This guide walks through setting up a local development environment for **get-rich-quick**. Most developers will use the Docker Compose workflow; native setup is available for those who prefer running services directly on the host.
-
+---
+title: "Development Setup"
+description: "Complete local development workflow for backend, frontend, database, testing, and smoke-mode execution."
+status: "canonical"
+updated: "2026-04-03"
+tags: [development, setup, local-dev]
 ---
 
-## Prerequisites
+# Development Setup
 
-Install these before you start setup:
+This guide is for contributors who need the full day-to-day workflow rather than the shortest first-run path.
 
-| Tool | Version | Required for | Notes |
-|------|---------|--------------|-------|
-| Docker | 24+ | Docker Compose workflow | Install Docker Desktop on macOS/Windows, or Docker Engine on Linux. |
-| Docker Compose | v2+ | Docker Compose workflow | Required because this repo uses `docker compose ...`, not the legacy `docker-compose` binary. |
-| Go | 1.25+ | Native backend development, tests, Task-installed tooling | Install from [go.dev/dl](https://go.dev/dl/). |
-| Task | 3+ | Repo task runner | Install from [taskfile.dev](https://taskfile.dev/installation/). |
-| Ollama *(optional)* | latest | Local LLM development without a cloud API key | Install from [ollama.com/download](https://ollama.com/download). |
-| Node.js *(optional)* | 20+ | Frontend development in `web/` | Only needed when working on the Vite/React frontend. |
+## Toolchain
 
-### LLM prerequisite: choose one path
+Required:
 
-Before starting the backend, configure at least one LLM provider:
+- Go 1.25
+- Node.js 20+
+- npm
+- Docker and Docker Compose v2+
+- PostgreSQL client tools if you want to inspect the database outside Compose
 
-- **Cloud provider:** set one API key in `.env` (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`, or `XAI_API_KEY`).
-- **Local Ollama:** install Ollama, make sure the daemon is running, then pull the default local model:
+Recommended:
+
+- [Task](https://taskfile.dev) for the project command runner
+- `jq` for API and login scripting
+- `golangci-lint`
+
+## Repository layout
+
+These are the directories you will touch most often:
+
+| Path | Purpose |
+| --- | --- |
+| `cmd/tradingagent` | app bootstrap, runtime wiring, strategy runner, docs tests |
+| `internal/api` | REST API, middleware, auth, settings, WebSocket hub |
+| `internal/agent` | agent runtime, config resolution, prompts, runner orchestration |
+| `internal/data` | provider chains, caching, historical downloads |
+| `internal/execution` | brokers, paper trading, order management |
+| `internal/risk` | hard risk engine, kill switch, exposure limits |
+| `internal/repository/postgres` | persistence layer |
+| `web/` | React/Vite frontend |
+| `migrations/` | SQL migrations |
+| `docs/` | canonical docs plus archive material |
+
+## Configuration model
+
+The server loads configuration from environment variables through `internal/config`.
+
+Important behavior:
+
+- `.env` is auto-loaded only when `APP_ENV=development`.
+- `JWT_SECRET` is required for the API server to start.
+- most provider integrations are opt-in by key presence
+- settings edited through the UI are stored in an in-memory service and do not rewrite `.env` or persist to the database
+
+Start from:
 
 ```bash
-ollama serve    # if Ollama is not already running as a background service
-ollama pull llama3.2
-```
-
-If you use Ollama, set `LLM_DEFAULT_PROVIDER=ollama` and keep `OLLAMA_MODEL=llama3.2` (or change both to the model you pulled). When the backend runs in Docker Compose, `OLLAMA_BASE_URL` must point to an address reachable from inside the `app` container; `localhost` only works for native host runs.
-
----
-
-## 1. Docker Compose (Recommended)
-
-This is the fastest way to get a working environment — database, cache, and the Go application all start with a single command, and code changes are hot-reloaded automatically via [Air](https://github.com/air-verse/air).
-
-### 1.1 Clone & Configure
-
-```bash
-git clone https://github.com/PatrickFanella/get-rich-quick.git
-cd get-rich-quick
-
-# Copy example environment file
 cp .env.example .env
 ```
 
-Edit `.env` to configure at least one LLM provider and at least one market-data provider. For cloud LLMs, set one provider key. For local Ollama, switch the default provider and keep the model name aligned with what you pulled:
+Then set the minimum viable local config:
 
 ```dotenv
-OPENAI_API_KEY=sk-...          # or ANTHROPIC_API_KEY, GOOGLE_API_KEY, OPENROUTER_API_KEY, XAI_API_KEY
-# or
-LLM_DEFAULT_PROVIDER=ollama
-OLLAMA_MODEL=llama3.2
+APP_ENV=development
+JWT_SECRET=replace-this-with-a-real-secret
+OPENAI_API_KEY=...
 ```
 
-### 1.2 Start Services
+## Running the stack with Docker Compose
+
+The default contributor path is:
 
 ```bash
 docker compose up --build
 ```
 
-Or in the background:
+Or with Task:
 
 ```bash
-docker compose up -d --build
+task dev
 ```
 
-This starts three containers:
-
-| Service    | Port | Notes                                       |
-|------------|------|---------------------------------------------|
-| `app`      | 8080 | Go backend with Air hot-reload              |
-| `postgres` | 5432 | PostgreSQL 17 (user: `postgres`, db: `tradingagent`) |
-| `redis`    | 6379 | Redis 7                                     |
-
-### 1.3 Verify
+Useful Compose/Task commands:
 
 ```bash
-curl http://localhost:8080/healthz
-# → {"status":"all-ok"}
+task dev
+task dev:down
+task dev:logs
+task dev:restart
+task dev:psql
 ```
 
-### 1.4 Run Migrations
+## Running the backend natively
 
-Migrations are managed with [golang-migrate](https://github.com/golang-migrate/migrate). With Docker Compose running, the Taskfile default `DB_URL` already matches the local PostgreSQL credentials:
+If you want the API server outside Docker:
+
+1. Start PostgreSQL and Redis yourself, or run only those services via Compose.
+2. Set `DATABASE_URL`, `REDIS_URL`, and `JWT_SECRET`.
+3. Run migrations.
+4. start the server:
 
 ```bash
-task migrate:up
+go run ./cmd/tradingagent serve
 ```
 
-### 1.5 Useful Docker Compose Commands
+Or build first:
 
 ```bash
-# View live logs
-docker compose logs -f
-task dev:logs               # shortcut
-
-# Restart the app container (e.g. after changing go.mod)
-docker compose restart app
-task dev:restart            # shortcut
-
-# Open a psql shell (default Compose user is postgres)
-docker compose exec postgres psql -U postgres -d tradingagent
-
-# Stop services
-docker compose down
-
-# Stop and wipe all data
-docker compose down -v
-```
-
----
-
-## 2. Native Setup (Without Docker)
-
-Use this approach if you want to run the Go binary directly on your host, e.g. for profiling, debugging, or using a local IDE debugger.
-
-### 2.1 Install Go
-
-Follow the official instructions at <https://go.dev/dl/> for Go 1.25+.
-
-### 2.2 Install Task
-
-```bash
-# macOS
-brew install go-task
-
-# Linux (snap)
-sudo snap install task --classic
-
-# Or see https://taskfile.dev/installation/
-```
-
-### 2.3 Install Dev Tools
-
-The Taskfile provides a convenience target that installs all required tools:
-
-```bash
-task tools
-```
-
-This installs:
-- **gofumpt** — stricter Go formatting
-- **golangci-lint** — linter aggregator
-- **govulncheck** — vulnerability scanner
-- **golang-migrate** — database migration CLI
-
-### 2.4 Start PostgreSQL & Redis
-
-You can use Docker for just the infrastructure services:
-
-```bash
-docker compose up -d postgres redis
-```
-
-Or install them natively — ensure PostgreSQL 17 and Redis 7 are running and accessible on their default ports.
-
-### 2.5 Configure Environment
-
-```bash
-cp .env.example .env
-```
-
-When running natively (outside Docker), update the hostnames from container names to `localhost`:
-
-```dotenv
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/tradingagent?sslmode=disable
-REDIS_URL=redis://localhost:6379/0
-```
-
-### 2.6 Run Migrations
-
-If you are using the default local Docker Compose PostgreSQL service, run:
-
-```bash
-task migrate:up
-```
-
-Override `DB_URL` only if your local database uses different credentials or host settings.
-
-To create a new migration:
-
-```bash
-task migrate:create -- add_new_table
-```
-
-To check migration status:
-
-```bash
-task migrate:status
-```
-
-### 2.7 Build & Run
-
-```bash
-task build                # → ./bin/tradingagent
-./bin/tradingagent serve  # Start the API server
-```
-
-Or, if you've already built the binary, you can start the server directly:
-
-```bash
+task build
 ./bin/tradingagent serve
 ```
 
----
-
-## 3. Build, Test & Lint
-
-### Unit Tests
-
-```bash
-task test                 # Short mode, fast feedback
-task test:race            # With Go race detector
-```
-
-### Integration Tests
-
-Integration tests require a running PostgreSQL instance. They create isolated per-test schemas automatically.
-
-```bash
-# Ensure DATABASE_URL is set and PostgreSQL is running, then:
-task test:integration
-```
-
-### Coverage
-
-```bash
-task test:cover           # Generates HTML coverage report
-```
-
-### Lint & Format
-
-```bash
-task lint                 # golangci-lint
-task fmt                  # Format with gofumpt
-task fmt:check            # Check formatting without modifying files
-task vet                  # go vet
-task vulncheck            # Vulnerability scan
-```
-
-### Full Validation
-
-```bash
-task check                # Pre-push: build + test + lint
-task ci                   # Replicate the full CI pipeline locally
-```
-
----
-
-## 4. Database Migrations
-
-Migrations live in the `migrations/` directory and use sequential numbering:
-
-```
-migrations/
-  000001_initial_schema.up.sql
-  000001_initial_schema.down.sql
-  000002_historical_ohlcv.up.sql
-  ...
-```
-
-| Command                | Description                         |
-|------------------------|-------------------------------------|
-| `task migrate:up`      | Apply all pending migrations        |
-| `task migrate:down`    | Roll back the last migration        |
-| `task migrate:status`  | Show current migration version      |
-| `task migrate:create -- <name>` | Create a new migration pair |
-
----
-
-## 5. Frontend Development
-
-The frontend lives in the `web/` directory and uses Vite + React.
+## Running the frontend
 
 ```bash
 cd web
 npm install
-npm run dev               # Starts Vite dev server
+npm run dev
 ```
 
-During development, the backend API is available at `http://localhost:8080`. Frontend code can call this URL directly, or you can configure a dev proxy in `web/vite.config.ts` (for example, under `server.proxy`) if you prefer to use relative API paths.
+The frontend default API base URL is `http://localhost:8080`.
 
----
+## Database migrations
 
-## 6. Pre-commit Hooks
+The project uses SQL migrations under `migrations/`.
 
-The project uses [pre-commit](https://pre-commit.com/) for automated code quality checks on every commit:
+Common commands:
 
 ```bash
-pip install pre-commit
-pre-commit install
-```
-
-Hooks run gofumpt and golangci-lint for Go files, and ESLint + Prettier for TypeScript/JavaScript.
-
----
-
-## 7. Project Layout
-
-```
-cmd/tradingagent/       CLI entry point (Cobra bootstrap)
-internal/
-  agent/                Pipeline phases, debate system, typed node interfaces
-  api/                  REST API (chi/v5), WebSocket hub, auth middleware
-  backtest/             Backtesting engine
-  cli/                  Cobra subcommands, Bubble Tea TUI
-  config/               Config loading from env / .env files
-  data/                 Market data providers (Alpha Vantage, Polygon, Yahoo, Binance)
-  domain/               Core domain models
-  execution/            Broker adapters (Alpaca, Binance, Polymarket)
-  llm/                  Multi-provider LLM abstraction
-  memory/               Agent memory (PostgreSQL full-text search)
-  repository/           PostgreSQL data access layer
-  risk/                 Risk engine, circuit breakers, kill switch
-  scheduler/            Cron-based strategy scheduling
-migrations/             SQL migrations (golang-migrate)
-web/                    Frontend (TypeScript, React, Vite)
-docs/                   Architecture docs, ADRs, research
-scripts/                Utility scripts
-```
-
----
-
-## 8. CI Pipeline
-
-GitHub Actions runs the following jobs on every push and pull request:
-
-1. **Lint** — golangci-lint
-2. **Unit Tests** — `go test -short -race` with coverage
-3. **Integration Tests** — PostgreSQL service container, migrations, `go test -run Integration`
-4. **Smoke Tests** — Full Docker Compose environment, health check, `go test -run Smoke`
-5. **Build** — Compile binary, build Docker image
-
-See [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) for full details.
-
----
-
-## 9. Troubleshooting
-
-### Port already in use
-
-If port 8080, 5432, or 6379 is already taken:
-
-```bash
-# Find the process using a port
-lsof -i :8080
-
-# Or change the port in .env
-APP_PORT=9090
-```
-
-### Docker Compose fails to start
-
-```bash
-# Check container status
-docker compose ps
-
-# Check individual service logs
-docker compose logs postgres
-docker compose logs app
-
-# Rebuild from scratch
-docker compose down -v
-docker compose up --build
-```
-
-### Migration errors
-
-```bash
-# Check current migration version
+task migrate:up
+task migrate:down
 task migrate:status
-
-# Force a specific version (use with caution)
-migrate -path migrations -database "$DATABASE_URL" force <version>
+task migrate:create -- add_feature_name
 ```
 
-### Tests fail with "database not found"
+The schema includes persistence for:
 
-Ensure `DATABASE_URL` is set and the PostgreSQL server is running. Integration tests are skipped when the `-short` flag is used or when `DATABASE_URL` is not set.
+- strategies
+- pipeline runs and phase timings
+- pipeline run snapshots
+- agent decisions and events
+- conversations and messages
+- orders, positions, trades
+- memories
+- market-data cache and historical OHLCV
+- audit log
+- users
+- API keys
+- backtest configs and backtest runs
 
----
+## Creating a local user
 
-## Further Reading
+There is no self-service registration flow yet. For local dev:
 
-- [System Architecture](design/system-architecture.md)
-- [API Design](design/api-design.md)
-- [Architecture Decision Records](adr/)
-- [CONTRIBUTING.md](../CONTRIBUTING.md)
+```bash
+docker compose exec postgres psql -U postgres -d tradingagent <<'SQL'
+INSERT INTO users (username, password_hash)
+VALUES ('demo', crypt('demo-pass', gen_salt('bf')))
+ON CONFLICT (username) DO NOTHING;
+SQL
+```
+
+## Smoke mode for deterministic runs
+
+`APP_ENV=smoke` activates a deterministic manual-run path that is useful for end-to-end testing without depending on real LLMs and live upstream providers.
+
+Because `.env` auto-loading only happens in `development`, export your env file before starting smoke mode:
+
+```bash
+set -a
+source .env
+set +a
+export APP_ENV=smoke
+./bin/tradingagent serve
+```
+
+Smoke mode is especially useful when you want to verify:
+
+- strategy creation
+- login/auth
+- manual run dispatch
+- run detail pages
+- event plumbing
+- persistence wiring
+
+## Testing and quality checks
+
+Primary Task targets:
+
+```bash
+task build
+task test
+task test:race
+task test:integration
+task test:cover
+task lint
+task fmt
+task fmt:check
+task vet
+task vulncheck
+task audit
+task check
+task ci
+```
+
+Notes:
+
+- integration tests require PostgreSQL
+- the current repository contains unresolved merge conflict markers in multiple Go and TypeScript files, so some broad test/build commands may fail before your specific change is even exercised
+- docs-only validation currently relies mostly on file/link checks and the dedicated docs tests in `cmd/tradingagent`
+
+## CLI workflow
+
+The CLI talks to the local API server. Typical env setup:
+
+```bash
+export TRADINGAGENT_API_URL=http://127.0.0.1:8080
+export TRADINGAGENT_TOKEN=...
+```
+
+Examples:
+
+```bash
+./bin/tradingagent strategies list
+./bin/tradingagent run AAPL
+./bin/tradingagent portfolio
+./bin/tradingagent risk status
+./bin/tradingagent dashboard
+./bin/tradingagent memories search earnings
+```
+
+Full command reference: [Reference: CLI](reference/cli.md)
+
+## Frontend workflow
+
+The web app lives in `web/` and exposes these routes:
+
+- `/login`
+- `/`
+- `/strategies`
+- `/strategies/:id`
+- `/runs`
+- `/runs/:id`
+- `/portfolio`
+- `/memories`
+- `/settings`
+- `/risk`
+- `/realtime`
+
+Web UI reference: [Reference: Web UI](reference/web-ui.md)
+
+## Operational development notes
+
+Useful health endpoints:
+
+```bash
+curl http://localhost:8080/healthz
+curl http://localhost:8080/health
+curl http://localhost:8080/metrics
+```
+
+Useful database access:
+
+```bash
+docker compose exec postgres psql -U postgres -d tradingagent
+```
+
+Useful log inspection:
+
+```bash
+docker compose logs -f app
+docker compose logs -f postgres
+docker compose logs -f redis
+```
+
+## Current contributor hazards
+
+Before doing anything expensive, read [Known Issues](known-issues.md).
+
+The big ones today:
+
+- unresolved merge conflicts exist in several runtime, risk, API-test, and frontend files
+- some documented integrations are partially wired rather than fully productionized
+- WebSocket auth is not enforced by the current handler
+- settings updates do not persist across server restarts
+
+## Suggested contributor reading order
+
+1. [Getting Started](getting-started.md)
+2. [Reference: Architecture](reference/architecture.md)
+3. [Reference: API](reference/api.md)
+4. [Reference: Agents and Runtime](reference/agents.md)
+5. [Reference: Strategy Config](reference/strategy-config.md)
+6. [Known Issues](known-issues.md)

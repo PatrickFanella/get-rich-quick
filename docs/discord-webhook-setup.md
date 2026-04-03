@@ -1,3 +1,11 @@
+---
+title: "Discord webhook setup"
+description: "Discord integration notes retained for reference."
+status: "archive"
+updated: "2026-04-03"
+tags: [discord, archive]
+---
+
 # Discord webhook setup
 
 This guide documents what the runtime emits today.

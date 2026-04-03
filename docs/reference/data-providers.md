@@ -1,124 +1,106 @@
-# Data providers reference
+---
+title: "Data Providers"
+description: "Market data provider chains, caching, historical downloads, and current gaps."
+status: "canonical"
+updated: "2026-04-03"
+tags: [data, providers, reference]
+---
 
-This document describes the provider wiring that exists in the current runtime.
-Code is the source of truth.
+# Data Providers
 
-## Provider-chain model
+The market-data layer is defined in `internal/data`.
 
-`internal/data.ProviderChain` tries providers in order and returns the first successful result for the requested method. Providers that do not implement a method return `data.ErrNotImplemented`, which allows the chain to fall through to the next provider.
+## Abstraction
 
-`internal/data.DataService` builds two chains:
+Every provider implements:
 
-- `stock-chain`: Polygon -> Alpha Vantage -> Yahoo
-- `crypto-chain`: Binance
+- OHLCV retrieval
+- fundamentals retrieval
+- news retrieval
+- social sentiment retrieval
 
-Market type selection is strict:
+The abstraction is broad on purpose. In practice, provider support is uneven, and the chain falls back when a provider does not support a requested method.
 
-- `stock` uses `stock-chain`
-- `crypto` uses `crypto-chain`
-- any other market type returns `data: unsupported market type`
+## Provider chain model
 
-## What is actually wired today
+The app constructs separate chains by market type.
 
-| Provider | Runtime status | Market types | Order in chain | Notes |
-| --- | --- | --- | --- | --- |
-| Polygon | live | `stock` | 1 | Requires `POLYGON_API_KEY` |
-| Alpha Vantage | live | `stock` | 2 | Requires `ALPHA_VANTAGE_API_KEY` |
-| Yahoo Finance | live | `stock` | 3 | Public fallback; no provider env vars |
-| Binance | live | `crypto` | 1 | Public market-data endpoints; broker creds are separate |
-| NewsAPI | code exists, not wired | none | n/a | Package exists under `internal/data/newsapi`, but the runtime does not register or instantiate it |
-| Finnhub | config accepted, not wired | none | n/a | `FINNHUB_*` env vars load and validate, but there is no provider implementation/factory wiring |
+### Stock chain
 
-## Supported methods by provider
+Current order:
 
-| Provider | OHLCV | Fundamentals | News | Social sentiment |
-| --- | --- | --- | --- | --- |
-| Polygon | yes | no | yes | no |
-| Alpha Vantage | yes | yes | yes | no |
-| Yahoo Finance | yes | no | no | no |
-| Binance | yes | no | no | no |
-| NewsAPI package | no | no | yes | no |
+1. Polygon when configured
+2. Alpha Vantage when configured
+3. Yahoo Finance as a final fallback
 
-No provider currently implements `GetSocialSentiment` in the runtime.
+### Crypto chain
 
-## Configuration surface
+Current order:
 
-### Live provider env vars
+1. Binance
 
-| Env var | Default | Used by runtime | Notes |
+### Unsupported or partial surfaces
+
+- `FINNHUB_*` config exists but is not currently wired into the provider factory
+- a `newsapi` package exists but is not part of the main runtime chain
+- social sentiment support depends on provider implementation and is not universally available
+
+## Caching
+
+`DataService` caches retrieved data through the market-data cache repository.
+
+Current cache buckets include:
+
+- OHLCV
+- fundamentals
+- news
+- social sentiment
+
+Representative TTL behavior:
+
+- OHLCV uses timeframe-sensitive caching
+- fundamentals are cached for longer windows such as hours
+- news is cached for shorter windows such as minutes
+
+## Historical OHLCV downloads
+
+`DataService` also supports bulk historical downloads into the historical OHLCV repository.
+
+Use cases:
+
+- backtesting
+- warm caches
+- preloading historical ranges
+
+Features:
+
+- market-type-aware chain selection
+- incremental gap detection
+- upsert into persisted OHLCV storage
+
+## What the runtime actually uses
+
+The production strategy runner loads initial state from the data service and may consume:
+
+- price bars and computed indicators
+- fundamentals
+- news articles
+- latest social snapshot
+
+If a provider chain cannot satisfy a surface, the runner may continue with a partial seed.
+
+## Coverage summary
+
+| Surface | Stock | Crypto | Notes |
 | --- | --- | --- | --- |
-| `POLYGON_API_KEY` | empty | Polygon stock provider | Required to enable Polygon in the stock chain |
-| `ALPHA_VANTAGE_API_KEY` | empty | Alpha Vantage stock provider | Required to enable Alpha Vantage in the stock chain |
-| `ALPHA_VANTAGE_RATE_LIMIT_PER_MINUTE` | `5` | Alpha Vantage stock provider | Applied by the registered Alpha Vantage client rate limiter |
+| OHLCV | yes | yes | strongest coverage |
+| Fundamentals | mostly stock-oriented | limited | depends on provider implementation |
+| News | partial | partial | package support exists, runtime wiring is uneven |
+| Social sentiment | partial | partial | interface exists, live support is incomplete |
 
-### Accepted by config, but not instantiated
+## Operational implications
 
-| Env var | Default | Current behavior |
-| --- | --- | --- |
-| `FINNHUB_API_KEY` | empty | Parsed into config, but no runtime provider uses it |
-| `FINNHUB_RATE_LIMIT_PER_MINUTE` | `60` | Validated, but no runtime provider uses it |
-
-### Not used for market-data providers
-
-| Env var(s) | Why not |
-| --- | --- |
-| `BINANCE_API_KEY`, `BINANCE_API_SECRET` | Broker execution credentials, not Binance market-data provider settings |
-| any `NEWSAPI_*` variable | The current config loader does not expose NewsAPI settings |
-| any `YAHOO_*` variable | Yahoo provider is always a public fallback and has no config surface |
-
-## Code-truth rate limits
-
-These are runtime limits visible in code, not promises about vendor-side quotas.
-
-| Provider | Code-truth rate limit |
-| --- | --- |
-| Polygon | no custom limiter in current provider code |
-| Alpha Vantage | `ALPHA_VANTAGE_RATE_LIMIT_PER_MINUTE`, default `5/min` |
-| Yahoo Finance | no custom limiter in current provider code |
-| Binance | internal limiter at `1200/min` |
-| NewsAPI package | internal limiter at `100 requests / 24h` if you instantiate the package manually |
-| Finnhub | config field exists with default `60/min`, but runtime does not instantiate a Finnhub provider |
-
-## Method-level behavior
-
-### OHLCV
-
-Supported timeframes in the live providers are `1m`, `5m`, `15m`, `1h`, and `1d`.
-
-- Polygon: stocks, paginated aggregates endpoint
-- Alpha Vantage: stocks, daily/intraday time-series endpoints
-- Yahoo Finance: stocks, public chart endpoint
-- Binance: crypto, public klines endpoint
-
-### Fundamentals
-
-Only Alpha Vantage currently returns fundamentals. The runtime combines Alpha Vantage `OVERVIEW`, `INCOME_STATEMENT`, and `BALANCE_SHEET` responses into one `data.Fundamentals` result.
-
-### News
-
-- Polygon returns stock news and maps ticker-level sentiment when Polygon supplies it.
-- Alpha Vantage returns stock news from `NEWS_SENTIMENT`.
-- The NewsAPI package can return news if manually instantiated, but the runtime does not currently wire it.
-
-### Social sentiment
-
-No live provider is wired for social-sentiment reads today.
-
-## Example `.env`
-
-```dotenv
-POLYGON_API_KEY=your-polygon-key
-ALPHA_VANTAGE_API_KEY=your-alpha-vantage-key
-ALPHA_VANTAGE_RATE_LIMIT_PER_MINUTE=5
-
-# Accepted by config validation, but not used by the runtime provider factory yet.
-FINNHUB_API_KEY=
-FINNHUB_RATE_LIMIT_PER_MINUTE=60
-```
-
-## Important gaps
-
-- NewsAPI is present in the repository but is not imported by `cmd/tradingagent/main.go` and is not part of `DataService` factory wiring.
-- Finnhub has config/validation surface but no provider implementation in the current runtime.
-- Yahoo and Binance are live fallbacks/providers even though they do not expose dedicated provider env vars.
-- Binance market data is public; do not confuse it with Binance broker execution credentials.
+- provider availability directly affects run quality
+- a strategy can still run with incomplete analyst context
+- a configured env var does not guarantee the provider is actually instantiated
+- when debugging a “missing data” issue, inspect the chain wiring, not just `.env`

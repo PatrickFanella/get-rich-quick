@@ -1,3 +1,11 @@
+---
+title: "ADR-005: Position sizing strategy selection"
+description: "Architecture decision record."
+status: "canonical"
+updated: "2026-04-03"
+tags: [adr]
+---
+
 # ADR-005: Position sizing strategy selection
 
 - **Status:** accepted

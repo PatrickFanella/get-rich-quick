@@ -1,3 +1,11 @@
+---
+title: "ADR-XXX: <Title>"
+description: "Template for creating new architecture decision records."
+status: "template"
+updated: "2026-04-03"
+tags: [adr, template]
+---
+
 # ADR-XXX: <Title>
 
 - **Status:** proposed

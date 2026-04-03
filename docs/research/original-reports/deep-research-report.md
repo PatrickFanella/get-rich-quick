@@ -1,3 +1,11 @@
+---
+title: "LLM-Powered Trading Bots: Architecture and Data Inputs  "
+description: "Imported or raw research artifact kept for traceability."
+status: "archive"
+updated: "2026-04-03"
+tags: [research, archive]
+---
+
 # LLM-Powered Trading Bots: Architecture and Data Inputs  
 **LLMs in trading** serve as *agents* that process diverse data (news, reports, social media, price feeds) into trade signals. They can **directly generate buy/sell decisions** or act as “alpha miners” that output features or factors for a classic algo model【21†L112-L121】【9†L75-L83】. Modern systems might fuse an LLM-driven sentiment or news model with a price forecaster (e.g. an LSTM) to generate trades【9†L75-L83】. For example, an adversarial-trading study built an ATS in Backtrader that combines LLM-based news sentiment (FinBERT/FinGPT/etc.) with an LSTM price model【9†L75-L83】. Compared to humans, LLMs excel at quickly ingesting text and summarizing insights – a key advantage since traders must act on fresh information rapidly【9†L87-L94】【21†L34-L43】.  
 

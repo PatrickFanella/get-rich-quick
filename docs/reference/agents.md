@@ -1,278 +1,222 @@
-# Agent System Reference
+---
+title: "Agents and Runtime"
+description: "How the multi-agent trading runtime is assembled and executed in the current application."
+status: "canonical"
+updated: "2026-04-03"
+tags: [agents, runtime, reference]
+---
 
-This document describes the agent pipeline implemented under `internal/domain/agent.go` and `internal/agent/`.
+# Agents and Runtime
 
-## Canonical types
+This document explains how the current strategy runner actually behaves.
 
-### `AgentRole`
+## Runtime entry points
 
-`internal/domain/agent.go` defines 15 role constants.
+The important files are:
 
-| Role constant | String value | Phase | Current runtime use |
-| --- | --- | --- | --- |
-| `AgentRoleMarketAnalyst` | `market_analyst` | `analysis` | Yes |
-| `AgentRoleFundamentalsAnalyst` | `fundamentals_analyst` | `analysis` | Yes |
-| `AgentRoleNewsAnalyst` | `news_analyst` | `analysis` | Yes |
-| `AgentRoleSocialMediaAnalyst` | `social_media_analyst` | `analysis` | Yes |
-| `AgentRoleBullResearcher` | `bull_researcher` | `research_debate` | Yes |
-| `AgentRoleBearResearcher` | `bear_researcher` | `research_debate` | Yes |
-| `AgentRoleInvestJudge` | `invest_judge` | `research_debate` | Yes |
-| `AgentRoleTrader` | `trader` | `trading` | Yes |
-| `AgentRoleAggressiveAnalyst` | `aggressive_analyst` | `risk_debate` | Yes |
-| `AgentRoleConservativeAnalyst` | `conservative_analyst` | `risk_debate` | Yes |
-| `AgentRoleNeutralAnalyst` | `neutral_analyst` | `risk_debate` | Yes |
-| `AgentRoleRiskManager` | `risk_manager` | `risk_debate` | Yes |
-| `AgentRoleAggressiveRisk` | `aggressive_risk` | `risk_debate` | Defined, but not used by `PipelineBuilder` or the shipped risk nodes |
-| `AgentRoleConservativeRisk` | `conservative_risk` | `risk_debate` | Defined, but not used by `PipelineBuilder` or the shipped risk nodes |
-| `AgentRoleNeutralRisk` | `neutral_risk` | `risk_debate` | Defined, but not used by `PipelineBuilder` or the shipped risk nodes |
+- `cmd/tradingagent/runtime.go`
+- `cmd/tradingagent/prod_strategy_runner.go`
+- `internal/agent/resolve_config.go`
+- `internal/agent/runner.go`
+- `internal/agent/strategy_config.go`
 
-The risk-debate implementations in `internal/agent/risk/*.go` return the `*_analyst` roles, and `internal/agent/builder.go` requires those same `*_analyst` roles for a valid pipeline.
+## Runtime model
 
-### `Phase`
+A strategy run uses:
 
-`internal/domain/agent.go` defines four pipeline phases, executed in this order by `Pipeline.Execute`:
+1. a persisted `domain.Strategy`
+2. a typed `agent.StrategyConfig` parsed from the strategy’s JSON `config`
+3. system-level defaults from the settings/bootstrap layer
+4. hardcoded fallbacks from `ResolveConfig`
 
-1. `analysis`
-2. `research_debate`
-3. `trading`
-4. `risk_debate`
+The resulting run is then executed by the production strategy runner.
 
-## Pipeline contract
+## Agent roster
 
-### Core interfaces
-
-`internal/agent/node.go` defines the base `Node` interface:
-
-- `Name() string`
-- `Role() AgentRole`
-- `Phase() Phase`
-- `Execute(ctx, state) error`
-
-Optional typed interfaces sit on top of `Node`:
-
-- `AnalystNode` → `Analyze(ctx, AnalysisInput) (AnalysisOutput, error)`
-- `DebaterNode` → `Debate(ctx, DebateInput) (DebateOutput, error)`
-- `TraderNode` → `Trade(ctx, TradingInput) (TradingOutput, error)`
-- `RiskJudgeNode` → `JudgeRisk(ctx, RiskJudgeInput) (RiskJudgeOutput, error)`
-
-`Pipeline` will use the typed method when a node implements it; otherwise it falls back to `Execute`.
-
-### `PipelineState`
-
-`internal/agent/state.go` is the shared mutable state passed through the run.
-
-Important fields:
-
-- `Market`, `News`, `Fundamentals`, `Social` — analysis inputs
-- `AnalystReports` — per-analyst text outputs
-- `ResearchDebate.Rounds` and `ResearchDebate.InvestmentPlan`
-- `TradingPlan`
-- `RiskDebate.Rounds` and `RiskDebate.FinalSignal`
-- `FinalSignal`
-- `LLMCacheStats`
-
-`PipelineState` also keeps an internal `decisions` map keyed by role + phase + optional round number. That map is the handoff point between node execution and persistence.
-
-## Phase behavior
-
-### 1. Analysis
-
-`Pipeline.executeAnalysisPhase` runs every registered analysis node concurrently via `errgroup`.
-
-Current analysis nodes:
+### Analysis phase
 
 - `market_analyst`
 - `fundamentals_analyst`
 - `news_analyst`
 - `social_media_analyst`
 
-Shared behavior lives in `internal/agent/analysts/base.go`:
+### Research debate phase
 
-- builds system + user messages
-- calls the configured `llm.Provider`
-- records provider/prompt/usage metadata when an LLM call happens
-- supports skip paths (`shouldCall=false`) that still store a report and decision
-
-Current skip cases:
-
-- fundamentals analyst skips when `state.Fundamentals == nil`
-- news analyst skips when `len(state.News) == 0`
-
-Phase failure semantics:
-
-- individual analyst failures are logged and tolerated
-- the phase still returns success unless a structural/persistence error occurs
-
-After analysis completes, `persistAnalysisSnapshots` stores JSON snapshots for:
-
-- `market`
-- `news`
-- `fundamentals`
-- `social`
-
-### 2. Research debate
-
-`Pipeline.executeResearchDebatePhase` delegates to `DebateExecutor` with:
-
-- debaters: `bull_researcher`, `bear_researcher`
-- judge: `invest_judge`
-- rounds: `PipelineConfig.ResearchDebateRounds` (default 3)
-
-Per round, `DebateExecutor`:
-
-1. appends a new `DebateRound`
-2. runs each debater sequentially
-3. persists each round decision with its round number
-4. persists and emits `debate_round_completed`
-
-After the rounds, the judge runs once and writes `ResearchDebate.InvestmentPlan`.
-
-Research debate node behavior:
-
-- bull and bear researchers store raw text contributions in the current round
-- `ResearchManager` asks for JSON, parses it with `internal/llm/parse`, and stores normalized JSON when parsing succeeds
-- if parsing fails, `ResearchManager` stores the raw LLM content so the pipeline can continue
-
-### 3. Trading
-
-`Pipeline.executeTradingPhase` requires exactly one `trader` node.
-
-The trader reads:
-
-- ticker
-- normalized investment plan string from research debate
-- analyst reports
-
-`internal/agent/trader/trader.go` asks the LLM for JSON, parses it into `TradingPlan`, and stores:
-
-- normalized JSON when parsing succeeds
-- a default hold plan when parsing fails
-
-Safety behavior:
-
-- if the LLM returns a mismatched ticker, the trader overwrites it with the pipeline ticker before storing the plan
-
-### 4. Risk debate
-
-`Pipeline.executeRiskDebatePhase` delegates to `DebateExecutor` with:
-
-- debaters: `aggressive_analyst`, `conservative_analyst`, `neutral_analyst`
-- judge: `risk_manager`
-- rounds: `PipelineConfig.RiskDebateRounds` (default 3)
-
-Each debater receives the current `TradingPlan` as JSON context under the `trader` role.
-
-`RiskManager` asks for JSON, parses it into a final signal, and then:
-
-- sets `FinalSignal.Signal` to buy/sell/hold
-- converts integer confidence `1..10` to a float `0.1..1.0`
-- updates `TradingPlan.PositionSize` and `TradingPlan.StopLoss` for BUY/SELL outputs when adjusted values are positive
-- leaves the trading plan unchanged for HOLD
-- stores normalized JSON when parsing succeeds, raw content otherwise
-
-## Builder rules
-
-`internal/agent/builder.go` validates pipelines before construction.
-
-A valid pipeline must have:
-
-- at least one analysis node
 - `bull_researcher`
 - `bear_researcher`
-- `invest_judge`
+- `research_manager` / invest judge role
+
+### Trading phase
+
 - `trader`
+
+### Risk debate phase
+
 - `aggressive_analyst`
 - `conservative_analyst`
 - `neutral_analyst`
 - `risk_manager`
 
-The builder does not treat `aggressive_risk`, `conservative_risk`, or `neutral_risk` as required runtime roles.
+## Phase flow
 
-## Timeouts and failure boundaries
+The runtime follows these conceptual phases:
 
-`PipelineConfig` has:
+```text
+analysis -> research_debate -> trading -> risk_debate
+```
 
-- `PipelineTimeout` — whole run deadline
-- `PhaseTimeout` — per-phase deadline
-- `ResearchDebateRounds`
-- `RiskDebateRounds`
+### 1. Analysis
 
-Behavior:
+The runner seeds market context, then executes the enabled analysts in parallel.
 
-- analysis failures inside a node do not abort the run
-- research debate, trading, and risk debate errors abort the run immediately
-- `DebateExecutor` clamps configured rounds below 1 up to 1 and logs a warning
-- `RecordRunComplete` writes status updates with a fresh background context and a 10 second timeout so cancellation does not strand runs in `running`
+Inputs may include:
 
-## Persistence model
+- OHLCV bars and indicators
+- fundamentals
+- recent news
+- social sentiment snapshots
 
-### Pipeline runs
+### 2. Research debate
 
-`DecisionPersister.RecordRunStart` stores a `PipelineRun` before phase execution.
+Bull and bear roles argue over the evidence. A manager/judge role synthesizes the result into an investment plan.
 
-`DecisionPersister.RecordRunComplete` updates the run with:
+### 3. Trading
 
-- final status
-- completion time
-- error message, if any
-- per-phase timings JSON
+The trader converts the investment plan into a concrete trade plan:
 
-When `ExecuteStrategy` is used, the resolved strategy config is marshaled into `PipelineRun.ConfigSnapshot` for auditability.
+- side
+- sizing
+- stop-loss framing
+- take-profit framing
+- execution details
 
-### Agent decisions
+### 4. Risk debate
 
-`DecisionPersister.PersistDecision` writes `domain.AgentDecision` records with:
+The aggressive, conservative, and neutral roles debate the trade plan. The risk manager emits the final actionable signal such as `buy`, `sell`, or `hold` plus confidence.
 
-- `pipeline_run_id`
-- `agent_role`
-- `phase`
-- `round_number` for debate contributions
-- `output_text`
-- optional LLM metadata:
-  - `llm_provider`
-  - `llm_model`
-  - `prompt_text`
-  - `prompt_tokens`
-  - `completion_tokens`
-  - `latency_ms`
-  - `cost_usd`
+### 5. Hard risk and execution
 
-If a node stored a `DecisionLLMResponse`, persistence copies those fields. Static or skipped outputs still persist as decisions with nil LLM metadata.
+The signal does not directly guarantee execution. The hard risk engine and order-management layer still apply:
 
-### Structured events
+- kill switch
+- circuit breaker
+- position limits
+- exposure caps
+- live vs paper execution routing
 
-`DecisionPersister.PersistEvent` writes `domain.AgentEvent` records.
+## Config resolution
 
-Persisted event kinds:
+`agent.ResolveConfig` merges values in this order:
 
-- `phase_started`
-- `phase_completed`
-- `agent_started`
-- `agent_completed`
-- `debate_round_completed`
-- `signal_produced`
-- `pipeline_started`
-- `pipeline_completed`
-- `pipeline_failed`
+1. strategy config overrides
+2. global settings
+3. hardcoded defaults
 
-These are distinct from the in-memory/user-visible `PipelineEvent` channel.
+Current hardcoded defaults:
 
-### User-visible pipeline events
+| Field | Default |
+| --- | --- |
+| provider | `openai` |
+| deep think model | `gpt-5.2` |
+| quick think model | `gpt-5-mini` |
+| debate rounds | `3` |
+| analysis timeout | `30` seconds |
+| debate timeout | `60` seconds |
+| position size | `5.0` percent |
+| stop-loss multiplier | `1.5` |
+| take-profit multiplier | `2.0` |
+| minimum confidence | `0.65` |
 
-`internal/agent/event.go` defines the emitted runtime event types:
+## Analyst selection
 
-- `pipeline_started`
-- `agent_decision_made`
-- `debate_round_completed`
-- `signal_generated`
-- `llm_cache_stats_reported`
-- `pipeline_completed`
-- `pipeline_error`
+Strategies can restrict which analyst roles run via `analyst_selection`.
 
-Phase and agent events are sent non-blocking. Terminal events use `emitEvent` without a request context so they are not dropped just because the pipeline context was canceled.
+Semantics:
 
-## Current wiring notes
+- `nil` analyst selection means all analysts are enabled
+- a non-empty list means only those roles run
 
-- `cmd/tradingagent/runtime.go` builds a deterministic smoke pipeline only when `APP_ENV=smoke`.
-- That smoke pipeline uses the same phase ordering and persistence APIs, but all nodes are local deterministic stubs with no live LLM calls.
-- The reusable node implementations under `internal/agent/analysts`, `internal/agent/debate`, `internal/agent/trader`, and `internal/agent/risk` are the current source of truth for agent behavior, prompts, parsing, and decision recording.
+This is one of the most useful ways to tune cost and latency per strategy.
+
+## Prompt overrides
+
+Strategies can replace the default system prompt for individual roles via `prompt_overrides`.
+
+Practical caution:
+
+- prompt overrides are powerful but easy to abuse
+- treat them as precision overrides, not a place to dump strategy prose
+
+## LLM provider routing
+
+The runtime supports these provider names:
+
+- `openai`
+- `anthropic`
+- `google`
+- `openrouter`
+- `xai`
+- `ollama`
+
+Provider wiring details:
+
+- `openrouter` and `xai` are treated as OpenAI-compatible transports in the production runner
+- the strategy config validator enforces provider/model allowlists for some providers and looser validation for others
+
+## Initial state seeding
+
+Before agent execution, the production runner loads initial state from the data service.
+
+That seed can include:
+
+- market bars plus indicators
+- fundamentals
+- news articles
+- latest social sentiment snapshot
+
+The completeness of the seed depends on provider availability for the selected market type.
+
+## Timeouts
+
+The runtime uses phase-specific timeouts from resolved config.
+
+Important caveat:
+
+- the current runtime does not enforce a meaningful whole-pipeline timeout; only phase-level limits are effectively applied
+
+## Execution routing
+
+The production strategy runner chooses brokers roughly as follows:
+
+- paper stock:
+  - Alpaca paper when configured and allowed
+  - otherwise local paper broker
+- paper crypto:
+  - Binance paper/testnet when configured and allowed
+  - otherwise local paper broker
+- live stock:
+  - Alpaca when live trading is enabled and configured
+- live crypto:
+  - Binance when live trading is enabled and configured
+- live polymarket:
+  - not yet presented as a fully supported path in the main runner
+
+## Persistence
+
+A run can produce and persist:
+
+- pipeline run records
+- agent decisions
+- events
+- snapshots
+- orders
+- positions
+- trades
+- memories
+- audit records
+
+## Runtime caveats
+
+- The repo still contains unresolved merge conflicts in some runtime-related files.
+- The newer runtime path is the production truth; older pipeline abstractions still exist and are useful context, but they are not the whole story.
+- Settings-driven config changes are not durable across restart.

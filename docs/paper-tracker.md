@@ -1,3 +1,11 @@
+---
+title: "Paper Download Tracker"
+description: "Research paper index retained for reference."
+status: "archive"
+updated: "2026-04-03"
+tags: [research, archive]
+---
+
 # Paper Download Tracker
 
 Generated: 2026-03-20

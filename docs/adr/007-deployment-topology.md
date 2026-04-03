@@ -1,3 +1,11 @@
+---
+title: "ADR-007: Deployment topology and scaling strategy"
+description: "Architecture decision record."
+status: "canonical"
+updated: "2026-04-03"
+tags: [adr]
+---
+
 # ADR-007: Deployment topology and scaling strategy
 
 - **Status:** accepted

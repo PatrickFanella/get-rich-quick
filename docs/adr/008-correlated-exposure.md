@@ -1,3 +1,11 @@
+---
+title: "ADR-008: Correlated asset exposure management"
+description: "Architecture decision record."
+status: "canonical"
+updated: "2026-04-03"
+tags: [adr]
+---
+
 # ADR-008: Correlated asset exposure management
 
 - **Status:** accepted (deferred implementation)

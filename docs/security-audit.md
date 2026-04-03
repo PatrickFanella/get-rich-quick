@@ -1,3 +1,11 @@
+---
+title: "Security Audit Report"
+description: "Security review notes retained for historical reference."
+status: "archive"
+updated: "2026-04-03"
+tags: [security, archive]
+---
+
 # Security Audit Report
 
 **Date:** 2026-03-29

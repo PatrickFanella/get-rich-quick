@@ -1,3 +1,11 @@
+---
+title: "Ten profitable trading strategies and the research behind them"
+description: "Imported or raw research artifact kept for traceability."
+status: "archive"
+updated: "2026-04-03"
+tags: [research, archive]
+---
+
 # Ten profitable trading strategies and the research behind them
 
 Decades of academic research have identified a set of systematic strategies that generate returns beyond what standard models predict. These strategies — momentum, value, carry, trend following, mean reversion, statistical arbitrage, factor investing, quality, volatility selling, and low-volatility investing — share a common thread: each exploits a persistent market inefficiency rooted in behavioral biases, structural constraints, or compensation for bearing specific risks. What follows is a strategy-by-strategy guide to how each works, why it persists, and which landmark papers provide the empirical backbone.

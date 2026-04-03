@@ -1,149 +1,111 @@
+---
+title: "Documentation"
+description: "Canonical documentation hub for get-rich-quick."
+status: "canonical"
+updated: "2026-04-03"
+tags: [docs, canonical, index]
+---
+
 # Documentation
 
-## Quick Navigation
+This directory now has a single job: explain the application as it exists today, separate what is implemented from what is merely planned, and keep older design research available without pretending it is the current runtime contract.
 
-| Section                                           | Description                                                     |
-| ------------------------------------------------- | --------------------------------------------------------------- |
-| [Getting Started](getting-started.md)             | Fresh clone to first visible run in the web UI                  |
-| [Design](design/index.md)                         | Production system architecture, agents, API, database, roadmap  |
-| [ADRs](adr/README.md)                             | Architecture Decision Records                                   |
-| [Runbooks](runbooks/README.md)                    | Operational procedures for incidents and routine interventions  |
-| [Reference](reference/api.md)                   | Code-truth API, agent, LLM, strategy, CLI, and architecture references |
-| [Research](research/index.md)                     | Trading strategies, LLM patterns, risk management               |
-| [Paper Tracker](paper-tracker.md)                 | Index of 52 academic papers in `research/papers/`               |
-| [Agent Execution Guide](agent-execution-guide.md) | How autonomous agents pick up and complete work                 |
+## Start here
 
----
+| Page | Use it for |
+| --- | --- |
+| [Getting Started](getting-started.md) | Fastest path from clone to a working local stack, first login, first strategy, and first run |
+| [Development Setup](development-setup.md) | Full local development workflow, migrations, testing, frontend setup, and day-to-day commands |
+| [Reference](reference/README.md) | Source-of-truth technical reference for API, CLI, architecture, runtime agents, config, UI, and integrations |
+| [Runbooks](runbooks/README.md) | Operational procedures for incidents, safety controls, and routine interventions |
+| [Known Issues](known-issues.md) | Current gaps, rough edges, and repo-health problems that affect operators and contributors |
+| [Roadmap](roadmap.md) | Proposed next steps and the major product/engineering themes that follow from the current codebase |
 
-## System Design (`design/`)
+## What the application does
 
-The production system spec for our Go/TypeScript/PostgreSQL trading agent.
+`get-rich-quick` is a Go-based trading application with three operator surfaces:
 
-### Core Architecture
+1. A REST API and WebSocket server for programmatic control and real-time updates.
+2. A React web UI for strategies, runs, portfolio state, memories, settings, risk, and live activity.
+3. A Cobra CLI and Bubble Tea dashboard for local control and terminal-first operations.
 
-- [Executive Summary](design/executive-summary.md) — Vision, goals, differentiators
-- [System Architecture](design/system-architecture.md) — High-level architecture and data flow
-- [Technology Stack](design/technology-stack.md) — Stack choices and rationale
-- [Database Schema](design/database-schema.md) — PostgreSQL schema design
-- [API Design](design/api-design.md) — REST and WebSocket specification
-- [Implementation Roadmap](design/implementation-roadmap.md) — Phased build plan
+Underneath those surfaces is a multi-agent trading runtime that:
 
-### Agent System
+1. Pulls market data, fundamentals, news, and sentiment where available.
+2. Runs analyst agents in parallel.
+3. Runs a research debate.
+4. Builds a trade plan.
+5. Runs a risk debate.
+6. Applies hard risk controls.
+7. Routes to paper or live execution adapters depending on strategy settings and broker configuration.
 
-- [Agent System Overview](design/agents/agent-system-overview.md) — Roles, interfaces, lifecycle
-- [Analyst Agents](design/agents/analyst-agents.md) — Market, fundamentals, news, social
-- [Research Debate](design/agents/research-debate-system.md) — Bull/bear adversarial debate
-- [Trader Agent](design/agents/trader-agent.md) — Trading plan generation
-- [Risk Management Agents](design/agents/risk-management-agents.md) — Risk debate and final signal
+## Feature map
 
-### Backend Systems
+### Core platform
 
-- [Agent Orchestration Engine](design/backend/agent-orchestration-engine.md) — DAG pipeline (replaces LangGraph)
-- [LLM Provider System](design/backend/llm-provider-system.md) — Multi-provider abstraction
-- [Data Ingestion Pipeline](design/backend/data-ingestion-pipeline.md) — Market data fetching and caching
-- [Execution Engine](design/backend/execution-engine.md) — Order routing and fills
-- [Risk Management Engine](design/backend/risk-management-engine.md) — Circuit breakers, kill switch
-- [Memory & Learning](design/backend/memory-and-learning.md) — Agent memory with PostgreSQL FTS
-- [WebSocket Server](design/backend/websocket-server.md) — Real-time event streaming
-- [CLI Interface](design/backend/cli-interface.md) — TUI dashboard (Bubble Tea + Lipgloss)
+- Strategy CRUD with schedules, paper/live mode, skip-next-run support, and typed JSON config validation.
+- Manual strategy execution through the API, UI, and CLI.
+- Persistent pipeline runs, run snapshots, agent decisions, events, conversations, audit records, orders, positions, trades, and memories.
+- JWT login plus API key authentication for protected API routes.
+- WebSocket event streaming for live run and system activity.
 
-### Frontend
+### Trading runtime
 
-- [Frontend Overview](design/frontend/frontend-overview.md) — React 19, Vite, shadcn/ui
-- [Dashboard](design/frontend/dashboard-design.md) — Main monitoring dashboard
-- [Agent Visualization](design/frontend/agent-visualization.md) — Pipeline and debate views
-- [Portfolio & Strategy UI](design/frontend/portfolio-and-strategy-ui.md) — Portfolio and config
+- Parallel analyst phase with market, fundamentals, news, and social roles.
+- Bull/bear research debate and research-manager synthesis.
+- Trader phase that generates entry, sizing, stop, and target plans.
+- Risk debate with aggressive, conservative, and neutral perspectives plus a risk-manager final signal.
+- Hard risk engine with kill switch, circuit breaker, exposure caps, and pre-trade checks.
 
-### Data & Execution
+### Market coverage
 
-- [Data Architecture](design/data/data-architecture.md) — Data flow and provider abstraction
-- [Market Data Providers](design/data/market-data-providers.md) — Polygon, Alpha Vantage, Yahoo, CCXT
-- [Paper Trading](design/execution/paper-trading.md) — Simulated trading validation
+- `stock` strategies.
+- `crypto` strategies.
+- `polymarket` strategies as a market type in domain/runtime logic, with incomplete live execution support.
 
-### Infrastructure
+### Integrations
 
-- [Deployment & Operations](design/infrastructure/deployment-and-operations.md) — Docker, monitoring, CI/CD
-- [Runbooks](runbooks/README.md) — Incident response and operational procedures
+- LLM providers: OpenAI, Anthropic, Google, OpenRouter, xAI, Ollama.
+- Market data: Polygon, Alpha Vantage, Yahoo Finance, Binance.
+- Brokers/execution: Alpaca, Binance, local paper broker, Polymarket adapter package.
+- Notifications: Telegram, email/SMTP, Discord webhooks, PagerDuty webhooks, n8n webhooks.
+- Ops/infra: PostgreSQL, Redis, Docker Compose, Prometheus, Grafana.
 
----
+## Canonical vs archive
 
-## Architecture Decisions (`adr/`)
+The pages below are the current source of truth for how the app actually behaves:
 
-| ADR                                     | Status   | Decision                                           |
-| --------------------------------------- | -------- | -------------------------------------------------- |
-| [001](adr/001-go-backend.md)            | Accepted | Use Go for backend services                        |
-| [002](adr/002-two-tier-llm-strategy.md) | Accepted | Two-tier LLM model strategy (DeepThink/QuickThink) |
-| [003](adr/003-postgres-fts-memory.md)   | Accepted | PostgreSQL FTS for agent memory (vs vector DB)     |
-| [004](adr/004-custom-dag-engine.md)     | Accepted | Custom Go DAG engine (vs LangGraph)                |
+- [Getting Started](getting-started.md)
+- [Development Setup](development-setup.md)
+- [Reference](reference/README.md)
+- [Runbooks](runbooks/README.md)
+- [Known Issues](known-issues.md)
+- [Roadmap](roadmap.md)
 
----
+The rest of `docs/` is still valuable, but it should be read with context:
 
-## Pipeline: How a Trade Happens
+- [ADRs](adr/README.md) record major decisions and their rationale.
+- [Research](research/index.md) captures strategy, execution, and LLM research that informed the product.
+- `docs/design/` contains design/spec material. Some pages still describe intended architecture rather than the exact runtime wiring that exists today.
+- Historical planning documents such as `phase-*-execution-paths.md`, `implementation-board.md`, and audit notes remain as archive material.
 
-```
-┌─────────────────────────────────────────────────┐
-│ PHASE 1: ANALYSIS (parallel, ~4-7s)             │
-│ Market Analyst + Fundamentals + News + Social   │
-│ → 4 independent reports                         │
-└────────────────────────┬────────────────────────┘
-                         ▼
-┌─────────────────────────────────────────────────┐
-│ PHASE 2: RESEARCH DEBATE (3 rounds, ~9-12s)     │
-│ Bull Researcher ◄──► Bear Researcher            │
-│ Research Manager (Judge) → Investment Plan       │
-└────────────────────────┬────────────────────────┘
-                         ▼
-┌─────────────────────────────────────────────────┐
-│ PHASE 3: TRADING (~2-4s)                        │
-│ Trader Agent → Entry, size, stops, take-profit  │
-└────────────────────────┬────────────────────────┘
-                         ▼
-┌─────────────────────────────────────────────────┐
-│ PHASE 4: RISK DEBATE (3 rounds, ~6-9s)          │
-│ Aggressive ◄──► Conservative ◄──► Neutral       │
-│ Risk Manager → FINAL BUY / SELL / HOLD          │
-└────────────────────────┬────────────────────────┘
-                         ▼
-┌─────────────────────────────────────────────────┐
-│ PHASE 5: EXECUTION (~1-2s)                      │
-│ Risk checks → Order → Fill → Position → Audit   │
-└─────────────────────────────────────────────────┘
-```
+## Reading order
 
-### Agent Roster (10 agents)
+If you are new to the project:
 
-| Agent                | Phase               | Tier       | Role                                             |
-| -------------------- | ------------------- | ---------- | ------------------------------------------------ |
-| Market Analyst       | 1 - Analysis        | QuickThink | Technical analysis from OHLCV + 14 indicators    |
-| Fundamentals Analyst | 1 - Analysis        | QuickThink | Financial health, valuation, growth assessment   |
-| News Analyst         | 1 - Analysis        | QuickThink | Sentiment, catalysts, macro impact from news     |
-| Social Media Analyst | 1 - Analysis        | QuickThink | Retail sentiment from social signals             |
-| Bull Researcher      | 2 - Research Debate | DeepThink  | Advocates bullish case, cites evidence           |
-| Bear Researcher      | 2 - Research Debate | DeepThink  | Identifies risks, argues bearish case            |
-| Research Manager     | 2 - Research Debate | DeepThink  | Synthesizes debate → investment plan             |
-| Trader               | 3 - Trading         | DeepThink  | Converts plan → entry, size, stops, targets      |
-| Risk Analysts (3)    | 4 - Risk Debate     | DeepThink  | Aggressive / Conservative / Neutral perspectives |
-| Risk Manager         | 4 - Risk Debate     | DeepThink  | Final BUY/SELL/HOLD signal with confidence       |
+1. Read [Getting Started](getting-started.md).
+2. Read [Development Setup](development-setup.md) if you plan to contribute.
+3. Read [Reference](reference/README.md) to understand the real implementation surface.
+4. Read [Known Issues](known-issues.md) before assuming every described feature is production-ready.
 
----
+If you are operating the system:
 
-## Research Reference (`research/`)
+1. Read [Runbooks](runbooks/README.md).
+2. Review [Reference: API](reference/api.md), [Reference: Web UI](reference/web-ui.md), and [Reference: Configuration](reference/configuration.md).
+3. Keep [Known Issues](known-issues.md) open when debugging surprising behavior.
 
-Background material that informed the system design:
+If you are planning future work:
 
-- **12 strategy deep-dives** — Momentum, mean-reversion, factor investing, etc.
-- **5 LLM trading guides** — Architecture, sentiment, multi-agent systems
-- **Execution guides** — Stocks, crypto, prediction markets
-- **Risk management** — Position sizing, portfolio controls
-- **Backtesting** — Methodology, LLM-specific challenges
-- **52 academic papers** — Full PDFs in `research/papers/`
-
-See [research/index.md](research/index.md) for the full index.
-
----
-
-## Framework Reference (`reference/`)
-
-Documentation of the [TradingAgents v0.2.1](https://github.com/TradingAgents) Python framework (UCLA/MIT, arXiv:2412.20138) that our system evolves from. Useful for understanding the original agent architecture and how our Go implementation differs.
-
-See [reference/index.md](reference/index.md) for the full index.
+1. Read [Roadmap](roadmap.md).
+2. Review the [ADRs](adr/README.md).
+3. Use [Research](research/index.md) for background, not for implementation truth.

@@ -1,3 +1,11 @@
+---
+title: "Profitable Trading Strategies: Executive Summary  "
+description: "Imported or raw research artifact kept for traceability."
+status: "archive"
+updated: "2026-04-03"
+tags: [research, archive]
+---
+
 # Profitable Trading Strategies: Executive Summary  
 We review major systematic trading approaches—trend-following (time‐series momentum), cross‐sectional momentum, mean-reversion (contrarian) strategies, factor‐based (value/quality) investing, statistical arbitrage (pairs trading), currency/bond carry trades, volatility selling, market-making, risk-parity, and CTA/managed futures. Each strategy exploits a distinct market inefficiency or risk premium and has unique implementation rules, horizons, and risk profiles. For example, trend-following (“time‐series momentum”) goes long (buy) assets with recent positive returns and short those with recent negative returns, targeting persistent trends【1†L143-L151】【6†L217-L224】. In contrast, cross-sectional momentum buys past winners (top decile of past returns) and shorts losers【12†L41-L49】, while contrarian strategies bet on short-term reversals. Carry trades invest in high-yielding currencies or bonds, collecting yield differentials as premia【19†L156-L164】【29†L307-L314】. Volatility‐selling (e.g. writing index puts) earns the volatility risk premium【27†L318-L327】. Market-making earns the bid-ask spread in liquid instruments【24†L17-L22】. Risk-parity allocates so each asset contributes equal risk, leveraging low-volatility assets【31†L39-L47】. 
 

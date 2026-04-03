@@ -1,3 +1,11 @@
+---
+title: "60-Day Paper Trading Validation Plan"
+description: "Legacy validation planning document retained for reference."
+status: "archive"
+updated: "2026-04-03"
+tags: [paper-trading, archive]
+---
+
 # 60-Day Paper Trading Validation Plan
 
 ## Purpose
