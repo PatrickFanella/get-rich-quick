@@ -81,7 +81,7 @@ export function PortfolioSummary() {
             <CardTitle className="font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
               {label}
             </CardTitle>
-            <div className="flex size-7 items-center justify-center rounded-md bg-muted text-muted-foreground">
+            <div className="flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground">
               <Icon className="size-4" />
             </div>
           </CardHeader>
