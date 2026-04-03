@@ -178,7 +178,10 @@ func (r *Runner) Prepare(strategy domain.Strategy, globals GlobalSettings) (Prep
 	}
 
 	resolved := ResolveConfig(stratCfg, globals)
-	configSnapshot, _ := json.Marshal(resolved)
+	configSnapshot, err := json.Marshal(resolved)
+	if err != nil {
+		return PreparedRun{}, fmt.Errorf("agent/runner: marshal config snapshot: %w", err)
+	}
 
 	return PreparedRun{
 		Strategy: strategy,
@@ -425,9 +428,9 @@ func (r *Runner) runResearchDebate(ctx context.Context, state *PipelineState, pr
 
 func (r *Runner) runTrading(ctx context.Context, state *PipelineState, prepared PreparedRun, _ *[]RunWarning, _ *sync.Mutex) error {
 	phaseCtx := ctx
-	if prepared.Runtime.DebateTimeout > 0 {
+	if prepared.Runtime.AnalysisTimeout > 0 {
 		var cancel context.CancelFunc
-		phaseCtx, cancel = context.WithTimeout(ctx, prepared.Runtime.DebateTimeout)
+		phaseCtx, cancel = context.WithTimeout(ctx, prepared.Runtime.AnalysisTimeout)
 		defer cancel()
 	}
 	trader := r.def.Trader
@@ -444,6 +447,7 @@ func (r *Runner) runTrading(ctx context.Context, state *PipelineState, prepared 
 		return err
 	}
 	r.persistStructuredEvent(phaseCtx, r.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentCompleted, trader.Role(), trader.Name(), "", map[string]any{"phase": PhaseTrading.String(), "agent_role": trader.Role().String()}, []string{"agent", PhaseTrading.String()}))
+	r.persistStructuredEvent(phaseCtx, r.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindSignalProduced, trader.Role(), "Signal produced", "", map[string]any{"phase": PhaseTrading.String(), "agent_role": trader.Role().String(), "signal_value": state.TradingPlan.Action.String()}, []string{"signal", PhaseTrading.String()}))
 	r.emitEvent(PipelineEvent{Type: AgentDecisionMade, PipelineRunID: state.PipelineRunID, StrategyID: state.StrategyID, Ticker: state.Ticker, AgentRole: trader.Role(), Phase: PhaseTrading, OccurredAt: r.currentTime().UTC()})
 	return nil
 }
@@ -471,38 +475,57 @@ type debateRuntimeSpec struct {
 }
 
 func (r *Runner) runDebate(ctx context.Context, state *PipelineState, spec debateRuntimeSpec) error {
-	phaseCtx := ctx
-	if spec.timeout > 0 {
-		var cancel context.CancelFunc
-		phaseCtx, cancel = context.WithTimeout(ctx, spec.timeout)
-		defer cancel()
-	}
 	if spec.rounds < 1 {
 		r.logger.Warn("agent/runner: invalid debate rounds; clamping to 1", slog.String("phase", spec.phase.String()), slog.Int("configured_rounds", spec.rounds))
 		spec.rounds = 1
 	}
+
+	newDebateTimeoutContext := func(parent context.Context) (context.Context, context.CancelFunc) {
+		if spec.timeout > 0 {
+			return context.WithTimeout(parent, spec.timeout)
+		}
+		return parent, func() {}
+	}
+
 	for i := 1; i <= spec.rounds; i++ {
-		if err := phaseCtx.Err(); err != nil {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
-		spec.appendRound(state, DebateRound{Number: i, Contributions: make(map[AgentRole]string)})
-		for _, debater := range spec.debaters {
-			roundNumber := i
-			r.persistStructuredEvent(phaseCtx, r.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentStarted, debater.Role(), debater.Name(), "", map[string]any{"phase": spec.phase.String(), "agent_role": debater.Role().String(), "round_number": roundNumber}, []string{"agent", spec.phase.String()}))
-			output, err := debater.Debate(phaseCtx, r.debateInputFromState(state, spec.phase))
-			if err != nil {
+
+		roundCtx, cancel := newDebateTimeoutContext(ctx)
+		err := func() error {
+			defer cancel()
+
+			if err := roundCtx.Err(); err != nil {
 				return err
 			}
-			applyDebateOutput(state, debater.Role(), spec.phase, roundNumber, output)
-			if err := r.persistDecision(phaseCtx, state.PipelineRunID, debater.Name(), debater.Role(), spec.phase, &roundNumber, output.Contribution, output.LLMResponse); err != nil {
-				return err
+
+			spec.appendRound(state, DebateRound{Number: i, Contributions: make(map[AgentRole]string)})
+			for _, debater := range spec.debaters {
+				roundNumber := i
+				r.persistStructuredEvent(roundCtx, r.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentStarted, debater.Role(), debater.Name(), "", map[string]any{"phase": spec.phase.String(), "agent_role": debater.Role().String(), "round_number": roundNumber}, []string{"agent", spec.phase.String()}))
+				output, err := debater.Debate(roundCtx, r.debateInputFromState(state, spec.phase))
+				if err != nil {
+					return err
+				}
+				applyDebateOutput(state, debater.Role(), spec.phase, roundNumber, output)
+				if err := r.persistDecision(roundCtx, state.PipelineRunID, debater.Name(), debater.Role(), spec.phase, &roundNumber, output.Contribution, output.LLMResponse); err != nil {
+					return err
+				}
+				r.persistStructuredEvent(roundCtx, r.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentCompleted, debater.Role(), debater.Name(), "", map[string]any{"phase": spec.phase.String(), "agent_role": debater.Role().String(), "round_number": roundNumber}, []string{"agent", spec.phase.String()}))
 			}
-			r.persistStructuredEvent(phaseCtx, r.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentCompleted, debater.Role(), debater.Name(), "", map[string]any{"phase": spec.phase.String(), "agent_role": debater.Role().String(), "round_number": roundNumber}, []string{"agent", spec.phase.String()}))
+			r.persistStructuredEvent(roundCtx, r.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindDebateRoundCompleted, "", "Debate round completed", "", map[string]any{"phase": spec.phase.String(), "round_number": i}, []string{"debate", spec.phase.String()}))
+			r.emitEvent(PipelineEvent{Type: DebateRoundCompleted, PipelineRunID: state.PipelineRunID, StrategyID: state.StrategyID, Ticker: state.Ticker, Phase: spec.phase, Round: i, OccurredAt: r.currentTime().UTC()})
+			return nil
+		}()
+		if err != nil {
+			return err
 		}
-		r.persistStructuredEvent(phaseCtx, r.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindDebateRoundCompleted, "", "Debate round completed", "", map[string]any{"phase": spec.phase.String(), "round_number": i}, []string{"debate", spec.phase.String()}))
-		r.emitEvent(PipelineEvent{Type: DebateRoundCompleted, PipelineRunID: state.PipelineRunID, StrategyID: state.StrategyID, Ticker: state.Ticker, Phase: spec.phase, Round: i, OccurredAt: r.currentTime().UTC()})
 	}
-	return r.runDebateJudge(phaseCtx, state, spec.phase, spec.judge)
+
+	judgeCtx, cancel := newDebateTimeoutContext(ctx)
+	defer cancel()
+	return r.runDebateJudge(judgeCtx, state, spec.phase, spec.judge)
 }
 
 func (r *Runner) runDebateJudge(ctx context.Context, state *PipelineState, phase Phase, judge any) error {
