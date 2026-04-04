@@ -74,7 +74,13 @@ Rules:
 - version must be 1
 - entry and exit must each have at least one condition
 - position_sizing, stop_loss, and take_profit are required
-- Generate a strategy that is appropriate for the given market conditions
+- IMPORTANT: Use only 1-2 entry conditions, not more. Strategies with too many
+  conditions rarely trigger any trades. A single RSI threshold or a moving average
+  crossover is sufficient for entry. Keep it simple.
+- Use moderate thresholds that will trigger regularly: RSI 40 instead of 30,
+  RSI 60 instead of 70. The goal is a strategy that trades 10-30 times per year.
+- Prefer "gt"/"lt" operators over "cross_above"/"cross_below" for more frequent signals.
+- All "value" fields must be numbers (not strings). Example: "value": 40 not "value": "40"
 
 Respond with ONLY the JSON object, no markdown fences.`
 
@@ -161,6 +167,6 @@ func buildGeneratorUserPrompt(c ScreenResult) string {
 		fmt.Fprintf(&sb, "  %s = %.6f\n", ind.Name, ind.Value)
 	}
 
-	fmt.Fprintf(&sb, "\nGenerate a trading strategy for %s based on these market conditions.", c.Ticker)
+	fmt.Fprintf(&sb, "\nGenerate a simple trading strategy for %s that will trigger trades regularly (10-30 times per year). Use 1-2 entry conditions with moderate thresholds. Keep it simple — fewer conditions means more trades.", c.Ticker)
 	return sb.String()
 }
