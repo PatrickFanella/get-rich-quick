@@ -1,5 +1,10 @@
 package rules
 
+import (
+	"encoding/json"
+	"strconv"
+)
+
 // RulesEngineConfig is the top-level JSON config that the LLM generates.
 // It defines deterministic entry/exit conditions, position sizing, and
 // risk parameters that can be evaluated per bar without LLM calls.
@@ -27,6 +32,34 @@ type Condition struct {
 	Op    string   `json:"op"`              // gt, gte, lt, lte, eq, cross_above, cross_below
 	Value *float64 `json:"value,omitempty"` // literal comparand
 	Ref   string   `json:"ref,omitempty"`   // reference to another field (mutually exclusive with Value)
+}
+
+// UnmarshalJSON handles LLM output where value may be a string "30" instead of a number 30.
+func (c *Condition) UnmarshalJSON(data []byte) error {
+	type condAlias Condition
+	var raw struct {
+		condAlias
+		RawValue json.RawMessage `json:"value,omitempty"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*c = Condition(raw.condAlias)
+	if len(raw.RawValue) > 0 && string(raw.RawValue) != "null" {
+		var f float64
+		if err := json.Unmarshal(raw.RawValue, &f); err == nil {
+			c.Value = &f
+		} else {
+			// Try string → float
+			var s string
+			if err := json.Unmarshal(raw.RawValue, &s); err == nil {
+				if parsed, parseErr := strconv.ParseFloat(s, 64); parseErr == nil {
+					c.Value = &parsed
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // SizingConfig defines how position size is calculated.

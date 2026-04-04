@@ -19,9 +19,10 @@ import (
 // that date, so earlier bars serve as indicator warmup (e.g., SMA-200 needs
 // 200 bars of history before the first signal can fire).
 type IndicatorAnalystNode struct {
-	bars   []domain.OHLCV
-	cursor int
-	logger *slog.Logger
+	bars        []domain.OHLCV
+	cursor      int
+	startCursor int
+	logger      *slog.Logger
 }
 
 // NewIndicatorAnalystNode creates an indicator node. If startDate is non-zero,
@@ -40,7 +41,7 @@ func NewIndicatorAnalystNode(bars []domain.OHLCV, startDate time.Time, logger *s
 			}
 		}
 	}
-	return &IndicatorAnalystNode{bars: bars, cursor: cursor, logger: logger}
+	return &IndicatorAnalystNode{bars: bars, cursor: cursor, startCursor: cursor, logger: logger}
 }
 
 func (n *IndicatorAnalystNode) Name() string          { return "indicator_analyst" }
@@ -48,9 +49,11 @@ func (n *IndicatorAnalystNode) Role() agent.AgentRole  { return agent.AgentRoleM
 func (n *IndicatorAnalystNode) Phase() agent.Phase     { return agent.PhaseAnalysis }
 
 // Execute computes indicators from bars[:cursor+1] and populates state.Market.
+// If the cursor is exhausted (e.g., walk-forward reuse), it wraps back to the
+// start position so the node can be reused across multiple windows.
 func (n *IndicatorAnalystNode) Execute(_ context.Context, state *agent.PipelineState) error {
 	if n.cursor >= len(n.bars) {
-		return fmt.Errorf("rules: indicator node exhausted all %d bars", len(n.bars))
+		n.cursor = n.startCursor
 	}
 	barsToDate := n.bars[:n.cursor+1]
 	bar := n.bars[n.cursor]

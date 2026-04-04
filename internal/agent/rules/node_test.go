@@ -162,9 +162,12 @@ func TestIndicatorAnalystNode_AdvancesCursor(t *testing.T) {
 		t.Errorf("bar 3: bars = %d, want 3", len(state3.Market.Bars))
 	}
 
-	// Bar 4 should error (exhausted)
+	// Bar 4 wraps back to start (for walk-forward reuse)
 	state4 := &agent.PipelineState{Ticker: "TEST"}
-	if err := node.Execute(context.Background(), state4); err == nil {
-		t.Fatal("bar 4: expected error for exhausted bars")
+	if err := node.Execute(context.Background(), state4); err != nil {
+		t.Fatalf("bar 4 (wrap): %v", err)
+	}
+	if len(state4.Market.Bars) != 1 {
+		t.Errorf("bar 4 (wrap): bars = %d, want 1 (reset to start)", len(state4.Market.Bars))
 	}
 }
