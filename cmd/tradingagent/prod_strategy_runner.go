@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"strings"
 	"sync"
 	"time"
@@ -126,8 +125,8 @@ func (r *realStrategyRunner) RunStrategy(ctx context.Context, strategy domain.St
 		return nil, err
 	}
 
-	state := pipelineStateFromView(result.State)
-	signal := applyStrategyRiskOverrides(state, result.Signal, strategyConfig)
+	agent.ApplyStrategyRiskOverridesToResult(result, strategyConfig)
+	signal := result.Signal
 
 	update := repository.PipelineRunStatusUpdate{
 		Status:       run.Status,
@@ -140,6 +139,7 @@ func (r *realStrategyRunner) RunStrategy(ctx context.Context, strategy domain.St
 	}
 	run.Signal = signal
 
+	state := agent.PipelineStateFromView(result.State)
 	if err := r.dispatchNotifications(ctx, strategy, run, state); err != nil {
 		return nil, err
 	}
@@ -152,20 +152,20 @@ func (r *realStrategyRunner) RunStrategy(ctx context.Context, strategy domain.St
 		ctx,
 		execution.FinalSignal{
 			Signal:     signal,
-			Confidence: state.FinalSignal.Confidence,
+			Confidence: result.State.FinalSignal.Confidence,
 		},
 		execution.TradingPlan{
 			Action:       signal,
-			Ticker:       state.TradingPlan.Ticker,
-			EntryType:    state.TradingPlan.EntryType,
-			EntryPrice:   state.TradingPlan.EntryPrice,
-			PositionSize: state.TradingPlan.PositionSize,
-			StopLoss:     state.TradingPlan.StopLoss,
-			TakeProfit:   state.TradingPlan.TakeProfit,
-			TimeHorizon:  state.TradingPlan.TimeHorizon,
-			Confidence:   state.TradingPlan.Confidence,
-			Rationale:    state.TradingPlan.Rationale,
-			RiskReward:   state.TradingPlan.RiskReward,
+			Ticker:       result.State.TradingPlan.Ticker,
+			EntryType:    result.State.TradingPlan.EntryType,
+			EntryPrice:   result.State.TradingPlan.EntryPrice,
+			PositionSize: result.State.TradingPlan.PositionSize,
+			StopLoss:     result.State.TradingPlan.StopLoss,
+			TakeProfit:   result.State.TradingPlan.TakeProfit,
+			TimeHorizon:  result.State.TradingPlan.TimeHorizon,
+			Confidence:   result.State.TradingPlan.Confidence,
+			Rationale:    result.State.TradingPlan.Rationale,
+			RiskReward:   result.State.TradingPlan.RiskReward,
 		},
 		strategy.ID,
 		run.ID,
@@ -400,14 +400,14 @@ func newAnalysisAgent(provider llm.Provider, providerName, model string, role ag
 			Role:         role,
 			Name:         "market_analyst",
 			SystemPrompt: prompt,
-			BuildPrompt: func(state *agent.PipelineState) (string, bool) {
+			BuildPrompt: func(input agent.AnalysisInput) (string, bool) {
 				var bars []domain.OHLCV
 				var indicators []domain.Indicator
-				if state.Market != nil {
-					bars = state.Market.Bars
-					indicators = state.Market.Indicators
+				if input.Market != nil {
+					bars = input.Market.Bars
+					indicators = input.Market.Indicators
 				}
-				return agentanalysts.FormatMarketAnalystUserPrompt(state.Ticker, bars, indicators), true
+				return agentanalysts.FormatMarketAnalystUserPrompt(input.Ticker, bars, indicators), true
 			},
 		})
 		return &agentanalysts.MarketAnalyst{BaseAnalyst: base}, nil
@@ -424,11 +424,11 @@ func newAnalysisAgent(provider llm.Provider, providerName, model string, role ag
 			Name:         "fundamentals_analyst",
 			SystemPrompt: prompt,
 			SkipMessage:  "No fundamentals available for this asset type.",
-			BuildPrompt: func(state *agent.PipelineState) (string, bool) {
-				if state.Fundamentals == nil {
+			BuildPrompt: func(input agent.AnalysisInput) (string, bool) {
+				if input.Fundamentals == nil {
 					return "", false
 				}
-				return agentanalysts.FormatFundamentalsAnalystUserPrompt(state.Ticker, state.Fundamentals), true
+				return agentanalysts.FormatFundamentalsAnalystUserPrompt(input.Ticker, input.Fundamentals), true
 			},
 		})
 		return &agentanalysts.FundamentalsAnalyst{BaseAnalyst: base}, nil
@@ -445,11 +445,11 @@ func newAnalysisAgent(provider llm.Provider, providerName, model string, role ag
 			Name:         "news_analyst",
 			SystemPrompt: prompt,
 			SkipMessage:  "No news articles available. Unable to perform news analysis.",
-			BuildPrompt: func(state *agent.PipelineState) (string, bool) {
-				if len(state.News) == 0 {
+			BuildPrompt: func(input agent.AnalysisInput) (string, bool) {
+				if len(input.News) == 0 {
 					return "", false
 				}
-				return agentanalysts.FormatNewsAnalystUserPrompt(state.Ticker, state.News), true
+				return agentanalysts.FormatNewsAnalystUserPrompt(input.Ticker, input.News), true
 			},
 		})
 		return &agentanalysts.NewsAnalyst{BaseAnalyst: base}, nil
@@ -465,8 +465,8 @@ func newAnalysisAgent(provider llm.Provider, providerName, model string, role ag
 			Role:         role,
 			Name:         "social_media_analyst",
 			SystemPrompt: prompt,
-			BuildPrompt: func(state *agent.PipelineState) (string, bool) {
-				return agentanalysts.FormatSocialAnalystUserPrompt(state.Ticker, state.Social), true
+			BuildPrompt: func(input agent.AnalysisInput) (string, bool) {
+				return agentanalysts.FormatSocialAnalystUserPrompt(input.Ticker, input.Social), true
 			},
 		})
 		return &agentanalysts.SocialMediaAnalyst{BaseAnalyst: base}, nil
@@ -636,72 +636,6 @@ func hasBrokerCredentials(cfg config.BrokerConfig) bool {
 	return strings.TrimSpace(cfg.APIKey) != "" && strings.TrimSpace(cfg.APISecret) != ""
 }
 
-func applyStrategyRiskOverrides(state *agent.PipelineState, signal domain.PipelineSignal, strategyConfig *agent.StrategyConfig) domain.PipelineSignal {
-	if state == nil || strategyConfig == nil || strategyConfig.RiskConfig == nil {
-		return signal
-	}
-
-	riskConfig := strategyConfig.RiskConfig
-	plan := state.TradingPlan
-	if riskConfig.StopLossMultiplier != nil || riskConfig.TakeProfitMultiplier != nil {
-		adjustTradingPlanTargets(&plan, signal, riskConfig)
-		state.TradingPlan = plan
-	}
-
-	if riskConfig.MinConfidence != nil && state.FinalSignal.Confidence < *riskConfig.MinConfidence {
-		signal = domain.PipelineSignalHold
-		state.FinalSignal.Signal = signal
-		state.TradingPlan.Action = signal
-		state.TradingPlan.PositionSize = 0
-		state.TradingPlan.Rationale = appendRationale(state.TradingPlan.Rationale, fmt.Sprintf(
-			"Signal confidence %.2f fell below configured minimum %.2f.",
-			state.FinalSignal.Confidence,
-			*riskConfig.MinConfidence,
-		))
-	}
-
-	return signal
-}
-
-func adjustTradingPlanTargets(plan *agent.TradingPlan, signal domain.PipelineSignal, cfg *agent.StrategyRiskConfig) {
-	if plan == nil || plan.EntryPrice <= 0 {
-		return
-	}
-
-	if cfg.StopLossMultiplier != nil && plan.StopLoss > 0 {
-		distance := math.Abs(plan.EntryPrice - plan.StopLoss)
-		scaled := distance * *cfg.StopLossMultiplier
-		switch signal {
-		case domain.PipelineSignalBuy:
-			plan.StopLoss = math.Max(0, plan.EntryPrice-scaled)
-		case domain.PipelineSignalSell:
-			plan.StopLoss = plan.EntryPrice + scaled
-		}
-	}
-
-	if cfg.TakeProfitMultiplier != nil && plan.TakeProfit > 0 {
-		distance := math.Abs(plan.TakeProfit - plan.EntryPrice)
-		scaled := distance * *cfg.TakeProfitMultiplier
-		switch signal {
-		case domain.PipelineSignalBuy:
-			plan.TakeProfit = plan.EntryPrice + scaled
-		case domain.PipelineSignalSell:
-			plan.TakeProfit = math.Max(0, plan.EntryPrice-scaled)
-		}
-	}
-}
-
-func appendRationale(existing, addition string) string {
-	existing = strings.TrimSpace(existing)
-	addition = strings.TrimSpace(addition)
-	if existing == "" {
-		return addition
-	}
-	if addition == "" {
-		return existing
-	}
-	return existing + " " + addition
-}
 
 func indicatorSnapshotFromBars(bars []domain.OHLCV) []domain.Indicator {
 	if len(bars) == 0 {

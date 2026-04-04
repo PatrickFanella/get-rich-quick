@@ -298,7 +298,8 @@ func validateTradingPlan(plan *TradingPlanOutput) error {
 	}
 	plan.Ticker = strings.ToUpper(ticker)
 
-	// Confidence is required for all actions (including hold).
+	// Confidence is validated in the 0-1 range; the risk manager uses a different
+	// 1-10 scale that is normalized downstream.
 	if plan.Confidence < 0 || plan.Confidence > 1 {
 		return fmt.Errorf("trading plan confidence must be 0.0-1.0, got %v", plan.Confidence)
 	}

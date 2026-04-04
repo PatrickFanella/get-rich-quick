@@ -114,36 +114,8 @@ func TestMarketAnalystExecute(t *testing.T) {
 		t.Errorf("request model = %q, want %q", mock.lastReq.Model, "gpt-4")
 	}
 
-	// Verify report stored in state.
-	report, ok := state.AnalystReports[agent.AgentRoleMarketAnalyst]
-	if !ok {
-		t.Fatal("analyst report not stored in state")
-	}
-	if report != wantContent {
-		t.Errorf("stored report = %q, want %q", report, wantContent)
-	}
-
-	// Verify decision recorded in state.
-	dec, ok := state.Decision(agent.AgentRoleMarketAnalyst, agent.PhaseAnalysis, nil)
-	if !ok {
-		t.Fatal("decision not recorded in state")
-	}
-	if dec.OutputText != wantContent {
-		t.Errorf("decision output = %q, want %q", dec.OutputText, wantContent)
-	}
-	if dec.LLMResponse == nil {
-		t.Fatal("decision LLM response is nil")
-	}
-	if dec.LLMResponse.Response.Usage.PromptTokens != 120 {
-		t.Errorf("prompt tokens = %d, want 120", dec.LLMResponse.Response.Usage.PromptTokens)
-	}
-	if dec.LLMResponse.Provider != "openai" {
-		t.Errorf("decision provider = %q, want %q", dec.LLMResponse.Provider, "openai")
-	}
-	wantPromptText := MarketAnalystSystemPrompt + "\n\n" + userMsg
-	if dec.LLMResponse.PromptText != wantPromptText {
-		t.Errorf("prompt text = %q, want %q", dec.LLMResponse.PromptText, wantPromptText)
-	}
+	// State application is handled by callers via applyAnalysisOutput, so
+	// Execute should NOT write reports or decisions to state.
 }
 
 func TestMarketAnalystExecuteLLMError(t *testing.T) {

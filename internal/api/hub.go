@@ -13,6 +13,12 @@ import (
 type EventType string
 
 // Supported event types.
+//
+// Translation chain: Go agent.PipelineEventType (internal/agent/event.go)
+// is mapped to API EventType (this file) which is sent over WebSocket and
+// consumed by the TypeScript WebSocketEventType (web/src/lib/api/types.ts).
+// All three vocabularies must stay in sync; see
+// TestEventTypeVocabularyConsistency in event_consistency_test.go.
 const (
 	EventPipelineStart  EventType = "pipeline_start"
 	EventAgentDecision  EventType = "agent_decision"

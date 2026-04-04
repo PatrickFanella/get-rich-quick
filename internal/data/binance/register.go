@@ -6,8 +6,9 @@ import (
 	"github.com/PatrickFanella/get-rich-quick/internal/data"
 )
 
-func init() {
-	data.RegisterBinanceProviderFactory(func(logger *slog.Logger) data.DataProvider {
+// Register adds the Binance provider factory to the given registry.
+func Register(reg *data.ProviderRegistry) {
+	reg.Binance = func(logger *slog.Logger) data.DataProvider {
 		return NewProvider(logger)
-	})
+	}
 }

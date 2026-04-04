@@ -117,7 +117,7 @@ func TestPipelineEventTypesCoverUserVisibleTransitions(t *testing.T) {
 	}
 
 	event := agent.PipelineEvent{
-		Type:          agent.SignalGenerated,
+		Type:          agent.PipelineCompleted,
 		PipelineRunID: uuid.New(),
 		StrategyID:    uuid.New(),
 		Ticker:        "AAPL",
@@ -136,9 +136,6 @@ func TestPipelineEventTypesCoverUserVisibleTransitions(t *testing.T) {
 	}
 	if got := agent.DebateRoundCompleted.String(); got != "debate_round_completed" {
 		t.Fatalf("DebateRoundCompleted.String() = %q, want %q", got, "debate_round_completed")
-	}
-	if got := agent.SignalGenerated.String(); got != "signal_generated" {
-		t.Fatalf("SignalGenerated.String() = %q, want %q", got, "signal_generated")
 	}
 	if got := agent.LLMCacheStatsReported.String(); got != "llm_cache_stats_reported" {
 		t.Fatalf("LLMCacheStatsReported.String() = %q, want %q", got, "llm_cache_stats_reported")
@@ -197,8 +194,8 @@ func TestPipelineEventTypesCoverUserVisibleTransitions(t *testing.T) {
 	if err := json.Unmarshal(marshaled, &decoded); err != nil {
 		t.Fatalf("json.Unmarshal(PipelineEvent) error = %v", err)
 	}
-	if decoded.Type != agent.SignalGenerated.String() {
-		t.Fatalf("decoded.Type = %q, want %q", decoded.Type, agent.SignalGenerated.String())
+	if decoded.Type != agent.PipelineCompleted.String() {
+		t.Fatalf("decoded.Type = %q, want %q", decoded.Type, agent.PipelineCompleted.String())
 	}
 	if decoded.PipelineRunID == "" {
 		t.Fatal("decoded.PipelineRunID is empty")

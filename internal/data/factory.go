@@ -29,37 +29,20 @@ var ErrUnsupportedMarketType = errors.New("data: unsupported market type")
 
 var ErrHistoricalOHLCVUnavailable = errors.New("data: historical ohlcv repository unavailable")
 
-type (
-	polygonProviderFactoryType      func(apiKey string, logger *slog.Logger) DataProvider
-	alphaVantageProviderFactoryType func(apiKey string, rateLimitPerMinute int, logger *slog.Logger) DataProvider
-	loggerProviderFactoryType       func(logger *slog.Logger) DataProvider
-)
-
-var (
-	polygonProviderFactory      polygonProviderFactoryType
-	alphaVantageProviderFactory alphaVantageProviderFactoryType
-	yahooProviderFactory        loggerProviderFactoryType
-	binanceProviderFactory      loggerProviderFactoryType
-)
-
-// RegisterPolygonProviderFactory registers the Polygon provider constructor used by NewDataService.
-func RegisterPolygonProviderFactory(factory polygonProviderFactoryType) {
-	polygonProviderFactory = factory
+// ProviderRegistry holds factory functions for constructing data providers.
+// Pass an explicit registry to NewDataService instead of relying on init()-time
+// global registration.
+type ProviderRegistry struct {
+	Polygon      func(apiKey string, logger *slog.Logger) DataProvider
+	AlphaVantage func(apiKey string, rateLimitPerMinute int, logger *slog.Logger) DataProvider
+	Yahoo        func(logger *slog.Logger) DataProvider
+	Binance      func(logger *slog.Logger) DataProvider
 }
 
-// RegisterAlphaVantageProviderFactory registers the Alpha Vantage provider constructor used by NewDataService.
-func RegisterAlphaVantageProviderFactory(factory alphaVantageProviderFactoryType) {
-	alphaVantageProviderFactory = factory
-}
-
-// RegisterYahooProviderFactory registers the Yahoo provider constructor used by NewDataService.
-func RegisterYahooProviderFactory(factory loggerProviderFactoryType) {
-	yahooProviderFactory = factory
-}
-
-// RegisterBinanceProviderFactory registers the Binance provider constructor used by NewDataService.
-func RegisterBinanceProviderFactory(factory loggerProviderFactoryType) {
-	binanceProviderFactory = factory
+// NewProviderRegistry returns an empty registry. Callers should populate the
+// fields they need before passing it to NewDataService.
+func NewProviderRegistry() *ProviderRegistry {
+	return &ProviderRegistry{}
 }
 
 // DataService wraps market-data provider chains with cache lookups and writes.
@@ -74,26 +57,30 @@ type DataService struct {
 }
 
 // NewDataService constructs provider chains for each supported market type and
-// wraps them with cache access.
-func NewDataService(cfg config.Config, cacheRepo repository.MarketDataCacheRepository, logger *slog.Logger) *DataService {
+// wraps them with cache access. The registry parameter supplies the provider
+// factory functions; pass nil to get a service with empty chains.
+func NewDataService(cfg config.Config, reg *ProviderRegistry, cacheRepo repository.MarketDataCacheRepository, logger *slog.Logger) *DataService {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	if reg == nil {
+		reg = &ProviderRegistry{}
+	}
 
 	stockProviders := make([]DataProvider, 0, 3)
-	if apiKey := strings.TrimSpace(cfg.DataProviders.Polygon.APIKey); apiKey != "" && polygonProviderFactory != nil {
-		stockProviders = append(stockProviders, polygonProviderFactory(apiKey, logger))
+	if apiKey := strings.TrimSpace(cfg.DataProviders.Polygon.APIKey); apiKey != "" && reg.Polygon != nil {
+		stockProviders = append(stockProviders, reg.Polygon(apiKey, logger))
 	}
-	if apiKey := strings.TrimSpace(cfg.DataProviders.AlphaVantage.APIKey); apiKey != "" && alphaVantageProviderFactory != nil {
-		stockProviders = append(stockProviders, alphaVantageProviderFactory(apiKey, cfg.DataProviders.AlphaVantage.RateLimitPerMinute, logger))
+	if apiKey := strings.TrimSpace(cfg.DataProviders.AlphaVantage.APIKey); apiKey != "" && reg.AlphaVantage != nil {
+		stockProviders = append(stockProviders, reg.AlphaVantage(apiKey, cfg.DataProviders.AlphaVantage.RateLimitPerMinute, logger))
 	}
-	if yahooProviderFactory != nil {
-		stockProviders = append(stockProviders, yahooProviderFactory(logger))
+	if reg.Yahoo != nil {
+		stockProviders = append(stockProviders, reg.Yahoo(logger))
 	}
 
 	cryptoProviders := make([]DataProvider, 0, 1)
-	if binanceProviderFactory != nil {
-		cryptoProviders = append(cryptoProviders, binanceProviderFactory(logger))
+	if reg.Binance != nil {
+		cryptoProviders = append(cryptoProviders, reg.Binance(logger))
 	}
 
 	return &DataService{

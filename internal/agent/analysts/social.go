@@ -24,8 +24,8 @@ func NewSocialMediaAnalyst(provider llm.Provider, providerName, model string, lo
 		Role:         agent.AgentRoleSocialMediaAnalyst,
 		Name:         "social_media_analyst",
 		SystemPrompt: SocialAnalystSystemPrompt,
-		BuildPrompt: func(state *agent.PipelineState) (string, bool) {
-			return FormatSocialAnalystUserPrompt(state.Ticker, state.Social), true
+		BuildPrompt: func(input agent.AnalysisInput) (string, bool) {
+			return FormatSocialAnalystUserPrompt(input.Ticker, input.Social), true
 		},
 	})}
 }

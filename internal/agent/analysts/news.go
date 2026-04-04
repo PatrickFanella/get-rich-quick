@@ -26,11 +26,11 @@ func NewNewsAnalyst(provider llm.Provider, providerName, model string, logger *s
 		Name:         "news_analyst",
 		SystemPrompt: NewsAnalystSystemPrompt,
 		SkipMessage:  "No news articles available. Unable to perform news analysis.",
-		BuildPrompt: func(state *agent.PipelineState) (string, bool) {
-			if len(state.News) == 0 {
+		BuildPrompt: func(input agent.AnalysisInput) (string, bool) {
+			if len(input.News) == 0 {
 				return "", false
 			}
-			return FormatNewsAnalystUserPrompt(state.Ticker, state.News), true
+			return FormatNewsAnalystUserPrompt(input.Ticker, input.News), true
 		},
 	})}
 }

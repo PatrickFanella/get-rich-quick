@@ -186,6 +186,7 @@ func (r *RiskManager) JudgeRisk(ctx context.Context, input agent.RiskJudgeInput)
 		default:
 			finalSignal.Signal = agent.PipelineSignalHold
 		}
+		// Normalize 1-10 integer confidence to 0-1 float for downstream consumers.
 		finalSignal.Confidence = float64(signal.Confidence) / 10.0
 
 		// Update TradingPlan with risk-adjusted values for actionable signals.

@@ -10,9 +10,9 @@ import (
 	"github.com/PatrickFanella/get-rich-quick/internal/llm"
 )
 
-// PromptBuilder builds the user prompt from pipeline state.
+// PromptBuilder builds the user prompt from the analysis input.
 // Return ("", false) to skip the LLM call (e.g., no fundamentals for crypto).
-type PromptBuilder func(state *agent.PipelineState) (userPrompt string, shouldCall bool)
+type PromptBuilder func(input agent.AnalysisInput) (userPrompt string, shouldCall bool)
 
 // Compile-time check: *BaseAnalyst implements agent.AnalystNode.
 var _ agent.AnalystNode = (*BaseAnalyst)(nil)
@@ -73,9 +73,8 @@ func (b *BaseAnalyst) Role() agent.AgentRole { return b.role }
 // Phase returns the pipeline phase this node belongs to.
 func (b *BaseAnalyst) Phase() agent.Phase { return agent.PhaseAnalysis }
 
-// Execute builds the prompt, calls the LLM, and stores the report and decision
-// in the pipeline state. When the PromptBuilder returns shouldCall=false the
-// LLM is skipped and the configured SkipMessage is stored instead.
+// Execute satisfies the Node interface. State application is handled by callers
+// via applyAnalysisOutput.
 func (b *BaseAnalyst) Execute(ctx context.Context, state *agent.PipelineState) error {
 	input := agent.AnalysisInput{
 		Ticker:       state.Ticker,
@@ -84,13 +83,8 @@ func (b *BaseAnalyst) Execute(ctx context.Context, state *agent.PipelineState) e
 		Fundamentals: state.Fundamentals,
 		Social:       state.Social,
 	}
-	output, err := b.Analyze(ctx, input)
-	if err != nil {
-		return err
-	}
-	state.SetAnalystReport(b.role, output.Report)
-	state.RecordDecision(b.role, b.Phase(), nil, output.Report, output.LLMResponse)
-	return nil
+	_, err := b.Analyze(ctx, input)
+	return err
 }
 
 // Analyze implements the AnalystNode interface. It builds the prompt from the
@@ -98,19 +92,7 @@ func (b *BaseAnalyst) Execute(ctx context.Context, state *agent.PipelineState) e
 // PromptBuilder returns shouldCall=false the LLM is skipped and the configured
 // SkipMessage is returned instead.
 func (b *BaseAnalyst) Analyze(ctx context.Context, input agent.AnalysisInput) (agent.AnalysisOutput, error) {
-	// Build a minimal PipelineState from the typed input so the existing
-	// PromptBuilder closures continue to work without signature changes.
-	// TODO: refactor PromptBuilder to accept AnalysisInput directly,
-	// eliminating this transitional shim.
-	syntheticState := &agent.PipelineState{
-		Ticker:       input.Ticker,
-		Market:       input.Market,
-		News:         input.News,
-		Fundamentals: input.Fundamentals,
-		Social:       input.Social,
-	}
-
-	userPrompt, shouldCall := b.buildPrompt(syntheticState)
+	userPrompt, shouldCall := b.buildPrompt(input)
 	if !shouldCall {
 		msg := b.skipMessage
 		b.logger.InfoContext(ctx, strings.ReplaceAll(b.name, "_", " ")+" skipped")

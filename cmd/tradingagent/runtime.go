@@ -17,6 +17,10 @@ import (
 	"github.com/PatrickFanella/get-rich-quick/internal/cli"
 	"github.com/PatrickFanella/get-rich-quick/internal/config"
 	"github.com/PatrickFanella/get-rich-quick/internal/data"
+	"github.com/PatrickFanella/get-rich-quick/internal/data/alphavantage"
+	"github.com/PatrickFanella/get-rich-quick/internal/data/binance"
+	"github.com/PatrickFanella/get-rich-quick/internal/data/polygon"
+	"github.com/PatrickFanella/get-rich-quick/internal/data/yahoo"
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
 	"github.com/PatrickFanella/get-rich-quick/internal/execution"
 	"github.com/PatrickFanella/get-rich-quick/internal/execution/paper"
@@ -115,7 +119,12 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 			}),
 		)
 	} else {
-		dataService := data.NewDataService(cfg, marketDataCacheRepo, logger)
+		reg := data.NewProviderRegistry()
+		polygon.Register(reg)
+		alphavantage.Register(reg)
+		yahoo.Register(reg)
+		binance.Register(reg)
+		dataService := data.NewDataService(cfg, reg, marketDataCacheRepo, logger)
 		strategyRunner := newRealStrategyRunner(
 			cfg,
 			dataService,
@@ -390,7 +399,7 @@ func (r *smokeStrategyRunner) RunStrategy(ctx context.Context, strategy domain.S
 	}
 	run.Signal = signal
 
-	state := pipelineStateFromView(result.State)
+	state := agent.PipelineStateFromView(result.State)
 	if err := r.dispatchNotifications(ctx, strategy, run, state); err != nil {
 		return nil, err
 	}
@@ -702,23 +711,7 @@ func newSmokeRunner(
 	)
 }
 
-func pipelineStateFromView(view agent.StateView) *agent.PipelineState {
-	state := &agent.PipelineState{
-		PipelineRunID:  view.PipelineRunID,
-		StrategyID:     view.StrategyID,
-		Ticker:         view.Ticker,
-		AnalystReports: make(map[agent.AgentRole]string, len(view.AnalystReports)),
-		ResearchDebate: view.ResearchDebate,
-		TradingPlan:    view.TradingPlan,
-		RiskDebate:     view.RiskDebate,
-		FinalSignal:    view.FinalSignal,
-		LLMCacheStats:  view.LLMCacheStats,
-	}
-	for role, report := range view.AnalystReports {
-		state.AnalystReports[role] = report
-	}
-	return state
-}
+
 
 type smokeAnalysisAgent struct {
 	name   string

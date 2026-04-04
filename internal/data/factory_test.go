@@ -539,28 +539,19 @@ func TestDataServiceGetSocialSentimentCacheMissCallsChainAndCachesResult(t *test
 }
 
 func TestNewDataServiceSkipsProvidersWithoutAPIKeys(t *testing.T) {
-	originalPolygonFactory := polygonProviderFactory
-	originalAlphaFactory := alphaVantageProviderFactory
-	originalYahooFactory := yahooProviderFactory
-	originalBinanceFactory := binanceProviderFactory
-	t.Cleanup(func() {
-		polygonProviderFactory = originalPolygonFactory
-		alphaVantageProviderFactory = originalAlphaFactory
-		yahooProviderFactory = originalYahooFactory
-		binanceProviderFactory = originalBinanceFactory
-	})
-
-	polygonProviderFactory = func(_ string, _ *slog.Logger) DataProvider {
-		return &serviceStubProvider{name: "polygon"}
-	}
-	alphaVantageProviderFactory = func(_ string, _ int, _ *slog.Logger) DataProvider {
-		return &serviceStubProvider{name: "alpha"}
-	}
-	yahooProviderFactory = func(_ *slog.Logger) DataProvider {
-		return &serviceStubProvider{name: "yahoo"}
-	}
-	binanceProviderFactory = func(_ *slog.Logger) DataProvider {
-		return &serviceStubProvider{name: "binance"}
+	reg := &ProviderRegistry{
+		Polygon: func(_ string, _ *slog.Logger) DataProvider {
+			return &serviceStubProvider{name: "polygon"}
+		},
+		AlphaVantage: func(_ string, _ int, _ *slog.Logger) DataProvider {
+			return &serviceStubProvider{name: "alpha"}
+		},
+		Yahoo: func(_ *slog.Logger) DataProvider {
+			return &serviceStubProvider{name: "yahoo"}
+		},
+		Binance: func(_ *slog.Logger) DataProvider {
+			return &serviceStubProvider{name: "binance"}
+		},
 	}
 
 	service := NewDataService(config.Config{
@@ -569,7 +560,7 @@ func TestNewDataServiceSkipsProvidersWithoutAPIKeys(t *testing.T) {
 				APIKey: "alpha-key",
 			},
 		},
-	}, nil, discardLogger())
+	}, reg, nil, discardLogger())
 
 	stockChain, ok := service.stockChain.(*ProviderChain)
 	if !ok {

@@ -25,14 +25,14 @@ func NewMarketAnalyst(provider llm.Provider, providerName, model string, logger 
 		Role:         agent.AgentRoleMarketAnalyst,
 		Name:         "market_analyst",
 		SystemPrompt: MarketAnalystSystemPrompt,
-		BuildPrompt: func(state *agent.PipelineState) (string, bool) {
+		BuildPrompt: func(input agent.AnalysisInput) (string, bool) {
 			var bars []domain.OHLCV
 			var indicators []domain.Indicator
-			if state.Market != nil {
-				bars = state.Market.Bars
-				indicators = state.Market.Indicators
+			if input.Market != nil {
+				bars = input.Market.Bars
+				indicators = input.Market.Indicators
 			}
-			return FormatMarketAnalystUserPrompt(state.Ticker, bars, indicators), true
+			return FormatMarketAnalystUserPrompt(input.Ticker, bars, indicators), true
 		},
 	})}
 }

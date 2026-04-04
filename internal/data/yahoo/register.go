@@ -6,8 +6,9 @@ import (
 	"github.com/PatrickFanella/get-rich-quick/internal/data"
 )
 
-func init() {
-	data.RegisterYahooProviderFactory(func(logger *slog.Logger) data.DataProvider {
+// Register adds the Yahoo provider factory to the given registry.
+func Register(reg *data.ProviderRegistry) {
+	reg.Yahoo = func(logger *slog.Logger) data.DataProvider {
 		return NewProvider(logger)
-	})
+	}
 }

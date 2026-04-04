@@ -26,11 +26,11 @@ func NewFundamentalsAnalyst(provider llm.Provider, providerName, model string, l
 		Name:         "fundamentals_analyst",
 		SystemPrompt: FundamentalsAnalystSystemPrompt,
 		SkipMessage:  "No fundamentals available for this asset type.",
-		BuildPrompt: func(state *agent.PipelineState) (string, bool) {
-			if state.Fundamentals == nil {
+		BuildPrompt: func(input agent.AnalysisInput) (string, bool) {
+			if input.Fundamentals == nil {
 				return "", false
 			}
-			return FormatFundamentalsAnalystUserPrompt(state.Ticker, state.Fundamentals), true
+			return FormatFundamentalsAnalystUserPrompt(input.Ticker, input.Fundamentals), true
 		},
 	})}
 }

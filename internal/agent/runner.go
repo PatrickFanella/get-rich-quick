@@ -86,6 +86,7 @@ type RiskDebateStage struct {
 type RuntimeConfig struct {
 	PipelineTimeout time.Duration
 	AnalysisTimeout time.Duration
+	TradingTimeout  time.Duration
 	DebateTimeout   time.Duration
 	ResearchRounds  int
 	RiskRounds      int
@@ -146,6 +147,7 @@ type Runner struct {
 	logger    *slog.Logger
 	nowMu     sync.RWMutex
 	now       func() time.Time
+	helper    PhaseHelper
 }
 
 // NewRunner constructs a runner with the supplied participants and dependencies.
@@ -158,13 +160,15 @@ func NewRunner(def Definition, deps Dependencies) *Runner {
 	if clock == nil {
 		clock = time.Now
 	}
-	return &Runner{
+	r := &Runner{
 		def:       def,
 		persister: deps.Persister,
 		events:    deps.Events,
 		logger:    logger,
 		now:       clock,
 	}
+	r.helper = newPhaseHelper(deps.Persister, deps.Events, logger, r.currentTime)
+	return r
 }
 
 // SetNowFunc overrides the runner time source for tests/backtests.
@@ -200,6 +204,7 @@ func (r *Runner) Prepare(strategy domain.Strategy, globals GlobalSettings) (Prep
 		Runtime: RuntimeConfig{
 			PipelineTimeout: runtimePipelineTimeout(resolved),
 			AnalysisTimeout: runtimeAnalysisTimeout(resolved),
+			TradingTimeout:  runtimeAnalysisTimeout(resolved),
 			DebateTimeout:   runtimeDebateTimeout(resolved),
 			ResearchRounds:  resolved.PipelineConfig.DebateRounds,
 			RiskRounds:      resolved.PipelineConfig.DebateRounds,
@@ -254,7 +259,7 @@ func (r *Runner) Run(ctx context.Context, prepared PreparedRun) (*RunResult, err
 	}
 	applyInitialStateSeed(state, prepared.InitialState)
 
-	r.persistStructuredEvent(ctx, r.newStructuredEvent(
+	r.helper.persistStructuredEvent(ctx, r.helper.newStructuredEvent(
 		run.ID,
 		prepared.Strategy.ID,
 		AgentEventKindPipelineStarted,
@@ -264,7 +269,7 @@ func (r *Runner) Run(ctx context.Context, prepared PreparedRun) (*RunResult, err
 		nil,
 		[]string{"pipeline"},
 	))
-	r.emitEvent(PipelineEvent{
+	r.helper.emitEvent(PipelineEvent{
 		Type:          PipelineStarted,
 		PipelineRunID: run.ID,
 		StrategyID:    prepared.Strategy.ID,
@@ -286,7 +291,7 @@ func (r *Runner) Run(ctx context.Context, prepared PreparedRun) (*RunResult, err
 	}
 
 	for _, phase := range phases {
-		r.persistStructuredEvent(ctx, r.newStructuredEvent(
+		r.helper.persistStructuredEvent(ctx, r.helper.newStructuredEvent(
 			run.ID,
 			prepared.Strategy.ID,
 			AgentEventKindPhaseStarted,
@@ -302,8 +307,8 @@ func (r *Runner) Run(ctx context.Context, prepared PreparedRun) (*RunResult, err
 			completedAt := r.currentTime().UTC()
 			phaseTimingsJSON, _ := json.Marshal(phaseTimings)
 			_ = r.persister.RecordRunComplete(ctx, run.ID, run.TradeDate, domain.PipelineStatusFailed, completedAt, err.Error(), phaseTimingsJSON)
-			r.emitCacheStats(state, cacheStatsCollector, run.ID, prepared.Strategy.ID, prepared.Strategy.Ticker)
-			r.persistStructuredTerminalEvent(r.newStructuredEvent(
+			r.helper.emitCacheStats(state, cacheStatsCollector, run.ID, prepared.Strategy.ID, prepared.Strategy.Ticker)
+			r.helper.persistStructuredTerminalEvent(r.helper.newStructuredEvent(
 				run.ID,
 				prepared.Strategy.ID,
 				AgentEventKindPipelineFailed,
@@ -313,7 +318,7 @@ func (r *Runner) Run(ctx context.Context, prepared PreparedRun) (*RunResult, err
 				map[string]any{"phase": phase.name, "error_message": err.Error()},
 				[]string{"pipeline", "failed"},
 			))
-			r.emitEvent(PipelineEvent{
+			r.helper.emitEvent(PipelineEvent{
 				Type:          PipelineError,
 				PipelineRunID: run.ID,
 				StrategyID:    prepared.Strategy.ID,
@@ -327,7 +332,7 @@ func (r *Runner) Run(ctx context.Context, prepared PreparedRun) (*RunResult, err
 			return &RunResult{Run: run, Signal: r.canonicalSignal(state), State: snapshotState(state), Warnings: warnings}, err
 		}
 		phaseTimings[phase.name+"_ms"] = time.Since(phaseStart).Milliseconds()
-		r.persistStructuredEvent(ctx, r.newStructuredEvent(
+		r.helper.persistStructuredEvent(ctx, r.helper.newStructuredEvent(
 			run.ID,
 			prepared.Strategy.ID,
 			AgentEventKindPhaseCompleted,
@@ -342,8 +347,8 @@ func (r *Runner) Run(ctx context.Context, prepared PreparedRun) (*RunResult, err
 	completedAt := r.currentTime().UTC()
 	phaseTimingsJSON, _ := json.Marshal(phaseTimings)
 	_ = r.persister.RecordRunComplete(ctx, run.ID, run.TradeDate, domain.PipelineStatusCompleted, completedAt, "", phaseTimingsJSON)
-	r.emitCacheStats(state, cacheStatsCollector, run.ID, prepared.Strategy.ID, prepared.Strategy.Ticker)
-	r.persistStructuredTerminalEvent(r.newStructuredEvent(
+	r.helper.emitCacheStats(state, cacheStatsCollector, run.ID, prepared.Strategy.ID, prepared.Strategy.Ticker)
+	r.helper.persistStructuredTerminalEvent(r.helper.newStructuredEvent(
 		run.ID,
 		prepared.Strategy.ID,
 		AgentEventKindPipelineCompleted,
@@ -353,7 +358,7 @@ func (r *Runner) Run(ctx context.Context, prepared PreparedRun) (*RunResult, err
 		nil,
 		[]string{"pipeline", "completed"},
 	))
-	r.emitEvent(PipelineEvent{
+	r.helper.emitEvent(PipelineEvent{
 		Type:          PipelineCompleted,
 		PipelineRunID: run.ID,
 		StrategyID:    prepared.Strategy.ID,
@@ -429,7 +434,7 @@ func (r *Runner) runAnalysis(ctx context.Context, state *PipelineState, prepared
 	for _, participant := range r.def.Analysis {
 		agent := participant
 		g.Go(func() error {
-			r.persistStructuredEvent(gCtx, r.newStructuredEvent(
+			r.helper.persistStructuredEvent(gCtx, r.helper.newStructuredEvent(
 				state.PipelineRunID,
 				state.StrategyID,
 				AgentEventKindAgentStarted,
@@ -456,7 +461,7 @@ func (r *Runner) runAnalysis(ctx context.Context, state *PipelineState, prepared
 			if err := r.persistDecision(gCtx, state.PipelineRunID, agent.Name(), agent.Role(), PhaseAnalysis, nil, output.Report, output.LLMResponse); err != nil {
 				return err
 			}
-			r.persistStructuredEvent(gCtx, r.newStructuredEvent(
+			r.helper.persistStructuredEvent(gCtx, r.helper.newStructuredEvent(
 				state.PipelineRunID,
 				state.StrategyID,
 				AgentEventKindAgentCompleted,
@@ -466,14 +471,14 @@ func (r *Runner) runAnalysis(ctx context.Context, state *PipelineState, prepared
 				map[string]any{"phase": PhaseAnalysis.String(), "agent_role": agent.Role().String()},
 				[]string{"agent", PhaseAnalysis.String()},
 			))
-			r.emitEvent(PipelineEvent{Type: AgentDecisionMade, PipelineRunID: state.PipelineRunID, StrategyID: state.StrategyID, Ticker: state.Ticker, AgentRole: agent.Role(), Phase: PhaseAnalysis, OccurredAt: r.currentTime().UTC()})
+			r.helper.emitEvent(PipelineEvent{Type: AgentDecisionMade, PipelineRunID: state.PipelineRunID, StrategyID: state.StrategyID, Ticker: state.Ticker, AgentRole: agent.Role(), Phase: PhaseAnalysis, OccurredAt: r.currentTime().UTC()})
 			return nil
 		})
 	}
 	if err := g.Wait(); err != nil {
 		return err
 	}
-	return r.persistAnalysisSnapshots(phaseCtx, state)
+	return r.helper.persistAnalysisSnapshots(phaseCtx, state)
 }
 
 func (r *Runner) runResearchDebate(ctx context.Context, state *PipelineState, prepared PreparedRun, _ *[]RunWarning, _ *sync.Mutex) error {
@@ -491,16 +496,16 @@ func (r *Runner) runResearchDebate(ctx context.Context, state *PipelineState, pr
 
 func (r *Runner) runTrading(ctx context.Context, state *PipelineState, prepared PreparedRun, _ *[]RunWarning, _ *sync.Mutex) error {
 	phaseCtx := ctx
-	if prepared.Runtime.AnalysisTimeout > 0 {
+	if prepared.Runtime.TradingTimeout > 0 {
 		var cancel context.CancelFunc
-		phaseCtx, cancel = context.WithTimeout(ctx, prepared.Runtime.AnalysisTimeout)
+		phaseCtx, cancel = context.WithTimeout(ctx, prepared.Runtime.TradingTimeout)
 		defer cancel()
 	}
 	trader := r.def.Trader
 	if trader == nil {
 		return fmt.Errorf("agent/runner: trading phase requires a trader")
 	}
-	r.persistStructuredEvent(phaseCtx, r.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentStarted, trader.Role(), trader.Name(), "", map[string]any{"phase": PhaseTrading.String(), "agent_role": trader.Role().String()}, []string{"agent", PhaseTrading.String()}))
+	r.helper.persistStructuredEvent(phaseCtx, r.helper.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentStarted, trader.Role(), trader.Name(), "", map[string]any{"phase": PhaseTrading.String(), "agent_role": trader.Role().String()}, []string{"agent", PhaseTrading.String()}))
 	output, err := trader.Trade(phaseCtx, tradingInputFromState(state))
 	if err != nil {
 		return err
@@ -509,9 +514,9 @@ func (r *Runner) runTrading(ctx context.Context, state *PipelineState, prepared 
 	if err := r.persistDecision(phaseCtx, state.PipelineRunID, trader.Name(), trader.Role(), PhaseTrading, nil, output.StoredOutput, output.LLMResponse); err != nil {
 		return err
 	}
-	r.persistStructuredEvent(phaseCtx, r.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentCompleted, trader.Role(), trader.Name(), "", map[string]any{"phase": PhaseTrading.String(), "agent_role": trader.Role().String()}, []string{"agent", PhaseTrading.String()}))
-	r.persistStructuredEvent(phaseCtx, r.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindSignalProduced, trader.Role(), "Signal produced", "", map[string]any{"phase": PhaseTrading.String(), "agent_role": trader.Role().String(), "signal_value": state.TradingPlan.Action.String()}, []string{"signal", PhaseTrading.String()}))
-	r.emitEvent(PipelineEvent{Type: AgentDecisionMade, PipelineRunID: state.PipelineRunID, StrategyID: state.StrategyID, Ticker: state.Ticker, AgentRole: trader.Role(), Phase: PhaseTrading, OccurredAt: r.currentTime().UTC()})
+	r.helper.persistStructuredEvent(phaseCtx, r.helper.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentCompleted, trader.Role(), trader.Name(), "", map[string]any{"phase": PhaseTrading.String(), "agent_role": trader.Role().String()}, []string{"agent", PhaseTrading.String()}))
+	r.helper.persistStructuredEvent(phaseCtx, r.helper.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindSignalProduced, trader.Role(), "Signal produced", "", map[string]any{"phase": PhaseTrading.String(), "agent_role": trader.Role().String(), "signal_value": state.TradingPlan.Action.String()}, []string{"signal", PhaseTrading.String()}))
+	r.helper.emitEvent(PipelineEvent{Type: AgentDecisionMade, PipelineRunID: state.PipelineRunID, StrategyID: state.StrategyID, Ticker: state.Ticker, AgentRole: trader.Role(), Phase: PhaseTrading, OccurredAt: r.currentTime().UTC()})
 	return nil
 }
 
@@ -566,7 +571,7 @@ func (r *Runner) runDebate(ctx context.Context, state *PipelineState, spec debat
 			spec.appendRound(state, DebateRound{Number: i, Contributions: make(map[AgentRole]string)})
 			for _, debater := range spec.debaters {
 				roundNumber := i
-				r.persistStructuredEvent(roundCtx, r.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentStarted, debater.Role(), debater.Name(), "", map[string]any{"phase": spec.phase.String(), "agent_role": debater.Role().String(), "round_number": roundNumber}, []string{"agent", spec.phase.String()}))
+				r.helper.persistStructuredEvent(roundCtx, r.helper.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentStarted, debater.Role(), debater.Name(), "", map[string]any{"phase": spec.phase.String(), "agent_role": debater.Role().String(), "round_number": roundNumber}, []string{"agent", spec.phase.String()}))
 				output, err := debater.Debate(roundCtx, r.debateInputFromState(state, spec.phase))
 				if err != nil {
 					return err
@@ -575,10 +580,10 @@ func (r *Runner) runDebate(ctx context.Context, state *PipelineState, spec debat
 				if err := r.persistDecision(roundCtx, state.PipelineRunID, debater.Name(), debater.Role(), spec.phase, &roundNumber, output.Contribution, output.LLMResponse); err != nil {
 					return err
 				}
-				r.persistStructuredEvent(roundCtx, r.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentCompleted, debater.Role(), debater.Name(), "", map[string]any{"phase": spec.phase.String(), "agent_role": debater.Role().String(), "round_number": roundNumber}, []string{"agent", spec.phase.String()}))
+				r.helper.persistStructuredEvent(roundCtx, r.helper.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentCompleted, debater.Role(), debater.Name(), "", map[string]any{"phase": spec.phase.String(), "agent_role": debater.Role().String(), "round_number": roundNumber}, []string{"agent", spec.phase.String()}))
 			}
-			r.persistStructuredEvent(roundCtx, r.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindDebateRoundCompleted, "", "Debate round completed", "", map[string]any{"phase": spec.phase.String(), "round_number": i}, []string{"debate", spec.phase.String()}))
-			r.emitEvent(PipelineEvent{Type: DebateRoundCompleted, PipelineRunID: state.PipelineRunID, StrategyID: state.StrategyID, Ticker: state.Ticker, Phase: spec.phase, Round: i, OccurredAt: r.currentTime().UTC()})
+			r.helper.persistStructuredEvent(roundCtx, r.helper.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindDebateRoundCompleted, "", "Debate round completed", "", map[string]any{"phase": spec.phase.String(), "round_number": i}, []string{"debate", spec.phase.String()}))
+			r.helper.emitEvent(PipelineEvent{Type: DebateRoundCompleted, PipelineRunID: state.PipelineRunID, StrategyID: state.StrategyID, Ticker: state.Ticker, Phase: spec.phase, Round: i, OccurredAt: r.currentTime().UTC()})
 			return nil
 		}()
 		if err != nil {
@@ -594,7 +599,7 @@ func (r *Runner) runDebate(ctx context.Context, state *PipelineState, spec debat
 func (r *Runner) runDebateJudge(ctx context.Context, state *PipelineState, phase Phase, judge any) error {
 	switch participant := judge.(type) {
 	case ResearchJudge:
-		r.persistStructuredEvent(ctx, r.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentStarted, participant.Role(), participant.Name(), "", map[string]any{"phase": phase.String(), "agent_role": participant.Role().String()}, []string{"agent", phase.String()}))
+		r.helper.persistStructuredEvent(ctx, r.helper.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentStarted, participant.Role(), participant.Name(), "", map[string]any{"phase": phase.String(), "agent_role": participant.Role().String()}, []string{"agent", phase.String()}))
 		output, err := participant.JudgeResearch(ctx, researchJudgeInputFromState(state))
 		if err != nil {
 			return err
@@ -603,10 +608,10 @@ func (r *Runner) runDebateJudge(ctx context.Context, state *PipelineState, phase
 		if err := r.persistDecision(ctx, state.PipelineRunID, participant.Name(), participant.Role(), phase, nil, output.InvestmentPlan, output.LLMResponse); err != nil {
 			return err
 		}
-		r.persistStructuredEvent(ctx, r.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentCompleted, participant.Role(), participant.Name(), "", map[string]any{"phase": phase.String(), "agent_role": participant.Role().String()}, []string{"agent", phase.String()}))
+		r.helper.persistStructuredEvent(ctx, r.helper.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentCompleted, participant.Role(), participant.Name(), "", map[string]any{"phase": phase.String(), "agent_role": participant.Role().String()}, []string{"agent", phase.String()}))
 		return nil
 	case RiskJudge:
-		r.persistStructuredEvent(ctx, r.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentStarted, participant.Role(), participant.Name(), "", map[string]any{"phase": phase.String(), "agent_role": participant.Role().String()}, []string{"agent", phase.String()}))
+		r.helper.persistStructuredEvent(ctx, r.helper.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentStarted, participant.Role(), participant.Name(), "", map[string]any{"phase": phase.String(), "agent_role": participant.Role().String()}, []string{"agent", phase.String()}))
 		output, err := participant.JudgeRisk(ctx, riskJudgeInputFromState(state))
 		if err != nil {
 			return err
@@ -615,9 +620,9 @@ func (r *Runner) runDebateJudge(ctx context.Context, state *PipelineState, phase
 		if err := r.persistDecision(ctx, state.PipelineRunID, participant.Name(), participant.Role(), phase, nil, output.StoredSignal, output.LLMResponse); err != nil {
 			return err
 		}
-		r.persistStructuredEvent(ctx, r.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentCompleted, participant.Role(), participant.Name(), "", map[string]any{"phase": phase.String(), "agent_role": participant.Role().String()}, []string{"agent", phase.String()}))
+		r.helper.persistStructuredEvent(ctx, r.helper.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindAgentCompleted, participant.Role(), participant.Name(), "", map[string]any{"phase": phase.String(), "agent_role": participant.Role().String()}, []string{"agent", phase.String()}))
 		if phase == PhaseRiskDebate && state.RiskDebate.FinalSignal != "" {
-			r.persistStructuredEvent(ctx, r.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindSignalProduced, participant.Role(), "Signal produced", "", map[string]any{"phase": phase.String(), "agent_role": participant.Role().String(), "signal_value": state.RiskDebate.FinalSignal}, []string{"signal", phase.String()}))
+			r.helper.persistStructuredEvent(ctx, r.helper.newStructuredEvent(state.PipelineRunID, state.StrategyID, AgentEventKindSignalProduced, participant.Role(), "Signal produced", "", map[string]any{"phase": phase.String(), "agent_role": participant.Role().String(), "signal_value": state.RiskDebate.FinalSignal}, []string{"signal", phase.String()}))
 		}
 		return nil
 	default:
@@ -659,71 +664,7 @@ func (r *Runner) currentTime() time.Time {
 	return r.now()
 }
 
-func (r *Runner) emitEvent(event PipelineEvent) {
-	if r.events == nil {
-		return
-	}
-	select {
-	case r.events <- event:
-	default:
-		r.logger.Debug("agent/runner: event dropped; events channel full", slog.String("type", string(event.Type)))
-	}
-}
 
-func (r *Runner) persistStructuredEvent(ctx context.Context, event *domain.AgentEvent) {
-	if event == nil {
-		return
-	}
-	if err := r.persister.PersistEvent(ctx, event); err != nil {
-		r.logger.Warn("agent/runner: failed to persist structured event", slog.String("event_kind", event.EventKind), slog.Any("error", err))
-	}
-}
-
-func (r *Runner) persistStructuredTerminalEvent(event *domain.AgentEvent) {
-	dbCtx, cancel := context.WithTimeout(context.Background(), statusUpdateTimeout)
-	defer cancel()
-	r.persistStructuredEvent(dbCtx, event)
-}
-
-func (r *Runner) newStructuredEvent(runID, strategyID uuid.UUID, kind AgentEventKind, agentRole AgentRole, title, summary string, metadata map[string]any, tags []string) *domain.AgentEvent {
-	event := &domain.AgentEvent{PipelineRunID: &runID, StrategyID: &strategyID, EventKind: kind.String(), Title: title, Summary: summary, Tags: append([]string(nil), tags...), Metadata: r.marshalStructuredEventMetadata(metadata)}
-	if agentRole != "" {
-		event.AgentRole = agentRole
-	}
-	return event
-}
-
-func (r *Runner) marshalStructuredEventMetadata(metadata map[string]any) json.RawMessage {
-	if len(metadata) == 0 {
-		return nil
-	}
-	payload, err := json.Marshal(metadata)
-	if err != nil {
-		r.logger.Warn("agent/runner: failed to marshal structured event metadata", slog.Any("error", err))
-		return nil
-	}
-	return payload
-}
-
-func (r *Runner) emitCacheStats(state *PipelineState, collector *llm.CacheStatsCollector, runID, strategyID uuid.UUID, ticker string) {
-	stats := collector.Snapshot()
-	if state != nil {
-		state.LLMCacheStats = stats
-	}
-	payload, err := json.Marshal(stats)
-	if err != nil {
-		r.logger.Warn("agent/runner: failed to marshal LLM cache stats", slog.Any("error", err))
-		return
-	}
-	r.emitEvent(PipelineEvent{
-		Type:          LLMCacheStatsReported,
-		PipelineRunID: runID,
-		StrategyID:    strategyID,
-		Ticker:        ticker,
-		Payload:       payload,
-		OccurredAt:    r.currentTime().UTC(),
-	})
-}
 
 func (r *Runner) canonicalSignal(state *PipelineState) domain.PipelineSignal {
 	if state == nil {
@@ -780,31 +721,3 @@ func runtimeDebateTimeout(resolved ResolvedConfig) time.Duration {
 	return time.Duration(resolved.PipelineConfig.DebateTimeoutSeconds) * time.Second
 }
 
-func (r *Runner) persistAnalysisSnapshots(ctx context.Context, state *PipelineState) error {
-	if !r.persister.SupportsSnapshots() {
-		return nil
-	}
-	snapshots := []struct {
-		dataType string
-		payload  any
-	}{
-		{dataType: "market", payload: state.Market},
-		{dataType: "news", payload: state.News},
-		{dataType: "fundamentals", payload: state.Fundamentals},
-		{dataType: "social", payload: state.Social},
-	}
-	for _, snapshotData := range snapshots {
-		payload, err := json.Marshal(snapshotData.payload)
-		if err != nil {
-			return fmt.Errorf("agent/runner: marshal %s snapshot: %w", snapshotData.dataType, err)
-		}
-		if err := r.persister.PersistSnapshot(ctx, &domain.PipelineRunSnapshot{
-			PipelineRunID: state.PipelineRunID,
-			DataType:      snapshotData.dataType,
-			Payload:       payload,
-		}); err != nil {
-			return err
-		}
-	}
-	return nil
-}

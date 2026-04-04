@@ -187,6 +187,8 @@ type TradingPlan struct {
 	StopLoss     float64        `json:"stop_loss,omitempty"`
 	TakeProfit   float64        `json:"take_profit,omitempty"`
 	TimeHorizon  string         `json:"time_horizon,omitempty"`
+	// Confidence is always in the [0, 1] range. The trader produces this directly;
+	// the risk manager normalizes from a 1-10 integer scale by dividing by 10.
 	Confidence   float64        `json:"confidence,omitempty"`
 	Rationale    string         `json:"rationale,omitempty"`
 	RiskReward   float64        `json:"risk_reward,omitempty"`
@@ -201,5 +203,7 @@ type RiskDebateState struct {
 // FinalSignal stores the extracted pipeline signal and confidence.
 type FinalSignal struct {
 	Signal     PipelineSignal `json:"signal,omitempty"`
+	// Confidence is always in the [0, 1] range. The trader produces this directly;
+	// the risk manager normalizes from a 1-10 integer scale by dividing by 10.
 	Confidence float64        `json:"confidence,omitempty"`
 }

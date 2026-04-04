@@ -98,32 +98,8 @@ func TestSocialMediaAnalystExecute(t *testing.T) {
 		t.Errorf("request model = %q, want %q", mock.lastReq.Model, "gpt-4")
 	}
 
-	// Verify report stored in state.
-	report, ok := state.AnalystReports[agent.AgentRoleSocialMediaAnalyst]
-	if !ok {
-		t.Fatal("analyst report not stored in state")
-	}
-	if report != wantContent {
-		t.Errorf("stored report = %q, want %q", report, wantContent)
-	}
-
-	// Verify decision recorded in state.
-	dec, ok := state.Decision(agent.AgentRoleSocialMediaAnalyst, agent.PhaseAnalysis, nil)
-	if !ok {
-		t.Fatal("decision not recorded in state")
-	}
-	if dec.OutputText != wantContent {
-		t.Errorf("decision output = %q, want %q", dec.OutputText, wantContent)
-	}
-	if dec.LLMResponse == nil {
-		t.Fatal("decision LLM response is nil")
-	}
-	if dec.LLMResponse.Response.Usage.PromptTokens != 90 {
-		t.Errorf("prompt tokens = %d, want 90", dec.LLMResponse.Response.Usage.PromptTokens)
-	}
-	if dec.LLMResponse.Provider != "openai" {
-		t.Errorf("decision provider = %q, want %q", dec.LLMResponse.Provider, "openai")
-	}
+	// State application is handled by callers via applyAnalysisOutput, so
+	// Execute should NOT write reports or decisions to state.
 }
 
 func TestSocialMediaAnalystExecuteNilSocialData(t *testing.T) {
@@ -158,14 +134,8 @@ func TestSocialMediaAnalystExecuteNilSocialData(t *testing.T) {
 		t.Errorf("user prompt should indicate missing social data, got: %s", userMsg)
 	}
 
-	// Verify report stored in state.
-	report, ok := state.AnalystReports[agent.AgentRoleSocialMediaAnalyst]
-	if !ok {
-		t.Fatal("analyst report not stored in state")
-	}
-	if report != wantContent {
-		t.Errorf("stored report = %q, want %q", report, wantContent)
-	}
+	// State application is handled by callers via applyAnalysisOutput, so
+	// Execute should NOT write reports or decisions to state.
 }
 
 func TestSocialMediaAnalystExecuteLLMError(t *testing.T) {
