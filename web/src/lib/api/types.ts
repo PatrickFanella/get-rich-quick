@@ -571,3 +571,32 @@ export interface OptionSnapshot {
   volume: number
   open_interest: number
 }
+
+// ---------- Discovery ----------
+
+export interface DeployedStrategy {
+  strategy_id: UUID
+  ticker: string
+  config: unknown
+  in_sample: BacktestMetrics
+  out_of_sample: BacktestMetrics
+  score: number
+}
+
+export interface DiscoveryResult {
+  candidates: number
+  generated: number
+  swept: number
+  validated: number
+  deployed: number
+  winners: DeployedStrategy[] | null
+  duration: number
+  errors?: string[]
+}
+
+export interface DiscoveryRunRequest {
+  tickers: string[]
+  market_type?: string
+  dry_run?: boolean
+  max_winners?: number
+}

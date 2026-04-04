@@ -44,6 +44,8 @@ import type {
   BacktestRun,
   BacktestRunListParams,
   OptionSnapshot,
+  DiscoveryRunRequest,
+  DiscoveryResult,
 } from '@/lib/api/types'
 
 interface ApiClientConfig {
@@ -439,6 +441,14 @@ export class ApiClient {
   async getOptionsChain(underlying: string, params: { expiry?: string; type?: string } = {}) {
     return this.request<OptionSnapshot[]>(`/api/v1/options/chain/${underlying}`, {
       query: toQueryParams(params),
+    })
+  }
+
+  // Discovery
+  async runDiscovery(data: DiscoveryRunRequest) {
+    return this.request<DiscoveryResult>('/api/v1/discovery/run', {
+      method: 'POST',
+      body: data,
     })
   }
 }

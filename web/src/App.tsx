@@ -17,6 +17,7 @@ import { StrategiesPage } from '@/pages/strategies-page'
 import { StrategyDetailPage } from '@/pages/strategy-detail-page'
 import { OptionsPage } from '@/pages/options-page'
 import { PortfolioPage } from '@/pages/portfolio-page'
+import { DiscoveryPage } from '@/pages/discovery-page'
 
 export function AppRoutes() {
   return (
@@ -35,6 +36,7 @@ export function AppRoutes() {
           <Route path="backtests" element={<BacktestsPage />} />
           <Route path="backtests/:id" element={<BacktestDetailPage />} />
           <Route path="options" element={<OptionsPage />} />
+          <Route path="discovery" element={<DiscoveryPage />} />
           <Route path="portfolio" element={<PortfolioPage />} />
           <Route path="memories" element={<MemoriesPage />} />
           <Route path="settings" element={<SettingsPage />} />
