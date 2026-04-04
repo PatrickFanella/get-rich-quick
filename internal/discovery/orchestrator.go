@@ -122,6 +122,7 @@ func RunDiscovery(ctx context.Context, cfg DiscoveryConfig, deps DiscoveryDeps) 
 
 	// Step 3: Sweep each generated config and take the best result.
 	var allBests []SweepResult
+	barsByTicker := make(map[string][]domain.OHLCV)
 	for _, gen := range generatedConfigs {
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("discovery: context cancelled during sweep: %w", err)
@@ -155,6 +156,7 @@ func RunDiscovery(ctx context.Context, cfg DiscoveryConfig, deps DiscoveryDeps) 
 			)
 			continue
 		}
+		barsByTicker[gen.candidate.Ticker] = histBars
 		sweepCfg.Bars = histBars
 		sweepCfg.EndDate = histBars[len(histBars)-1].Timestamp
 		sweepCfg.StartDate = sweepCfg.EndDate.AddDate(-1, 0, 0)
@@ -189,11 +191,7 @@ func RunDiscovery(ctx context.Context, cfg DiscoveryConfig, deps DiscoveryDeps) 
 	}
 	var validated []validatedResult
 
-	// Build a ticker-to-bars lookup from candidates.
-	barsByTicker := make(map[string][]domain.OHLCV, len(candidates))
-	for _, c := range candidates {
-		barsByTicker[c.Ticker] = c.Bars
-	}
+	// barsByTicker already populated during sweep step above.
 
 	// Build a config-name-to-ticker lookup from generated configs.
 	tickerByConfigName := make(map[string]string, len(generatedConfigs))
