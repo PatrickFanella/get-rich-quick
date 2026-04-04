@@ -453,3 +453,89 @@ export interface ConversationCreateRequest {
 export interface ConversationMessageCreateRequest {
   content: string
 }
+
+// ---------- Backtests ----------
+
+export interface BacktestSimulationParameters {
+  initial_capital: number
+  slippage_model?: unknown
+  transaction_costs?: unknown
+  spread_model?: unknown
+  max_volume_pct?: number
+}
+
+export interface BacktestConfig {
+  id: UUID
+  strategy_id: UUID
+  name: string
+  description?: string
+  schedule_cron?: string
+  start_date: ISODateString
+  end_date: ISODateString
+  simulation: BacktestSimulationParameters
+  created_at: ISODateString
+  updated_at: ISODateString
+}
+
+export interface BacktestMetrics {
+  total_return: number | string
+  buy_and_hold_return: number | string
+  max_drawdown: number | string
+  sharpe_ratio: number | string
+  sortino_ratio: number | string
+  calmar_ratio: number | string
+  alpha: number | string
+  beta: number | string
+  win_rate: number | string
+  profit_factor: number | string
+  avg_win_loss_ratio: number | string
+  volatility: number | string
+  start_equity: number | string
+  end_equity: number | string
+  total_bars: number
+  realized_pnl: number | string
+  unrealized_pnl: number | string
+}
+
+export interface EquityCurvePoint {
+  timestamp: ISODateString
+  cash: number
+  market_value: number
+  portfolio_value: number
+  realized_pnl: number
+  unrealized_pnl: number
+  total_pnl: number
+  peak_equity: number
+  drawdown_pct: number
+}
+
+export interface BacktestRun {
+  id: UUID
+  backtest_config_id: UUID
+  metrics: BacktestMetrics
+  trade_log: unknown
+  equity_curve: EquityCurvePoint[]
+  run_timestamp: ISODateString
+  duration: string
+  prompt_version: string
+  prompt_version_hash: string
+  created_at: ISODateString
+  updated_at: ISODateString
+}
+
+export interface BacktestConfigCreateRequest {
+  strategy_id: UUID
+  name: string
+  description?: string
+  start_date: ISODateString
+  end_date: ISODateString
+  simulation: BacktestSimulationParameters
+}
+
+export interface BacktestConfigListParams {
+  strategy_id?: UUID
+}
+
+export interface BacktestRunListParams {
+  backtest_config_id?: UUID
+}

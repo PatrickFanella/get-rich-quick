@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PatrickFanella/get-rich-quick/internal/data"
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
 	"github.com/PatrickFanella/get-rich-quick/internal/llm"
 	"github.com/go-chi/chi/v5"
@@ -39,6 +40,11 @@ type Server struct {
 	snapshots     repository.PipelineRunSnapshotRepository
 	llmProvider   llm.Provider
 	events        repository.AgentEventRepository
+
+	// Backtest
+	backtestConfigs repository.BacktestConfigRepository
+	backtestRuns    repository.BacktestRunRepository
+	dataService     *data.DataService
 
 	// Risk engine
 	risk     risk.RiskEngine
@@ -119,10 +125,13 @@ type Deps struct {
 	Users          repository.UserRepository
 	Conversations  repository.ConversationRepository
 	AuditLog       repository.AuditLogRepository
-	Events         repository.AgentEventRepository
-	Snapshots      repository.PipelineRunSnapshotRepository
-	LLMProvider    llm.Provider
-	Risk           risk.RiskEngine
+	Events          repository.AgentEventRepository
+	Snapshots       repository.PipelineRunSnapshotRepository
+	LLMProvider     llm.Provider
+	BacktestConfigs repository.BacktestConfigRepository
+	BacktestRuns    repository.BacktestRunRepository
+	DataService     *data.DataService
+	Risk            risk.RiskEngine
 	Settings       SettingsService
 	Runner         StrategyRunner
 	DBHealth       HealthCheck
@@ -209,9 +218,12 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 		llmProvider:    deps.LLMProvider,
 		auditLog:       deps.AuditLog,
 		events:         deps.Events,
-		risk:           deps.Risk,
-		settings:       settingsService,
-		runner:         deps.Runner,
+		backtestConfigs: deps.BacktestConfigs,
+		backtestRuns:    deps.BacktestRuns,
+		dataService:     deps.DataService,
+		risk:            deps.Risk,
+		settings:        settingsService,
+		runner:          deps.Runner,
 		auth:           authManager,
 		hub:            hub,
 		wsUpgrader:     newUpgrader(cfg.CORSConfig.AllowedOrigins),
@@ -324,6 +336,22 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 
 		// Audit log
 		v1.Get("/audit-log", s.handleListAuditLog)
+
+		// Backtests
+		v1.Route("/backtests", func(bt chi.Router) {
+			bt.Route("/configs", func(cr chi.Router) {
+				cr.Get("/", s.handleListBacktestConfigs)
+				cr.Post("/", s.handleCreateBacktestConfig)
+				cr.Get("/{id}", s.handleGetBacktestConfig)
+				cr.Put("/{id}", s.handleUpdateBacktestConfig)
+				cr.Delete("/{id}", s.handleDeleteBacktestConfig)
+				cr.Post("/{id}/run", s.handleRunBacktestConfig)
+			})
+			bt.Route("/runs", func(rr chi.Router) {
+				rr.Get("/", s.handleListBacktestRuns)
+				rr.Get("/{id}", s.handleGetBacktestRun)
+			})
+		})
 	})
 
 	s.router = r

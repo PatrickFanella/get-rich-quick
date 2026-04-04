@@ -38,6 +38,11 @@ import type {
   ConversationListParams,
   ConversationMessage,
   ConversationMessageCreateRequest,
+  BacktestConfig,
+  BacktestConfigCreateRequest,
+  BacktestConfigListParams,
+  BacktestRun,
+  BacktestRunListParams,
 } from '@/lib/api/types'
 
 interface ApiClientConfig {
@@ -383,6 +388,50 @@ export class ApiClient {
     if (typeof window !== 'undefined') {
       window.location.href = '/login'
     }
+  }
+
+  // Backtest Configs
+  async listBacktestConfigs(params: BacktestConfigListParams & PaginationParams = {}) {
+    return this.requestList<BacktestConfig>('/api/v1/backtests/configs', {
+      query: toQueryParams(params),
+    })
+  }
+
+  async createBacktestConfig(data: BacktestConfigCreateRequest) {
+    return this.request<BacktestConfig>('/api/v1/backtests/configs', {
+      method: 'POST',
+      body: data,
+    })
+  }
+
+  async getBacktestConfig(id: UUID) {
+    return this.request<BacktestConfig>(`/api/v1/backtests/configs/${id}`)
+  }
+
+  async updateBacktestConfig(id: UUID, data: BacktestConfigCreateRequest) {
+    return this.request<BacktestConfig>(`/api/v1/backtests/configs/${id}`, {
+      method: 'PUT',
+      body: data,
+    })
+  }
+
+  async deleteBacktestConfig(id: UUID) {
+    return this.requestNoContent(`/api/v1/backtests/configs/${id}`, { method: 'DELETE' })
+  }
+
+  async runBacktestConfig(id: UUID) {
+    return this.request<BacktestRun>(`/api/v1/backtests/configs/${id}/run`, { method: 'POST' })
+  }
+
+  // Backtest Runs
+  async listBacktestRuns(params: BacktestRunListParams & PaginationParams = {}) {
+    return this.requestList<BacktestRun>('/api/v1/backtests/runs', {
+      query: toQueryParams(params),
+    })
+  }
+
+  async getBacktestRun(id: UUID) {
+    return this.request<BacktestRun>(`/api/v1/backtests/runs/${id}`)
   }
 }
 

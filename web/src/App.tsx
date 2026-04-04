@@ -3,6 +3,8 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { AppShell } from '@/components/layout/app-shell'
 import { ProtectedRoute, PublicOnlyRoute } from '@/components/routes/route-guards'
 import { AppProviders } from '@/lib/providers'
+import { BacktestDetailPage } from '@/pages/backtest-detail-page'
+import { BacktestsPage } from '@/pages/backtests-page'
 import { DashboardPage } from '@/pages/dashboard-page'
 import { LoginPage } from '@/pages/login-page'
 import { PipelineRunPage } from '@/pages/pipeline-run-page'
@@ -29,6 +31,8 @@ export function AppRoutes() {
           <Route path="strategies/:id" element={<StrategyDetailPage />} />
           <Route path="runs" element={<RunsPage />} />
           <Route path="runs/:id" element={<PipelineRunPage />} />
+          <Route path="backtests" element={<BacktestsPage />} />
+          <Route path="backtests/:id" element={<BacktestDetailPage />} />
           <Route path="portfolio" element={<PortfolioPage />} />
           <Route path="memories" element={<MemoriesPage />} />
           <Route path="settings" element={<SettingsPage />} />

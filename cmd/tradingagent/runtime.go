@@ -80,25 +80,27 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 	)
 
 	deps := api.Deps{
-		Strategies:     strategyRepo,
-		Runs:           runRepo,
-		Decisions:      decisionRepo,
-		Orders:         orderRepo,
-		Positions:      positionRepo,
-		Trades:         tradeRepo,
-		Memories:       memoryRepo,
-		APIKeys:        apiKeyRepo,
-		Users:          userRepo,
-		Risk:           riskEngine,
-		Settings:       api.NewMemorySettingsServiceFromConfig(cfg),
-		DBHealth:       api.HealthCheckFunc(db.Pool.Ping),
-		RedisHealth:    redisHealth,
-		Conversations:  conversationRepo,
-		AuditLog:       auditLogRepo,
-		Events:         eventRepo,
-		MetricsHandler: appMetrics.Handler(),
-		Snapshots:      snapshotRepo,
-		LLMProvider:    newLLMProviderFromConfig(cfg.LLM, logger),
+		Strategies:      strategyRepo,
+		Runs:            runRepo,
+		Decisions:       decisionRepo,
+		Orders:          orderRepo,
+		Positions:       positionRepo,
+		Trades:          tradeRepo,
+		Memories:        memoryRepo,
+		APIKeys:         apiKeyRepo,
+		Users:           userRepo,
+		Risk:            riskEngine,
+		Settings:        api.NewMemorySettingsServiceFromConfig(cfg),
+		DBHealth:        api.HealthCheckFunc(db.Pool.Ping),
+		RedisHealth:     redisHealth,
+		Conversations:   conversationRepo,
+		AuditLog:        auditLogRepo,
+		Events:          eventRepo,
+		MetricsHandler:  appMetrics.Handler(),
+		Snapshots:       snapshotRepo,
+		LLMProvider:     newLLMProviderFromConfig(cfg.LLM, logger),
+		BacktestConfigs: pgrepo.NewBacktestConfigRepo(db.Pool),
+		BacktestRuns:    pgrepo.NewBacktestRunRepo(db.Pool),
 	}
 	notificationManager := newNotificationManager(cfg)
 
@@ -125,6 +127,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 		yahoo.Register(reg)
 		binance.Register(reg)
 		dataService := data.NewDataService(cfg, reg, marketDataCacheRepo, logger)
+		deps.DataService = dataService
 		strategyRunner := newRealStrategyRunner(
 			cfg,
 			dataService,
