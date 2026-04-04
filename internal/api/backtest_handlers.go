@@ -205,13 +205,16 @@ func (s *Server) handleRunBacktestConfig(w http.ResponseWriter, r *http.Request)
 	// 6. Build pipeline
 	pipeline := rules.NewRulesPipeline(*rulesConfig, bars, config.Simulation.InitialCapital, agent.NoopPersister{}, nil, s.logger)
 
-	// 7. Build orchestrator
+	// 7. Build orchestrator with default fill config
 	orch, err := backtest.NewOrchestrator(backtest.OrchestratorConfig{
 		StrategyID:  strategy.ID,
 		Ticker:      strategy.Ticker,
 		StartDate:   config.StartDate,
 		EndDate:     config.EndDate,
 		InitialCash: config.Simulation.InitialCapital,
+		FillConfig: backtest.FillConfig{
+			Slippage: backtest.ProportionalSlippage{BasisPoints: 5},
+		},
 	}, bars, pipeline, s.logger)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to create backtest orchestrator: "+err.Error(), ErrCodeInternal)
