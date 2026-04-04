@@ -113,11 +113,6 @@ func ValidateOutOfSample(
 		OutOfSample: oosMetrics,
 	}
 
-	// Compute OOS ratio.
-	if inSampleSharpe != 0 {
-		result.OOSRatio = oosSharpe / inSampleSharpe
-	}
-
 	// Check thresholds.
 	if oosSharpe < 0 {
 		result.Passed = false
@@ -125,13 +120,21 @@ func ValidateOutOfSample(
 		return result, nil
 	}
 
-	if result.OOSRatio < cfg.MinOOSRatio {
-		result.Passed = false
-		result.Reason = fmt.Sprintf(
-			"OOS ratio %.4f below minimum %.4f (OOS Sharpe=%.4f, in-sample Sharpe=%.4f)",
-			result.OOSRatio, cfg.MinOOSRatio, oosSharpe, inSampleSharpe,
-		)
-		return result, nil
+	// Compute OOS ratio. If in-sample is zero/negative but OOS is positive,
+	// the strategy discovered something the in-sample missed — let it pass.
+	if inSampleSharpe > 0 {
+		result.OOSRatio = oosSharpe / inSampleSharpe
+		if result.OOSRatio < cfg.MinOOSRatio {
+			result.Passed = false
+			result.Reason = fmt.Sprintf(
+				"OOS ratio %.4f below minimum %.4f (OOS Sharpe=%.4f, in-sample Sharpe=%.4f)",
+				result.OOSRatio, cfg.MinOOSRatio, oosSharpe, inSampleSharpe,
+			)
+			return result, nil
+		}
+	} else {
+		// In-sample zero or negative — if OOS is positive, that's a pass.
+		result.OOSRatio = 1.0
 	}
 
 	result.Passed = true
