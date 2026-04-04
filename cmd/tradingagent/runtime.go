@@ -17,6 +17,7 @@ import (
 	"github.com/PatrickFanella/get-rich-quick/internal/cli"
 	"github.com/PatrickFanella/get-rich-quick/internal/config"
 	"github.com/PatrickFanella/get-rich-quick/internal/data"
+	"github.com/PatrickFanella/get-rich-quick/internal/discovery"
 	"github.com/PatrickFanella/get-rich-quick/internal/data/alphavantage"
 	"github.com/PatrickFanella/get-rich-quick/internal/data/binance"
 	"github.com/PatrickFanella/get-rich-quick/internal/data/polygon"
@@ -130,6 +131,12 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 		deps.DataService = dataService
 		if strings.TrimSpace(cfg.DataProviders.Polygon.APIKey) != "" {
 			deps.OptionsProvider = polygon.NewOptionsProvider(polygon.NewClient(cfg.DataProviders.Polygon.APIKey, logger))
+		}
+		deps.DiscoveryDeps = &discovery.DiscoveryDeps{
+			DataService: dataService,
+			LLMProvider: deps.LLMProvider,
+			Strategies:  strategyRepo,
+			Logger:      logger,
 		}
 		strategyRunner := newRealStrategyRunner(
 			cfg,

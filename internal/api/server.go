@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/data"
+	"github.com/PatrickFanella/get-rich-quick/internal/discovery"
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
 	"github.com/PatrickFanella/get-rich-quick/internal/llm"
 	"github.com/go-chi/chi/v5"
@@ -45,6 +46,10 @@ type Server struct {
 	backtestConfigs repository.BacktestConfigRepository
 	backtestRuns    repository.BacktestRunRepository
 	dataService     *data.DataService
+
+	// Discovery
+	discoveryDeps    *discovery.DiscoveryDeps
+	discoveryRunRepo discovery.RunRepository
 
 	// Risk engine
 	risk     risk.RiskEngine
@@ -135,6 +140,8 @@ type Deps struct {
 	BacktestRuns     repository.BacktestRunRepository
 	DataService      *data.DataService
 	OptionsProvider  data.OptionsDataProvider
+	DiscoveryDeps    *discovery.DiscoveryDeps
+	DiscoveryRunRepo discovery.RunRepository
 	Risk            risk.RiskEngine
 	Settings       SettingsService
 	Runner         StrategyRunner
@@ -225,7 +232,9 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 		backtestConfigs: deps.BacktestConfigs,
 		backtestRuns:    deps.BacktestRuns,
 		dataService:      deps.DataService,
-		optionsProvider:  deps.OptionsProvider,
+		optionsProvider:   deps.OptionsProvider,
+		discoveryDeps:    deps.DiscoveryDeps,
+		discoveryRunRepo: deps.DiscoveryRunRepo,
 		risk:             deps.Risk,
 		settings:        settingsService,
 		runner:          deps.Runner,
@@ -362,6 +371,12 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 				rr.Get("/", s.handleListBacktestRuns)
 				rr.Get("/{id}", s.handleGetBacktestRun)
 			})
+		})
+
+		// Discovery
+		v1.Route("/discovery", func(dr chi.Router) {
+			dr.Post("/run", s.handleRunDiscovery)
+			dr.Get("/results", s.handleListDiscoveryRuns)
 		})
 	})
 
