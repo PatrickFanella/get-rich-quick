@@ -18,6 +18,9 @@ var KnownFields = map[string]bool{
 	"bollinger_upper": true, "bollinger_middle": true, "bollinger_lower": true,
 	// OHLCV fields
 	"close": true, "open": true, "high": true, "low": true, "volume": true,
+	// Options-specific fields
+	"iv_rank": true, "iv_percentile": true, "atm_iv": true,
+	"put_call_ratio": true, "dte": true, "pnl_pct": true,
 }
 
 var knownOperators = map[string]bool{
