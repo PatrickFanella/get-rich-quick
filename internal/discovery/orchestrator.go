@@ -132,9 +132,11 @@ func RunDiscovery(ctx context.Context, cfg DiscoveryConfig, deps DiscoveryDeps) 
 		sweepCfg.Ticker = gen.candidate.Ticker
 		sweepCfg.MarketType = cfg.Screener.MarketType
 
-		// Download 2 years of history for backtesting (screener only has ~60 days).
+		// Download 5 years of history for backtesting — more data means more
+		// trades and more statistically significant results. The first ~1 year
+		// serves as indicator warmup (SMA-200 needs 200 bars).
 		now := time.Now()
-		histFrom := now.AddDate(-2, 0, 0)
+		histFrom := now.AddDate(-5, 0, 0)
 		barsMap, dlErr := deps.DataService.DownloadHistoricalOHLCV(
 			ctx, cfg.Screener.MarketType,
 			[]string{gen.candidate.Ticker},
@@ -159,7 +161,7 @@ func RunDiscovery(ctx context.Context, cfg DiscoveryConfig, deps DiscoveryDeps) 
 		barsByTicker[gen.candidate.Ticker] = histBars
 		sweepCfg.Bars = histBars
 		sweepCfg.EndDate = histBars[len(histBars)-1].Timestamp
-		sweepCfg.StartDate = sweepCfg.EndDate.AddDate(-1, 0, 0)
+		sweepCfg.StartDate = sweepCfg.EndDate.AddDate(-3, 0, 0)
 		if sweepCfg.StartDate.Before(histBars[0].Timestamp) {
 			sweepCfg.StartDate = histBars[0].Timestamp
 		}

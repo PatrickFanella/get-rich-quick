@@ -43,10 +43,10 @@ func ValidateOutOfSample(
 		logger = slog.Default()
 	}
 	if cfg.CalibrationMonths == 0 {
-		cfg.CalibrationMonths = 3
+		cfg.CalibrationMonths = 6
 	}
 	if cfg.TestMonths == 0 {
-		cfg.TestMonths = 1
+		cfg.TestMonths = 3
 	}
 	if cfg.MinOOSRatio == 0 {
 		cfg.MinOOSRatio = 0.5
