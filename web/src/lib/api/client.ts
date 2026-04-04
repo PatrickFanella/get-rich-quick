@@ -23,6 +23,7 @@ import type {
   PositionListParams,
   PortfolioSummary,
   RunListParams,
+  ScoredTicker,
   Settings,
   SettingsUpdateRequest,
   Strategy,
@@ -30,6 +31,7 @@ import type {
   StrategyListParams,
   StrategyRunResult,
   StrategyUpdateRequest,
+  TrackedTicker,
   Trade,
   TradeListParams,
   UUID,
@@ -450,6 +452,23 @@ export class ApiClient {
       method: 'POST',
       body: data,
     })
+  }
+
+  // Universe
+  async listUniverse(params: { index_group?: string; search?: string } & PaginationParams = {}) {
+    return this.requestList<TrackedTicker>('/api/v1/universe', { query: toQueryParams(params) })
+  }
+
+  async getWatchlist(top: number = 30) {
+    return this.request<ScoredTicker[]>('/api/v1/universe/watchlist', { query: { top } })
+  }
+
+  async refreshUniverse() {
+    return this.request<{ count: number }>('/api/v1/universe/refresh', { method: 'POST' })
+  }
+
+  async runPreMarketScan() {
+    return this.request<ScoredTicker[]>('/api/v1/universe/scan', { method: 'POST' })
   }
 }
 

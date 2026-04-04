@@ -36,6 +36,7 @@ import (
 	pgrepo "github.com/PatrickFanella/get-rich-quick/internal/repository/postgres"
 	"github.com/PatrickFanella/get-rich-quick/internal/risk"
 	"github.com/PatrickFanella/get-rich-quick/internal/scheduler"
+	"github.com/PatrickFanella/get-rich-quick/internal/universe"
 )
 
 func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (*api.Server, cli.SchedulerLifecycle, func(), error) {
@@ -155,17 +156,43 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 		)
 		deps.Runner = strategyRunner
 		if cfg.Features.EnableScheduler {
+			schedOpts := []scheduler.Option{
+				scheduler.WithStrategyExecution(func(ctx context.Context, strategy domain.Strategy) error {
+					_, err := strategyRunner.RunStrategy(ctx, strategy)
+					return err
+				}),
+			}
+
+			if cfg.Features.EnableTickerDiscovery && strings.TrimSpace(cfg.DataProviders.Polygon.APIKey) != "" {
+				polygonClient := polygon.NewClient(cfg.DataProviders.Polygon.APIKey, logger)
+				universeRepo := pgrepo.NewUniverseRepo(db.Pool)
+				univ := universe.NewUniverse(universeRepo, polygonClient, logger)
+				deps.Universe = univ
+				deps.UniverseRepo = universeRepo
+				schedOpts = append(schedOpts, scheduler.WithTickerDiscovery(univ, polygonClient, *deps.DiscoveryDeps, scheduler.TickerDiscoveryConfig{
+					Cron:       cfg.TickerDiscovery.Cron,
+					MinADV:     cfg.TickerDiscovery.MinADV,
+					MaxTickers: cfg.TickerDiscovery.MaxTickers,
+				}))
+			}
+
 			sched = scheduler.NewScheduler(
 				strategyRepo,
 				nil,
 				riskEngine,
 				logger,
-				scheduler.WithStrategyExecution(func(ctx context.Context, strategy domain.Strategy) error {
-					_, err := strategyRunner.RunStrategy(ctx, strategy)
-					return err
-				}),
+				schedOpts...,
 			)
 		}
+	}
+
+	// Wire universe to API deps if not already set (non-discovery path).
+	if deps.Universe == nil && strings.TrimSpace(cfg.DataProviders.Polygon.APIKey) != "" {
+		polygonClient := polygon.NewClient(cfg.DataProviders.Polygon.APIKey, logger)
+		universeRepo := pgrepo.NewUniverseRepo(db.Pool)
+		univ := universe.NewUniverse(universeRepo, polygonClient, logger)
+		deps.Universe = univ
+		deps.UniverseRepo = universeRepo
 	}
 
 	apiCfg := api.DefaultServerConfig()

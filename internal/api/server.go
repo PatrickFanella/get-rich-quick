@@ -12,6 +12,7 @@ import (
 	"github.com/PatrickFanella/get-rich-quick/internal/discovery"
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
 	"github.com/PatrickFanella/get-rich-quick/internal/llm"
+	"github.com/PatrickFanella/get-rich-quick/internal/universe"
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 
@@ -50,6 +51,10 @@ type Server struct {
 	// Discovery
 	discoveryDeps    *discovery.DiscoveryDeps
 	discoveryRunRepo discovery.RunRepository
+
+	// Universe
+	universe     *universe.Universe
+	universeRepo universe.UniverseRepository
 
 	// Risk engine
 	risk     risk.RiskEngine
@@ -142,6 +147,8 @@ type Deps struct {
 	OptionsProvider  data.OptionsDataProvider
 	DiscoveryDeps    *discovery.DiscoveryDeps
 	DiscoveryRunRepo discovery.RunRepository
+	Universe         *universe.Universe
+	UniverseRepo     universe.UniverseRepository
 	Risk            risk.RiskEngine
 	Settings       SettingsService
 	Runner         StrategyRunner
@@ -235,6 +242,8 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 		optionsProvider:   deps.OptionsProvider,
 		discoveryDeps:    deps.DiscoveryDeps,
 		discoveryRunRepo: deps.DiscoveryRunRepo,
+		universe:         deps.Universe,
+		universeRepo:     deps.UniverseRepo,
 		risk:             deps.Risk,
 		settings:        settingsService,
 		runner:          deps.Runner,
@@ -377,6 +386,14 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 		v1.Route("/discovery", func(dr chi.Router) {
 			dr.Post("/run", s.handleRunDiscovery)
 			dr.Get("/results", s.handleListDiscoveryRuns)
+		})
+
+		// Universe
+		v1.Route("/universe", func(ur chi.Router) {
+			ur.Get("/", s.handleListUniverse)
+			ur.Get("/watchlist", s.handleGetWatchlist)
+			ur.Post("/refresh", s.handleRefreshUniverse)
+			ur.Post("/scan", s.handleRunPreMarketScan)
 		})
 	})
 

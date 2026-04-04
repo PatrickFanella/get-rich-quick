@@ -12,16 +12,25 @@ import (
 
 // Config contains application configuration loaded from the environment.
 type Config struct {
-	Environment   string
-	Server        ServerConfig
-	Database      DatabaseConfig
-	Redis         RedisConfig
-	LLM           LLMConfig
-	DataProviders DataProviderConfigs
-	Brokers       BrokerConfigs
-	Risk          RiskConfig
-	Notifications NotificationConfig
-	Features      FeatureFlags
+	Environment     string
+	Server          ServerConfig
+	Database        DatabaseConfig
+	Redis           RedisConfig
+	LLM             LLMConfig
+	DataProviders   DataProviderConfigs
+	Brokers         BrokerConfigs
+	Risk            RiskConfig
+	Notifications   NotificationConfig
+	Features        FeatureFlags
+	TickerDiscovery TickerDiscoveryConfig
+}
+
+// TickerDiscoveryConfig holds settings for the automated ticker discovery pipeline.
+type TickerDiscoveryConfig struct {
+	Enabled    bool
+	Cron       string
+	MinADV     float64
+	MaxTickers int
 }
 
 // ServerConfig contains HTTP server settings.
@@ -186,10 +195,11 @@ type HighLatencyAlertRuleConfig struct {
 
 // FeatureFlags contains boolean feature toggles.
 type FeatureFlags struct {
-	EnableScheduler   bool
-	EnableRedisCache  bool
-	EnableAgentMemory bool
-	EnableLiveTrading bool
+	EnableScheduler        bool
+	EnableRedisCache       bool
+	EnableAgentMemory      bool
+	EnableLiveTrading      bool
+	EnableTickerDiscovery  bool
 }
 
 // Load loads configuration from the environment and validates it.
@@ -334,6 +344,21 @@ func loadFromEnvironment() (Config, error) {
 		return Config{}, err
 	}
 
+	enableTickerDiscovery, err := getEnvBool("ENABLE_TICKER_DISCOVERY", false)
+	if err != nil {
+		return Config{}, err
+	}
+
+	tickerDiscoveryMinADV, err := getEnvFloat64("TICKER_DISCOVERY_MIN_ADV", 100000)
+	if err != nil {
+		return Config{}, err
+	}
+
+	tickerDiscoveryMaxTickers, err := getEnvInt("TICKER_DISCOVERY_MAX_TICKERS", 30)
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		Environment: getEnvString("APP_ENV", "development"),
 		Server: ServerConfig{
@@ -469,10 +494,17 @@ func loadFromEnvironment() (Config, error) {
 			},
 		},
 		Features: FeatureFlags{
-			EnableScheduler:   enableScheduler,
-			EnableRedisCache:  enableRedisCache,
-			EnableAgentMemory: enableAgentMemory,
-			EnableLiveTrading: enableLiveTrading,
+			EnableScheduler:       enableScheduler,
+			EnableRedisCache:      enableRedisCache,
+			EnableAgentMemory:     enableAgentMemory,
+			EnableLiveTrading:     enableLiveTrading,
+			EnableTickerDiscovery: enableTickerDiscovery,
+		},
+		TickerDiscovery: TickerDiscoveryConfig{
+			Enabled:    enableTickerDiscovery,
+			Cron:       getEnvString("TICKER_DISCOVERY_CRON", "30 10 * * 1-5"),
+			MinADV:     tickerDiscoveryMinADV,
+			MaxTickers: tickerDiscoveryMaxTickers,
 		},
 	}
 

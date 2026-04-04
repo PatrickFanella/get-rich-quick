@@ -14,9 +14,12 @@ import (
 
 	"github.com/PatrickFanella/get-rich-quick/internal/agent"
 	"github.com/PatrickFanella/get-rich-quick/internal/backtest"
+	"github.com/PatrickFanella/get-rich-quick/internal/data/polygon"
+	"github.com/PatrickFanella/get-rich-quick/internal/discovery"
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
 	"github.com/PatrickFanella/get-rich-quick/internal/repository"
 	"github.com/PatrickFanella/get-rich-quick/internal/risk"
+	"github.com/PatrickFanella/get-rich-quick/internal/universe"
 )
 
 const (
@@ -66,6 +69,36 @@ func WithBacktestScheduling(
 	}
 }
 
+// TickerDiscoveryConfig holds scheduler-level configuration for the ticker
+// discovery job.
+type TickerDiscoveryConfig struct {
+	Cron       string
+	MinADV     float64
+	MaxTickers int
+}
+
+// tickerDiscoveryDeps bundles dependencies required by the scheduled ticker
+// discovery job.
+type tickerDiscoveryDeps struct {
+	universe      *universe.Universe
+	polygonClient *polygon.Client
+	discoveryDeps discovery.DiscoveryDeps
+	config        TickerDiscoveryConfig
+}
+
+// WithTickerDiscovery enables scheduled pre-market ticker screening and
+// discovery pipeline execution.
+func WithTickerDiscovery(u *universe.Universe, pc *polygon.Client, dd discovery.DiscoveryDeps, cfg TickerDiscoveryConfig) Option {
+	return func(s *Scheduler) {
+		s.tickerDiscovery = &tickerDiscoveryDeps{
+			universe:      u,
+			polygonClient: pc,
+			discoveryDeps: dd,
+			config:        cfg,
+		}
+	}
+}
+
 // Scheduler loads active strategies and triggers pipeline runs on cron schedules.
 type Scheduler struct {
 	mu                 sync.Mutex
@@ -77,6 +110,7 @@ type Scheduler struct {
 	backtestConfigRepo repository.BacktestConfigRepository
 	backtestPersister  backtest.BacktestPersister
 	backtestRunner     backtestRunner
+	tickerDiscovery    *tickerDiscoveryDeps
 	logger             *slog.Logger
 	nowFunc            func() time.Time
 	newCron            func() cronEngine
@@ -85,6 +119,7 @@ type Scheduler struct {
 	jobTimeout         time.Duration
 	dedup              strategyDedup
 	backtestDedup      strategyDedup
+	discoveryDedup     strategyDedup
 	riskMonitor        *riskMonitor
 }
 
@@ -222,6 +257,22 @@ func (s *Scheduler) Start() error {
 			slog.String("schedule", spec),
 			slog.Int("entry_id", int(entryID)),
 		)
+	}
+
+	if s.tickerDiscovery != nil {
+		spec := s.tickerDiscovery.config.Cron
+		_, err := engine.AddFunc(spec, func() {
+			s.runTickerDiscovery()
+		})
+		if err != nil {
+			s.logger.Error("scheduler: failed to register ticker discovery schedule",
+				slog.String("cron", spec),
+				slog.Any("error", err),
+			)
+		} else {
+			registered++
+			s.logger.Info("scheduler: registered ticker discovery", slog.String("cron", spec))
+		}
 	}
 
 	engine.Start()
@@ -465,6 +516,92 @@ func (s *Scheduler) runBacktest(config domain.BacktestConfig) {
 	s.logger.Info("scheduler: backtest execution completed",
 		slog.String("backtest_config_id", config.ID.String()),
 		slog.String("name", config.Name),
+	)
+}
+
+// discoveryDedupKey is a fixed UUID used as the dedup key for the singleton
+// ticker discovery job.
+var discoveryDedupKey = uuid.MustParse("00000000-0000-0000-0000-000000000001")
+
+func (s *Scheduler) runTickerDiscovery() {
+	if !s.discoveryDedup.TryAcquire(discoveryDedupKey) {
+		s.logger.Warn("scheduler: skipping ticker discovery; already in flight")
+		return
+	}
+	defer s.discoveryDedup.Release(discoveryDedupKey)
+
+	ctx, cancel := s.jobContext()
+	defer cancel()
+
+	td := s.tickerDiscovery
+	logger := s.logger
+
+	// Step 1: Weekly refresh of universe constituents (runs every Monday).
+	weekday := s.nowFunc().Weekday()
+	if weekday == time.Monday {
+		count, err := td.universe.RefreshConstituents(ctx)
+		if err != nil {
+			logger.Error("scheduler: ticker discovery refresh failed", slog.Any("error", err))
+		} else {
+			logger.Info("scheduler: refreshed universe constituents", slog.Int("count", count))
+		}
+	}
+
+	// Step 2: Run pre-market screen.
+	scored, err := td.universe.RunPreMarketScreen(ctx, td.config.MinADV, td.config.MaxTickers)
+	if err != nil {
+		logger.Error("scheduler: pre-market screen failed", slog.Any("error", err))
+		return
+	}
+	if len(scored) == 0 {
+		logger.Info("scheduler: pre-market screen returned no tickers")
+		return
+	}
+
+	// Step 3: Extract top N ticker symbols.
+	maxTickers := td.config.MaxTickers
+	if maxTickers <= 0 {
+		maxTickers = 30
+	}
+	if maxTickers > len(scored) {
+		maxTickers = len(scored)
+	}
+	tickers := make([]string, maxTickers)
+	for i := 0; i < maxTickers; i++ {
+		tickers[i] = scored[i].Ticker
+	}
+
+	// Step 4: Build DiscoveryConfig and run.
+	cfg := discovery.DiscoveryConfig{
+		Screener: discovery.ScreenerConfig{
+			Tickers:    tickers,
+			MinADV:     td.config.MinADV,
+			MinATR:     0.5,
+			MarketType: domain.MarketTypeStock,
+		},
+		Generator: discovery.GeneratorConfig{
+			Provider:   td.discoveryDeps.LLMProvider,
+			MaxRetries: 3,
+		},
+		Sweep: discovery.SweepConfig{
+			InitialCash: 100000,
+			Variations:  20,
+		},
+		Scoring:    discovery.DefaultScoringConfig(),
+		Validation: discovery.ValidationConfig{},
+		MaxWinners: 3,
+	}
+
+	result, err := discovery.RunDiscovery(ctx, cfg, td.discoveryDeps)
+	if err != nil {
+		logger.Error("scheduler: ticker discovery pipeline failed", slog.Any("error", err))
+		return
+	}
+
+	logger.Info("scheduler: ticker discovery complete",
+		slog.Int("candidates", result.Candidates),
+		slog.Int("deployed", result.Deployed),
+		slog.Duration("duration", result.Duration),
 	)
 }
 

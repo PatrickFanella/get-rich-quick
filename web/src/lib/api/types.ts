@@ -600,3 +600,25 @@ export interface DiscoveryRunRequest {
   dry_run?: boolean
   max_winners?: number
 }
+
+// ---------- Universe ----------
+
+export interface TrackedTicker {
+  ticker: string
+  name: string
+  exchange: string
+  index_group: string
+  watch_score: number
+  last_scanned?: ISODateString
+  active: boolean
+}
+
+export interface ScoredTicker {
+  ticker: string
+  score: number
+  reasons: string[]
+  day_volume: number
+  day_close: number
+  change_pct: number
+  gap_pct: number
+}
