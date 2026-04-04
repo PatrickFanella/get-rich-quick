@@ -18,4 +18,10 @@ type Trade struct {
 	Fee        float64    `json:"fee"`
 	ExecutedAt time.Time  `json:"executed_at"`
 	CreatedAt  time.Time  `json:"created_at"`
+
+	// Options fields (nil/zero for equity trades).
+	AssetClass         AssetClass `json:"asset_class,omitempty"`
+	OpenClose          string     `json:"open_close,omitempty"` // "open" or "close"
+	ContractMultiplier float64    `json:"contract_multiplier,omitempty"`
+	Premium            float64    `json:"premium,omitempty"` // price per contract
 }

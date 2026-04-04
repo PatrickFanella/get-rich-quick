@@ -119,4 +119,14 @@ type Order struct {
 	SubmittedAt    *time.Time  `json:"submitted_at,omitempty"`
 	FilledAt       *time.Time  `json:"filled_at,omitempty"`
 	CreatedAt      time.Time   `json:"created_at"`
+
+	// Options fields (nil/zero for equity orders).
+	AssetClass         AssetClass      `json:"asset_class,omitempty"`
+	UnderlyingTicker   string          `json:"underlying_ticker,omitempty"`
+	OptionType         *OptionType     `json:"option_type,omitempty"`
+	Strike             *float64        `json:"strike,omitempty"`
+	Expiry             *time.Time      `json:"expiry,omitempty"`
+	ContractMultiplier float64         `json:"contract_multiplier,omitempty"`
+	PositionIntent     *PositionIntent `json:"position_intent,omitempty"`
+	LegGroupID         *uuid.UUID      `json:"leg_group_id,omitempty"`
 }

@@ -16,6 +16,7 @@ const (
 	MarketTypeStock      MarketType = "stock"
 	MarketTypeCrypto     MarketType = "crypto"
 	MarketTypePolymarket MarketType = "polymarket"
+	MarketTypeOptions    MarketType = "options"
 
 	StrategyStatusActive   = "active"
 	StrategyStatusPaused   = "paused"
