@@ -69,6 +69,9 @@ func ValidateOutOfSample(
 			StartDate:   startDate,
 			EndDate:     endDate,
 			InitialCash: initialCash,
+			FillConfig: backtest.FillConfig{
+				Slippage: backtest.ProportionalSlippage{BasisPoints: 5},
+			},
 		},
 		bars,
 		pipeline,

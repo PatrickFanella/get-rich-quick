@@ -84,6 +84,9 @@ func RunSweep(ctx context.Context, baseConfig rules.RulesEngineConfig, cfg Sweep
 				StartDate:   cfg.StartDate,
 				EndDate:     cfg.EndDate,
 				InitialCash: cfg.InitialCash,
+				FillConfig: backtest.FillConfig{
+					Slippage: backtest.ProportionalSlippage{BasisPoints: 5},
+				},
 			},
 			cfg.Bars,
 			pipeline,
