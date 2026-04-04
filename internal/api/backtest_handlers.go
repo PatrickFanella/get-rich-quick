@@ -162,7 +162,7 @@ func (s *Server) handleRunBacktestConfig(w http.ResponseWriter, r *http.Request)
 
 	rulesEngineRaw, ok := stratCfg["rules_engine"]
 	if !ok || len(rulesEngineRaw) == 0 {
-		respondError(w, http.StatusBadRequest, "strategy must have rules_engine config for backtesting", ErrCodeBadRequest)
+		respondError(w, http.StatusBadRequest, "strategy config must include a \"rules_engine\" JSON key with entry/exit conditions, position sizing, and stop/take-profit rules", ErrCodeBadRequest)
 		return
 	}
 

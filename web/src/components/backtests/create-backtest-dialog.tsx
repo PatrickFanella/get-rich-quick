@@ -65,8 +65,8 @@ export function CreateBacktestDialog({
     onSubmit({
       name,
       strategy_id: strategyId,
-      start_date: startDate ? `${startDate}T00:00:00Z` : '',
-      end_date: endDate ? `${endDate}T00:00:00Z` : '',
+      start_date: startDate ? `${startDate}T12:00:00Z` : '',
+      end_date: endDate ? `${endDate}T12:00:00Z` : '',
       simulation: {
         initial_capital: Number(initialCapital),
       },
