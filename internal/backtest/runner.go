@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -214,12 +215,25 @@ func (r *Runner) submitOrderFromPlan(ctx context.Context, state *agent.PipelineS
 		side = domain.OrderSideSell
 	}
 
+	// Cap position size at available cash to prevent going negative.
+	quantity := plan.PositionSize
+	if side == domain.OrderSideBuy && plan.EntryPrice > 0 {
+		bal, _ := r.broker.GetAccountBalance(context.Background())
+		maxShares := bal.Cash / plan.EntryPrice
+		if quantity > maxShares {
+			quantity = math.Floor(maxShares)
+		}
+		if quantity <= 0 {
+			return
+		}
+	}
+
 	order := &domain.Order{
 		ID:        uuid.New(),
 		Ticker:    r.config.Ticker,
 		Side:      side,
 		OrderType: domain.OrderTypeMarket,
-		Quantity:  plan.PositionSize,
+		Quantity:  quantity,
 	}
 	if plan.EntryPrice > 0 {
 		order.LimitPrice = &plan.EntryPrice
