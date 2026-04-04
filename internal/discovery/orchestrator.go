@@ -129,19 +129,37 @@ func RunDiscovery(ctx context.Context, cfg DiscoveryConfig, deps DiscoveryDeps) 
 
 		sweepCfg := cfg.Sweep
 		sweepCfg.Ticker = gen.candidate.Ticker
-		sweepCfg.Bars = gen.candidate.Bars
 		sweepCfg.MarketType = cfg.Screener.MarketType
 
-		// Use last 12 months from the available bars for sweep dates.
-		if len(gen.candidate.Bars) > 0 {
-			last := gen.candidate.Bars[len(gen.candidate.Bars)-1].Timestamp
-			sweepCfg.EndDate = last
-			sweepCfg.StartDate = last.AddDate(-1, 0, 0)
-			// Clamp start to earliest bar if needed.
-			first := gen.candidate.Bars[0].Timestamp
-			if sweepCfg.StartDate.Before(first) {
-				sweepCfg.StartDate = first
-			}
+		// Download 2 years of history for backtesting (screener only has ~60 days).
+		now := time.Now()
+		histFrom := now.AddDate(-2, 0, 0)
+		barsMap, dlErr := deps.DataService.DownloadHistoricalOHLCV(
+			ctx, cfg.Screener.MarketType,
+			[]string{gen.candidate.Ticker},
+			data.Timeframe1d, histFrom, now, true,
+		)
+		if dlErr != nil {
+			logger.Warn("discovery: historical download failed",
+				slog.String("ticker", gen.candidate.Ticker),
+				slog.Any("error", dlErr),
+			)
+			result.Errors = append(result.Errors, fmt.Sprintf("history %s: %v", gen.candidate.Ticker, dlErr))
+			continue
+		}
+		histBars := barsMap[gen.candidate.Ticker]
+		if len(histBars) < 50 {
+			logger.Warn("discovery: insufficient historical bars",
+				slog.String("ticker", gen.candidate.Ticker),
+				slog.Int("bars", len(histBars)),
+			)
+			continue
+		}
+		sweepCfg.Bars = histBars
+		sweepCfg.EndDate = histBars[len(histBars)-1].Timestamp
+		sweepCfg.StartDate = sweepCfg.EndDate.AddDate(-1, 0, 0)
+		if sweepCfg.StartDate.Before(histBars[0].Timestamp) {
+			sweepCfg.StartDate = histBars[0].Timestamp
 		}
 
 		sweepResults, sweepErr := RunSweep(ctx, gen.config, sweepCfg, cfg.Scoring, logger)
