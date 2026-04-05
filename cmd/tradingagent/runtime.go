@@ -17,6 +17,7 @@ import (
 	"github.com/PatrickFanella/get-rich-quick/internal/cli"
 	"github.com/PatrickFanella/get-rich-quick/internal/config"
 	"github.com/PatrickFanella/get-rich-quick/internal/data"
+	"github.com/PatrickFanella/get-rich-quick/internal/automation"
 	"github.com/PatrickFanella/get-rich-quick/internal/discovery"
 	"github.com/PatrickFanella/get-rich-quick/internal/data/alphavantage"
 	"github.com/PatrickFanella/get-rich-quick/internal/data/binance"
@@ -183,6 +184,25 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 				logger,
 				schedOpts...,
 			)
+		}
+
+		// Create the automation orchestrator if universe and discovery are available.
+		if deps.Universe != nil && deps.DiscoveryDeps != nil {
+			var polygonClientForAuto *polygon.Client
+			if strings.TrimSpace(cfg.DataProviders.Polygon.APIKey) != "" {
+				polygonClientForAuto = polygon.NewClient(cfg.DataProviders.Polygon.APIKey, logger)
+			}
+			orch := automation.NewJobOrchestrator(automation.OrchestratorDeps{
+				Universe:     deps.Universe,
+				Polygon:      polygonClientForAuto,
+				DataService:  dataService,
+				LLMProvider:  deps.LLMProvider,
+				StrategyRepo: strategyRepo,
+				RunRepo:      runRepo,
+				Logger:       logger,
+			})
+			orch.RegisterAll()
+			deps.Automation = orch
 		}
 	}
 

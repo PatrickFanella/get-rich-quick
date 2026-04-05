@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PatrickFanella/get-rich-quick/internal/automation"
 	"github.com/PatrickFanella/get-rich-quick/internal/data"
 	"github.com/PatrickFanella/get-rich-quick/internal/discovery"
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
@@ -55,6 +56,9 @@ type Server struct {
 	// Universe
 	universe     *universe.Universe
 	universeRepo universe.UniverseRepository
+
+	// Automation
+	automation *automation.JobOrchestrator
 
 	// Risk engine
 	risk     risk.RiskEngine
@@ -149,6 +153,7 @@ type Deps struct {
 	DiscoveryRunRepo discovery.RunRepository
 	Universe         *universe.Universe
 	UniverseRepo     universe.UniverseRepository
+	Automation       *automation.JobOrchestrator
 	Risk            risk.RiskEngine
 	Settings       SettingsService
 	Runner         StrategyRunner
@@ -244,6 +249,7 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 		discoveryRunRepo: deps.DiscoveryRunRepo,
 		universe:         deps.Universe,
 		universeRepo:     deps.UniverseRepo,
+		automation:       deps.Automation,
 		risk:             deps.Risk,
 		settings:        settingsService,
 		runner:          deps.Runner,
@@ -394,6 +400,13 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 			ur.Get("/watchlist", s.handleGetWatchlist)
 			ur.Post("/refresh", s.handleRefreshUniverse)
 			ur.Post("/scan", s.handleRunPreMarketScan)
+		})
+
+		// Automation
+		v1.Route("/automation", func(ar chi.Router) {
+			ar.Get("/status", s.handleGetAutomationStatus)
+			ar.Post("/jobs/{name}/run", s.handleRunAutomationJob)
+			ar.Post("/jobs/{name}/enable", s.handleSetAutomationJobEnabled)
 		})
 	})
 

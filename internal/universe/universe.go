@@ -99,6 +99,11 @@ func (u *Universe) RunPreMarketScreen(ctx context.Context, minADV float64, maxTi
 	return RunPreMarketScreen(ctx, u.polygon, u.repo, cfg, u.logger)
 }
 
+// UpdateScore updates the watch_score for a single ticker.
+func (u *Universe) UpdateScore(ctx context.Context, ticker string, score float64) error {
+	return u.repo.UpdateScore(ctx, ticker, score)
+}
+
 // exchangeToGroup maps a Polygon exchange code to a simplified index group.
 func exchangeToGroup(exchange string) string {
 	switch exchange {

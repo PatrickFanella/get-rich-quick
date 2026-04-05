@@ -602,6 +602,21 @@ export interface DiscoveryRunRequest {
   max_winners?: number
 }
 
+// ---------- Automation ----------
+
+export interface JobStatus {
+  name: string
+  description: string
+  schedule: string
+  last_run?: ISODateString
+  last_result: string
+  last_error?: string
+  run_count: number
+  error_count: number
+  running: boolean
+  enabled: boolean
+}
+
 // ---------- Universe ----------
 
 export interface TrackedTicker {

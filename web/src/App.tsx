@@ -18,6 +18,7 @@ import { StrategyDetailPage } from '@/pages/strategy-detail-page'
 import { OptionsPage } from '@/pages/options-page'
 import { PortfolioPage } from '@/pages/portfolio-page'
 import { DiscoveryPage } from '@/pages/discovery-page'
+import { AutomationPage } from '@/pages/automation-page'
 import { UniversePage } from '@/pages/universe-page'
 
 export function AppRoutes() {
@@ -39,6 +40,7 @@ export function AppRoutes() {
           <Route path="options" element={<OptionsPage />} />
           <Route path="discovery" element={<DiscoveryPage />} />
           <Route path="universe" element={<UniversePage />} />
+          <Route path="automation" element={<AutomationPage />} />
           <Route path="portfolio" element={<PortfolioPage />} />
           <Route path="memories" element={<MemoriesPage />} />
           <Route path="settings" element={<SettingsPage />} />

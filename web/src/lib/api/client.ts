@@ -48,6 +48,7 @@ import type {
   OptionSnapshot,
   DiscoveryRunRequest,
   DiscoveryResult,
+  JobStatus,
 } from '@/lib/api/types'
 
 interface ApiClientConfig {
@@ -469,6 +470,22 @@ export class ApiClient {
 
   async runPreMarketScan() {
     return this.request<ScoredTicker[]>('/api/v1/universe/scan', { method: 'POST' })
+  }
+
+  // Automation
+  async getAutomationStatus() {
+    return this.request<JobStatus[]>('/api/v1/automation/status')
+  }
+
+  async runAutomationJob(name: string) {
+    return this.requestNoContent(`/api/v1/automation/jobs/${name}/run`, { method: 'POST' })
+  }
+
+  async setAutomationJobEnabled(name: string, enabled: boolean) {
+    return this.requestNoContent(`/api/v1/automation/jobs/${name}/enable`, {
+      method: 'POST',
+      body: { enabled },
+    })
   }
 }
 
