@@ -382,6 +382,7 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 			cr.Get("/earnings", s.handleGetEarningsCalendar)
 			cr.Get("/economic", s.handleGetEconomicCalendar)
 			cr.Get("/filings", s.handleGetFilings)
+			cr.Post("/filings/analyze", s.handleAnalyzeFiling)
 			cr.Get("/ipo", s.handleGetIPOCalendar)
 		})
 

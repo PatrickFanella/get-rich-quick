@@ -4,11 +4,13 @@ import type {
   AgentDecision,
   AgentEvent,
   AgentMemory,
+  AnalyzeFilingRequest,
   AuditLogEntry,
   EarningsEvent,
   EconomicEvent,
   EngineStatus,
   ErrorResponse,
+  FilingAnalysis,
   HealthStatus,
   IPOEvent,
   LoginRequest,
@@ -503,6 +505,13 @@ export class ApiClient {
 
   async getFilings(params: { ticker?: string; form?: string } = {}) {
     return this.request<SECFiling[]>('/api/v1/calendar/filings', { query: toQueryParams(params) })
+  }
+
+  async analyzeFiling(data: AnalyzeFilingRequest) {
+    return this.request<FilingAnalysis>('/api/v1/calendar/filings/analyze', {
+      method: 'POST',
+      body: data,
+    })
   }
 
   async getIPOCalendar(params: { from?: string; to?: string } = {}) {

@@ -1,5 +1,5 @@
-import { useQuery } from '@tanstack/react-query'
-import { CalendarDays, ExternalLink, Loader2 } from 'lucide-react'
+import { useQuery, useMutation } from '@tanstack/react-query'
+import { CalendarDays, ExternalLink, Loader2, Sparkles } from 'lucide-react'
 import { useState } from 'react'
 
 import { PageHeader } from '@/components/layout/page-header'
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { apiClient } from '@/lib/api/client'
-import type { EarningsEvent, EconomicEvent, SECFiling, IPOEvent } from '@/lib/api/types'
+import type { EarningsEvent, EconomicEvent, SECFiling, IPOEvent, FilingAnalysis } from '@/lib/api/types'
 
 type Tab = 'earnings' | 'economic' | 'filings' | 'ipo'
 
@@ -206,9 +206,50 @@ function ImpactBadge({ impact }: { impact: string }) {
 
 // ---------- SEC Filings Tab ----------
 
+function SentimentBadge({ sentiment }: { sentiment: string }) {
+  switch (sentiment.toLowerCase()) {
+    case 'bullish':
+      return <Badge variant="success">{sentiment}</Badge>
+    case 'bearish':
+      return <Badge variant="destructive">{sentiment}</Badge>
+    default:
+      return <Badge variant="secondary">{sentiment}</Badge>
+  }
+}
+
+function FilingAnalysisResult({ analysis }: { analysis: FilingAnalysis }) {
+  return (
+    <div className="space-y-2 rounded-md border border-border/50 bg-accent/20 p-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <SentimentBadge sentiment={analysis.sentiment} />
+        <ImpactBadge impact={analysis.impact} />
+        <Badge variant="outline">{analysis.action.replace(/_/g, ' ')}</Badge>
+        <span className="ml-auto text-xs text-muted-foreground">
+          confidence: {(analysis.confidence * 100).toFixed(0)}%
+        </span>
+      </div>
+      <p className="text-muted-foreground">{analysis.summary}</p>
+      {analysis.key_items.length > 0 && (
+        <div>
+          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Key items:</span>
+          <ul className="ml-4 mt-1 list-disc text-xs text-muted-foreground">
+            {analysis.key_items.map((item, i) => (
+              <li key={i}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {analysis.reasoning && (
+        <p className="text-xs italic text-muted-foreground">{analysis.reasoning}</p>
+      )}
+    </div>
+  )
+}
+
 function FilingsTab() {
   const [ticker, setTicker] = useState('')
   const [form, setForm] = useState('')
+  const [analyses, setAnalyses] = useState<Record<string, FilingAnalysis>>({})
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['calendar-filings', ticker, form],
@@ -217,6 +258,18 @@ function FilingsTab() {
         ticker: ticker || undefined,
         form: form || undefined,
       }),
+  })
+
+  const analyzeMutation = useMutation({
+    mutationFn: (filing: SECFiling) =>
+      apiClient.analyzeFiling({
+        symbol: filing.symbol,
+        form: filing.form,
+        url: filing.url,
+      }),
+    onSuccess: (result, filing) => {
+      setAnalyses((prev) => ({ ...prev, [filingKey(filing)]: result }))
+    },
   })
 
   const filings: SECFiling[] = data ?? []
@@ -268,40 +321,79 @@ function FilingsTab() {
                 <th className="px-2 py-2">Filed</th>
                 <th className="px-2 py-2">Report Date</th>
                 <th className="px-2 py-2">Link</th>
+                <th className="px-2 py-2">Analysis</th>
               </tr>
             </thead>
             <tbody>
-              {filings.map((f, i) => (
-                <tr key={`${f.access_number}-${i}`} className="border-b border-border/50 hover:bg-accent/30">
-                  <td className="px-2 py-1.5 font-mono font-medium">{f.symbol}</td>
-                  <td className="px-2 py-1.5">
-                    <Badge variant="secondary">{f.form}</Badge>
-                  </td>
-                  <td className="px-2 py-1.5 text-muted-foreground">{formatDate(f.filed_date)}</td>
-                  <td className="px-2 py-1.5 text-muted-foreground">{formatDate(f.report_date)}</td>
-                  <td className="px-2 py-1.5">
-                    {f.url ? (
-                      <a
-                        href={f.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-primary hover:underline"
-                      >
-                        <ExternalLink className="size-3" />
-                        View
-                      </a>
-                    ) : (
-                      '--'
+              {filings.map((f, i) => {
+                const key = filingKey(f)
+                const analysis = analyses[key]
+                const isAnalyzing = analyzeMutation.isPending && analyzeMutation.variables && filingKey(analyzeMutation.variables) === key
+                return (
+                  <>
+                    <tr key={`${f.access_number}-${i}`} className="border-b border-border/50 hover:bg-accent/30">
+                      <td className="px-2 py-1.5 font-mono font-medium">{f.symbol}</td>
+                      <td className="px-2 py-1.5">
+                        <Badge variant="secondary">{f.form}</Badge>
+                      </td>
+                      <td className="px-2 py-1.5 text-muted-foreground">{formatDate(f.filed_date)}</td>
+                      <td className="px-2 py-1.5 text-muted-foreground">{formatDate(f.report_date)}</td>
+                      <td className="px-2 py-1.5">
+                        {f.url ? (
+                          <a
+                            href={f.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-primary hover:underline"
+                          >
+                            <ExternalLink className="size-3" />
+                            View
+                          </a>
+                        ) : (
+                          '--'
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        {analysis ? (
+                          <SentimentBadge sentiment={analysis.sentiment} />
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={isAnalyzing || !f.url}
+                            onClick={() => analyzeMutation.mutate(f)}
+                            className="gap-1"
+                          >
+                            {isAnalyzing ? (
+                              <Loader2 className="size-3 animate-spin" />
+                            ) : (
+                              <Sparkles className="size-3" />
+                            )}
+                            Analyze
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                    {analysis && (
+                      <tr key={`${f.access_number}-${i}-analysis`} className="border-b border-border/50">
+                        <td colSpan={6} className="px-2 py-2">
+                          <FilingAnalysisResult analysis={analysis} />
+                        </td>
+                      </tr>
                     )}
-                  </td>
-                </tr>
-              ))}
+                  </>
+                )
+              })}
             </tbody>
           </table>
         </div>
       )}
     </div>
   )
+}
+
+function filingKey(f: SECFiling): string {
+  return `${f.symbol}-${f.form}-${f.access_number}`
 }
 
 // ---------- IPO Tab ----------

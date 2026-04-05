@@ -84,7 +84,7 @@ func (o *JobOrchestrator) earningsScanner(ctx context.Context) error {
 	return nil
 }
 
-// filingMonitor checks recent 8-K filings for all active strategy tickers.
+// filingMonitor checks recent 8-K and 10-Q filings for all active strategy tickers.
 func (o *JobOrchestrator) filingMonitor(ctx context.Context) error {
 	if o.deps.EventsProvider == nil {
 		o.logger.Info("filing_monitor: skipped — events provider not configured")
@@ -102,14 +102,14 @@ func (o *JobOrchestrator) filingMonitor(ctx context.Context) error {
 		return nil
 	}
 
-	// Deduplicate tickers.
-	seen := make(map[string]struct{}, len(strategies))
+	// Build ticker → strategy name map (first match wins for display).
+	tickerStrategy := make(map[string]string, len(strategies))
 	var tickers []string
 	for _, s := range strategies {
-		if _, ok := seen[s.Ticker]; ok {
+		if _, ok := tickerStrategy[s.Ticker]; ok {
 			continue
 		}
-		seen[s.Ticker] = struct{}{}
+		tickerStrategy[s.Ticker] = s.Name
 		tickers = append(tickers, s.Ticker)
 	}
 
@@ -123,20 +123,45 @@ func (o *JobOrchestrator) filingMonitor(ctx context.Context) error {
 			return ctx.Err()
 		}
 
-		filings, err := o.deps.EventsProvider.GetFilings(ctx, ticker, "8-K", from, to)
-		if err != nil {
-			o.logger.Warn("filing_monitor: failed to fetch filings",
-				slog.String("ticker", ticker),
-				slog.Any("error", err),
-			)
-			continue
-		}
+		for _, formType := range []string{"8-K", "10-Q"} {
+			filings, err := o.deps.EventsProvider.GetFilings(ctx, ticker, formType, from, to)
+			if err != nil {
+				o.logger.Warn("filing_monitor: failed to fetch filings",
+					slog.String("ticker", ticker),
+					slog.String("form", formType),
+					slog.Any("error", err),
+				)
+				continue
+			}
 
-		for _, f := range filings {
-			totalFilings++
-			o.logger.Info(fmt.Sprintf("filing_monitor: new 8-K for %s filed %s",
-				f.Symbol, f.FiledDate.Format("2006-01-02")),
-			)
+			for _, f := range filings {
+				totalFilings++
+				o.logger.Info(fmt.Sprintf("filing_monitor: new %s for %s filed %s",
+					f.Form, f.Symbol, f.FiledDate.Format("2006-01-02")),
+				)
+
+				// Run LLM analysis if provider is available.
+				if o.deps.LLMProvider != nil {
+					analysis, err := AnalyzeFiling(ctx, o.deps.LLMProvider, "", f, tickerStrategy[ticker], o.logger)
+					if err != nil {
+						o.logger.Warn("filing_monitor: analysis failed",
+							slog.String("ticker", ticker),
+							slog.Any("error", err),
+						)
+						continue
+					}
+
+					if analysis.Impact == "high" && analysis.Action != "no_change" {
+						o.logger.Warn(fmt.Sprintf("filing_monitor: %s %s analyzed — sentiment=%s, impact=%s, action=%s",
+							ticker, f.Form, analysis.Sentiment, analysis.Impact, analysis.Action),
+						)
+					} else {
+						o.logger.Info(fmt.Sprintf("filing_monitor: %s %s analyzed — sentiment=%s, impact=%s, action=%s",
+							ticker, f.Form, analysis.Sentiment, analysis.Impact, analysis.Action),
+						)
+					}
+				}
+			}
 		}
 	}
 

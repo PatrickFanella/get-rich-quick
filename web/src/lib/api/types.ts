@@ -675,6 +675,25 @@ export interface IPOEvent {
   status: string
 }
 
+export interface FilingAnalysis {
+  symbol: string
+  form: string
+  filed_date: ISODateString
+  sentiment: string
+  impact: string
+  summary: string
+  action: string
+  confidence: number
+  key_items: string[]
+  reasoning: string
+}
+
+export interface AnalyzeFilingRequest {
+  symbol: string
+  form: string
+  url: string
+}
+
 export interface ScoredTicker {
   ticker: string
   score: number
