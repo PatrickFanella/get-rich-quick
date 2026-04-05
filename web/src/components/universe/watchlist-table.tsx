@@ -45,35 +45,35 @@ export function WatchlistTable({ tickers }: WatchlistTableProps) {
             >
               <td className="px-2 py-1.5 font-mono font-medium">{t.ticker}</td>
               <td className="px-2 py-1.5">
-                <Badge variant={scoreBadgeVariant(t.score)}>
-                  {t.score.toFixed(2)}
+                <Badge variant={scoreBadgeVariant(t.score ?? t.watch_score ?? 0)}>
+                  {(t.score ?? t.watch_score ?? 0).toFixed(2)}
                 </Badge>
               </td>
               <td
                 className={`px-2 py-1.5 text-right font-mono ${
-                  t.change_pct >= 0 ? 'text-emerald-400' : 'text-red-400'
+                  (t.change_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'
                 }`}
               >
-                {t.change_pct >= 0 ? '+' : ''}
-                {t.change_pct.toFixed(2)}%
+                {(t.change_pct ?? 0) >= 0 ? '+' : ''}
+                {(t.change_pct ?? 0).toFixed(2)}%
               </td>
               <td
                 className={`px-2 py-1.5 text-right font-mono ${
-                  t.gap_pct >= 0 ? 'text-emerald-400' : 'text-red-400'
+                  (t.gap_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'
                 }`}
               >
-                {t.gap_pct >= 0 ? '+' : ''}
-                {t.gap_pct.toFixed(2)}%
+                {(t.gap_pct ?? 0) >= 0 ? '+' : ''}
+                {(t.gap_pct ?? 0).toFixed(2)}%
               </td>
               <td className="px-2 py-1.5 text-right font-mono text-muted-foreground">
-                {formatVolume(t.day_volume)}
+                {formatVolume(t.day_volume ?? 0)}
               </td>
               <td className="px-2 py-1.5 text-right font-mono text-muted-foreground">
-                ${t.day_close.toFixed(2)}
+                ${(t.day_close ?? 0).toFixed(2)}
               </td>
               <td className="px-2 py-1.5">
                 <div className="flex flex-wrap gap-1">
-                  {t.reasons.map((reason, i) => (
+                  {(t.reasons ?? []).map((reason, i) => (
                     <Badge key={i} variant="secondary" className="text-[10px]">
                       {reason}
                     </Badge>
