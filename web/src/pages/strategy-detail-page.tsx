@@ -279,6 +279,119 @@ export function StrategyDetailPage() {
         </CardContent>
       </Card>
 
+      {(() => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rulesEngine = (strategy.config as any)?.rules_engine
+        if (!rulesEngine) return null
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle>Rules Engine</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {rulesEngine.name && (
+                <div>
+                  <span className="text-xs uppercase tracking-wide text-muted-foreground">Strategy</span>
+                  <p className="font-medium">{rulesEngine.name}</p>
+                  {rulesEngine.description && <p className="text-sm text-muted-foreground">{rulesEngine.description}</p>}
+                </div>
+              )}
+
+              {rulesEngine.entry?.conditions && (
+                <div>
+                  <span className="text-xs uppercase tracking-wide text-muted-foreground">Entry ({rulesEngine.entry?.operator})</span>
+                  <ul className="mt-1 space-y-1">
+                    {rulesEngine.entry.conditions.map((c: { field: string; op: string; value?: unknown; ref?: string }, i: number) => (
+                      <li key={i} className="text-sm font-mono">
+                        {c.field} {c.op} {c.value != null ? String(c.value) : c.ref}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {rulesEngine.exit?.conditions && (
+                <div>
+                  <span className="text-xs uppercase tracking-wide text-muted-foreground">Exit ({rulesEngine.exit?.operator})</span>
+                  <ul className="mt-1 space-y-1">
+                    {rulesEngine.exit.conditions.map((c: { field: string; op: string; value?: unknown; ref?: string }, i: number) => (
+                      <li key={i} className="text-sm font-mono">
+                        {c.field} {c.op} {c.value != null ? String(c.value) : c.ref}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {rulesEngine.position_sizing && (
+                <div>
+                  <span className="text-xs uppercase tracking-wide text-muted-foreground">Position Sizing</span>
+                  <div className="mt-1 grid grid-cols-2 gap-2 text-sm">
+                    <span className="text-muted-foreground">Method</span>
+                    <span className="font-mono">{rulesEngine.position_sizing.method}</span>
+                    {rulesEngine.position_sizing.fraction_pct != null && (
+                      <><span className="text-muted-foreground">Fraction</span><span className="font-mono">{rulesEngine.position_sizing.fraction_pct}%</span></>
+                    )}
+                    {rulesEngine.position_sizing.risk_per_trade_pct != null && (
+                      <><span className="text-muted-foreground">Risk/Trade</span><span className="font-mono">{(rulesEngine.position_sizing.risk_per_trade_pct * 100).toFixed(1)}%</span></>
+                    )}
+                    {rulesEngine.position_sizing.atr_multiplier != null && (
+                      <><span className="text-muted-foreground">ATR Mult</span><span className="font-mono">{rulesEngine.position_sizing.atr_multiplier}</span></>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {rulesEngine.stop_loss && (
+                <div>
+                  <span className="text-xs uppercase tracking-wide text-muted-foreground">Stop Loss</span>
+                  <div className="mt-1 grid grid-cols-2 gap-2 text-sm">
+                    <span className="text-muted-foreground">Method</span>
+                    <span className="font-mono">{rulesEngine.stop_loss.method}</span>
+                    {rulesEngine.stop_loss.atr_multiplier != null && (
+                      <><span className="text-muted-foreground">ATR Mult</span><span className="font-mono">{Number(rulesEngine.stop_loss.atr_multiplier).toFixed(2)}</span></>
+                    )}
+                    {rulesEngine.stop_loss.pct != null && (
+                      <><span className="text-muted-foreground">Pct</span><span className="font-mono">{rulesEngine.stop_loss.pct}%</span></>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {rulesEngine.take_profit && (
+                <div>
+                  <span className="text-xs uppercase tracking-wide text-muted-foreground">Take Profit</span>
+                  <div className="mt-1 grid grid-cols-2 gap-2 text-sm">
+                    <span className="text-muted-foreground">Method</span>
+                    <span className="font-mono">{rulesEngine.take_profit.method}</span>
+                    {rulesEngine.take_profit.ratio != null && (
+                      <><span className="text-muted-foreground">R:R Ratio</span><span className="font-mono">{Number(rulesEngine.take_profit.ratio).toFixed(2)}</span></>
+                    )}
+                    {rulesEngine.take_profit.atr_multiplier != null && (
+                      <><span className="text-muted-foreground">ATR Mult</span><span className="font-mono">{Number(rulesEngine.take_profit.atr_multiplier).toFixed(2)}</span></>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {rulesEngine.filters && (
+                <div>
+                  <span className="text-xs uppercase tracking-wide text-muted-foreground">Filters</span>
+                  <div className="mt-1 grid grid-cols-2 gap-2 text-sm">
+                    {rulesEngine.filters.min_volume != null && (
+                      <><span className="text-muted-foreground">Min Volume</span><span className="font-mono">{Number(rulesEngine.filters.min_volume).toLocaleString()}</span></>
+                    )}
+                    {rulesEngine.filters.min_atr != null && (
+                      <><span className="text-muted-foreground">Min ATR</span><span className="font-mono">{rulesEngine.filters.min_atr}</span></>
+                    )}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )
+      })()}
+
       <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
         <StrategyRunHistory strategyId={strategy.id} />
         <StrategyConfigEditor

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2, Play, Zap } from 'lucide-react'
-import { useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import { PageHeader } from '@/components/layout/page-header'
 import { Badge } from '@/components/ui/badge'
@@ -37,7 +37,6 @@ function statusDot(job: JobStatus) {
 
 export function AutomationPage() {
   const queryClient = useQueryClient()
-  const [expandedJob, setExpandedJob] = useState<string | null>(null)
 
   const statusQuery = useQuery({
     queryKey: ['automation-status'],
@@ -119,17 +118,9 @@ export function AutomationPage() {
                       >
                         <td className="px-2 py-1.5">{statusDot(job)}</td>
                         <td className="px-2 py-1.5 font-mono font-medium">
-                          <button
-                            type="button"
-                            className="text-left hover:underline"
-                            onClick={() =>
-                              setExpandedJob(
-                                expandedJob === job.name ? null : job.name,
-                              )
-                            }
-                          >
+                          <Link to={`/automation/${job.name}`} className="text-primary hover:underline font-medium">
                             {job.name}
-                          </button>
+                          </Link>
                         </td>
                         <td className="max-w-48 truncate px-2 py-1.5 text-muted-foreground">
                           {job.description}
@@ -185,17 +176,6 @@ export function AutomationPage() {
                           </div>
                         </td>
                       </tr>
-                      {expandedJob === job.name && job.last_error && (
-                        <tr key={`${job.name}-error`} className="border-b border-border/50">
-                          <td />
-                          <td colSpan={8} className="px-2 py-2">
-                            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-                              <span className="font-semibold">Last error: </span>
-                              {job.last_error}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
                     </>
                   ))}
                 </tbody>
