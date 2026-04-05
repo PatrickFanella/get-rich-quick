@@ -8,6 +8,7 @@ import {
   CircleDot,
   FileWarning,
   Layers3,
+  Search,
   ShieldAlert,
   ShoppingBag,
 } from 'lucide-react';
@@ -17,6 +18,7 @@ import { ChatPanel, type ChatMessage } from '@/components/chat/chat-panel';
 import { PageHeader } from '@/components/layout/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useWebSocketClient } from '@/hooks/use-websocket-client';
 import { AGENT_ROLE_OPTIONS, formatAgentRole } from '@/lib/agent-roles';
@@ -258,6 +260,7 @@ function buildEventContextMessage(event: FeedItem, conversation?: Conversation) 
 export function RealtimePage() {
   const queryClient = useQueryClient();
   const [liveEvents, setLiveEvents] = useState<FeedItem[]>([]);
+  const [eventKindFilter, setEventKindFilter] = useState('');
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [userSelectedEventId, setUserSelectedEventId] = useState<string | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -317,6 +320,12 @@ export function RealtimePage() {
     }
     return sortEvents(Array.from(byId.values()));
   }, [data?.data, liveEvents]);
+
+  const filteredEvents = useMemo(() => {
+    if (!eventKindFilter) return events;
+    const lowerFilter = eventKindFilter.toLowerCase();
+    return events.filter((event) => event.event_kind.toLowerCase().includes(lowerFilter));
+  }, [events, eventKindFilter]);
 
   const selectedEvent = useMemo(
     () => events.find((event) => event.id === selectedEventId) ?? null,
@@ -890,14 +899,25 @@ export function RealtimePage() {
 
       <div className="grid gap-4 xl:h-[calc(100vh-15rem)] xl:grid-cols-[minmax(360px,0.92fr)_minmax(0,1.08fr)]">
         <div className="flex min-h-115 min-w-0 flex-col rounded-lg border border-border bg-card p-4 xl:min-h-0">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div className="space-y-1">
-              <h3 className="text-lg font-semibold">Event feed</h3>
-              <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                {status === 'open' ? 'Live websocket stream' : 'Connecting websocket stream'}
-              </p>
+          <div className="mb-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="space-y-1">
+                <h3 className="text-lg font-semibold">Event feed</h3>
+                <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  {status === 'open' ? 'Live websocket stream' : 'Connecting websocket stream'}
+                </p>
+              </div>
+              <Badge variant={status === 'open' ? 'success' : 'outline'}>{status}</Badge>
             </div>
-            <Badge variant={status === 'open' ? 'success' : 'outline'}>{status}</Badge>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Filter by event kind..."
+                value={eventKindFilter}
+                onChange={(e) => setEventKindFilter(e.target.value)}
+                className="pl-8"
+              />
+            </div>
           </div>
 
           <div
@@ -906,7 +926,7 @@ export function RealtimePage() {
             className="flex-1 space-y-2 overflow-y-auto pr-1"
             data-testid="realtime-feed"
           >
-            {isLoading && events.length === 0 ? (
+            {isLoading && filteredEvents.length === 0 ? (
               <div className="space-y-2" data-testid="realtime-loading">
                 {Array.from({ length: 4 }).map((_, index) => (
                   <div
@@ -915,14 +935,14 @@ export function RealtimePage() {
                   />
                 ))}
               </div>
-            ) : events.length === 0 ? (
+            ) : filteredEvents.length === 0 ? (
               <div className="flex h-full min-h-48 items-center justify-center rounded-lg border border-dashed border-border bg-background">
                 <p className="text-sm text-muted-foreground" data-testid="realtime-empty">
-                  No events yet.
+                  {eventKindFilter ? 'No events match filter.' : 'No events yet.'}
                 </p>
               </div>
             ) : (
-              events.map((event) => {
+              filteredEvents.map((event) => {
                 const Icon = eventIcon(event.event_kind);
                 const isSelected = selectedEventId === event.id;
 

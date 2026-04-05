@@ -16,17 +16,12 @@ const circuitBreakerBadge: Record<CircuitBreakerPhase, { label: string; variant:
   cooldown: { label: 'Cooldown', variant: 'warning' },
 }
 
-function truncateDetails(details?: unknown) {
+function formatDetails(details?: unknown) {
   if (details == null) {
     return '—'
   }
 
-  const raw = typeof details === 'string' ? details : JSON.stringify(details)
-  if (raw.length <= 80) {
-    return raw
-  }
-
-  return `${raw.slice(0, 77)}...`
+  return typeof details === 'string' ? details : JSON.stringify(details, null, 2)
 }
 
 function formatUtilizationValue(value: number) {
@@ -309,23 +304,39 @@ export function RiskPage() {
                     <tr className="border-b border-border text-left font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                       <th className="pb-2 font-medium">Event</th>
                       <th className="pb-2 font-medium">Entity</th>
+                      <th className="pb-2 font-medium">Entity ID</th>
+                      <th className="pb-2 font-medium">Actor</th>
                       <th className="pb-2 font-medium">Details</th>
                       <th className="pb-2 font-medium">Time</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {auditEntries.map((entry: AuditLogEntry) => (
-                      <tr key={entry.id} className="border-b border-border last:border-0">
-                        <td className="py-2">
-                          <Badge variant="outline">{entry.event_type}</Badge>
-                        </td>
-                        <td className="py-2 text-muted-foreground">{entry.entity_type ?? '—'}</td>
-                        <td className="max-w-xs py-2 text-muted-foreground" title={typeof entry.details === 'string' ? entry.details : JSON.stringify(entry.details)}>
-                          {truncateDetails(entry.details)}
-                        </td>
-                        <td className="py-2 text-muted-foreground">{new Date(entry.created_at).toLocaleString()}</td>
-                      </tr>
-                    ))}
+                    {auditEntries.map((entry: AuditLogEntry) => {
+                      const detailsText = formatDetails(entry.details)
+                      return (
+                        <tr key={entry.id} className="border-b border-border last:border-0">
+                          <td className="py-2">
+                            <Badge variant="outline">{entry.event_type}</Badge>
+                          </td>
+                          <td className="py-2 text-muted-foreground">{entry.entity_type ?? '—'}</td>
+                          <td className="py-2 font-mono text-xs text-muted-foreground">{entry.entity_id ?? '—'}</td>
+                          <td className="py-2 text-muted-foreground">{entry.actor ?? '—'}</td>
+                          <td className="max-w-xs py-2 text-muted-foreground">
+                            {detailsText.length > 80 ? (
+                              <details className="cursor-pointer">
+                                <summary className="truncate text-sm">{detailsText.slice(0, 77)}...</summary>
+                                <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded border border-border bg-background p-2 font-mono text-xs">
+                                  {detailsText}
+                                </pre>
+                              </details>
+                            ) : (
+                              <span className="text-sm">{detailsText}</span>
+                            )}
+                          </td>
+                          <td className="py-2 text-muted-foreground">{new Date(entry.created_at).toLocaleString()}</td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

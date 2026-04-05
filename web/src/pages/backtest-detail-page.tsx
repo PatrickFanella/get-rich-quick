@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Play, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { ArrowLeft, Pencil, Play, Trash2 } from 'lucide-react'
+import { type FormEvent, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { BacktestEquityChart } from '@/components/backtests/backtest-equity-chart'
@@ -10,6 +10,15 @@ import { PageHeader } from '@/components/layout/page-header'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { apiClient } from '@/lib/api/client'
 import type { BacktestRun } from '@/lib/api/types'
 
@@ -18,6 +27,11 @@ export function BacktestDetailPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [selectedRun, setSelectedRun] = useState<BacktestRun | null>(null)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editStartDate, setEditStartDate] = useState('')
+  const [editEndDate, setEditEndDate] = useState('')
+  const [editInitialCapital, setEditInitialCapital] = useState('')
 
   const deleteMutation = useMutation({
     mutationFn: () => apiClient.deleteBacktestConfig(id!),
@@ -47,6 +61,38 @@ export function BacktestDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['backtest-runs', { config_id: id }] })
     },
   })
+
+  const editMutation = useMutation({
+    mutationFn: (data: { name: string; start_date: string; end_date: string; simulation: { initial_capital: number } }) =>
+      apiClient.updateBacktestConfig(id!, {
+        ...data,
+        strategy_id: config!.strategy_id,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['backtest-config', id] })
+      queryClient.invalidateQueries({ queryKey: ['backtest-configs'] })
+      setEditOpen(false)
+    },
+  })
+
+  useEffect(() => {
+    if (editOpen && config) {
+      setEditName(config.name)
+      setEditStartDate(config.start_date.split('T')[0])
+      setEditEndDate(config.end_date.split('T')[0])
+      setEditInitialCapital(String(config.simulation.initial_capital))
+    }
+  }, [editOpen, config])
+
+  function handleEditSubmit(e: FormEvent) {
+    e.preventDefault()
+    editMutation.mutate({
+      name: editName,
+      start_date: editStartDate ? `${editStartDate}T12:00:00Z` : '',
+      end_date: editEndDate ? `${editEndDate}T12:00:00Z` : '',
+      simulation: { initial_capital: Number(editInitialCapital) },
+    })
+  }
 
   if (isLoading) {
     return (
@@ -97,6 +143,14 @@ export function BacktestDetailPage() {
             >
               <Play className="mr-2 size-4" />
               {runMutation.isPending ? 'Running...' : 'Run backtest'}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setEditOpen(true)}
+              data-testid="edit-backtest-button"
+            >
+              <Pencil className="mr-2 size-4" />
+              Edit
             </Button>
             <Button
               variant="destructive"
@@ -155,6 +209,66 @@ export function BacktestDetailPage() {
           />
         </CardContent>
       </Card>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Backtest Config</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleEditSubmit} className="space-y-4">
+            <div className="space-y-2 rounded-lg border border-border bg-background p-4">
+              <Label htmlFor="edit-backtest-name">Name</Label>
+              <Input
+                id="edit-backtest-name"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                required
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2 rounded-lg border border-border bg-background p-4">
+                <Label htmlFor="edit-backtest-start-date">Start Date</Label>
+                <Input
+                  id="edit-backtest-start-date"
+                  type="date"
+                  value={editStartDate}
+                  onChange={(e) => setEditStartDate(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2 rounded-lg border border-border bg-background p-4">
+                <Label htmlFor="edit-backtest-end-date">End Date</Label>
+                <Input
+                  id="edit-backtest-end-date"
+                  type="date"
+                  value={editEndDate}
+                  onChange={(e) => setEditEndDate(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+            <div className="space-y-2 rounded-lg border border-border bg-background p-4">
+              <Label htmlFor="edit-backtest-initial-capital">Initial Capital</Label>
+              <Input
+                id="edit-backtest-initial-capital"
+                type="number"
+                min={1}
+                value={editInitialCapital}
+                onChange={(e) => setEditInitialCapital(e.target.value)}
+                required
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={editMutation.isPending}>
+                {editMutation.isPending ? 'Saving...' : 'Save'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {selectedRun ? (
         <>

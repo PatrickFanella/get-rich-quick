@@ -167,6 +167,7 @@ export function UniversePage() {
                       <tr className="border-b border-border text-xs font-medium uppercase tracking-wider text-muted-foreground">
                         <th className="px-2 py-2">Ticker</th>
                         <th className="px-2 py-2">Name</th>
+                        <th className="px-2 py-2">Active</th>
                         <th className="px-2 py-2">Exchange</th>
                         <th className="px-2 py-2">Index Group</th>
                         <th className="px-2 py-2 text-right">Watch Score</th>
@@ -179,6 +180,9 @@ export function UniversePage() {
                           <td className="px-2 py-1.5 font-mono font-medium">{t.ticker}</td>
                           <td className="max-w-48 truncate px-2 py-1.5 text-muted-foreground">
                             {t.name}
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <span className={`inline-block size-2 rounded-full ${t.active ? 'bg-emerald-400' : 'bg-muted-foreground/30'}`} />
                           </td>
                           <td className="px-2 py-1.5 text-muted-foreground">{t.exchange}</td>
                           <td className="px-2 py-1.5">
