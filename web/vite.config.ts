@@ -5,6 +5,9 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  server: {
+    host: '0.0.0.0', // Listen on all interfaces for LAN access
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
