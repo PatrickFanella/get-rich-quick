@@ -19,6 +19,7 @@ import (
 	"github.com/PatrickFanella/get-rich-quick/internal/data"
 	"github.com/PatrickFanella/get-rich-quick/internal/automation"
 	"github.com/PatrickFanella/get-rich-quick/internal/discovery"
+	alpacaData "github.com/PatrickFanella/get-rich-quick/internal/data/alpaca"
 	"github.com/PatrickFanella/get-rich-quick/internal/data/alphavantage"
 	"github.com/PatrickFanella/get-rich-quick/internal/data/binance"
 	"github.com/PatrickFanella/get-rich-quick/internal/data/finnhub"
@@ -138,7 +139,11 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 		binance.Register(reg)
 		dataService := data.NewDataService(cfg, reg, marketDataCacheRepo, logger)
 		deps.DataService = dataService
-		if strings.TrimSpace(cfg.DataProviders.Polygon.APIKey) != "" {
+		// Options data: prefer Alpaca (free with paper account, includes Greeks).
+		// Fall back to Polygon if Alpaca creds are not available.
+		if strings.TrimSpace(cfg.Brokers.Alpaca.APIKey) != "" && strings.TrimSpace(cfg.Brokers.Alpaca.APISecret) != "" {
+			deps.OptionsProvider = alpacaData.NewOptionsDataProvider(cfg.Brokers.Alpaca.APIKey, cfg.Brokers.Alpaca.APISecret, logger)
+		} else if strings.TrimSpace(cfg.DataProviders.Polygon.APIKey) != "" {
 			deps.OptionsProvider = polygon.NewOptionsProvider(polygon.NewClient(cfg.DataProviders.Polygon.APIKey, logger))
 		}
 		deps.DiscoveryDeps = &discovery.DiscoveryDeps{
