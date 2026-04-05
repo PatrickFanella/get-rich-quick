@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math"
 	"sort"
+	"time"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/data/polygon"
 )
@@ -70,27 +71,47 @@ func RunPreMarketScreen(
 		return nil, nil
 	}
 
-	// 2. Build a set of known tickers for filtering.
-	knownTickers := make(map[string]bool, len(tickers))
+	// 2. Extract ticker symbols and batch them for the snapshot API.
+	// The free Polygon tier doesn't allow fetching all tickers at once (403),
+	// and URLs have length limits. Batch into chunks of ~100 tickers.
+	const batchSize = 100
+	symbols := make([]string, 0, len(tickers))
 	for _, t := range tickers {
-		knownTickers[t.Ticker] = true
+		symbols = append(symbols, t.Ticker)
 	}
 
-	// 3. Call BulkSnapshot with empty list to get ALL tickers in one call
-	// (avoids URL length limit when universe has thousands of tickers).
-	snapshots, err := polygonClient.BulkSnapshot(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("screener: bulk snapshot: %w", err)
+	var snapshots []polygon.TickerSnapshot
+	for i := 0; i < len(symbols); i += batchSize {
+		end := i + batchSize
+		if end > len(symbols) {
+			end = len(symbols)
+		}
+		batch, err := polygonClient.BulkSnapshot(ctx, symbols[i:end])
+		if err != nil {
+			// On rate limit, return what we have so far.
+			logger.Warn("screener: snapshot batch failed, using partial results",
+				slog.Int("batches_completed", i/batchSize),
+				slog.Any("error", err),
+			)
+			break
+		}
+		snapshots = append(snapshots, batch...)
+
+		// Rate limit pause between batches.
+		if end < len(symbols) {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(300 * time.Millisecond):
+			}
+		}
 	}
 
 	logger.Info("screener: received snapshots", slog.Int("count", len(snapshots)))
 
-	// 4. Score each snapshot (only tickers in our universe).
+	// 4. Score each snapshot.
 	scored := make([]ScoredTicker, 0, len(snapshots))
 	for _, snap := range snapshots {
-		if !knownTickers[snap.Ticker] {
-			continue
-		}
 		dayVolume := snap.Day.Volume
 		dayClose := snap.Day.Close
 		dayOpen := snap.Day.Open
