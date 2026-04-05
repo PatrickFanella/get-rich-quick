@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -128,7 +129,7 @@ func (o *JobOrchestrator) Stop() {
 	o.logger.Info("automation: orchestrator stopped")
 }
 
-// Status returns status for all registered jobs.
+// Status returns status for all registered jobs, sorted by name.
 func (o *JobOrchestrator) Status() []JobStatus {
 	statuses := make([]JobStatus, 0, len(o.jobs))
 	for _, job := range o.jobs {
@@ -148,6 +149,9 @@ func (o *JobOrchestrator) Status() []JobStatus {
 		job.mu.Unlock()
 		statuses = append(statuses, s)
 	}
+	sort.Slice(statuses, func(i, j int) bool {
+		return statuses[i].Name < statuses[j].Name
+	})
 	return statuses
 }
 
