@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/PatrickFanella/get-rich-quick/internal/data"
 	"github.com/PatrickFanella/get-rich-quick/internal/scheduler"
 )
 
@@ -32,7 +33,7 @@ func (o *JobOrchestrator) registerMarketJobs() {
 	o.Register("deep_scan", "Full universe snapshot and score update", deepScanSpec, o.deepScan, "hot_scan")
 }
 
-// hotScan scans the top 200 watchlist tickers and updates their scores.
+// hotScan scores the top 200 watchlist tickers using locally stored OHLCV data.
 func (o *JobOrchestrator) hotScan(ctx context.Context) error {
 	tickers, err := o.deps.Universe.GetWatchlist(ctx, 200)
 	if err != nil {
@@ -43,45 +44,36 @@ func (o *JobOrchestrator) hotScan(ctx context.Context) error {
 		return nil
 	}
 
-	symbols := make([]string, len(tickers))
-	for i, t := range tickers {
-		symbols[i] = t.Ticker
-	}
-
-	// Batch snapshot 100 at a time.
-	const batchSize = 100
 	type mover struct {
 		ticker    string
 		changePct float64
 	}
 	var topMovers []mover
 
-	for i := 0; i < len(symbols); i += batchSize {
-		end := i + batchSize
-		if end > len(symbols) {
-			end = len(symbols)
-		}
-		batch := symbols[i:end]
+	now := time.Now()
+	from := now.AddDate(0, 0, -10) // last 10 days for quick scoring
 
-		snapshots, snapErr := o.deps.Polygon.BulkSnapshot(ctx, batch)
-		if snapErr != nil {
-			o.logger.Warn("hot_scan: snapshot batch failed",
-				slog.Int("offset", i),
-				slog.Any("error", snapErr),
-			)
+	for _, t := range tickers {
+		bars, fetchErr := o.deps.DataService.GetOHLCV(ctx, "stock", t.Ticker, data.Timeframe1d, from, now)
+		if fetchErr != nil || len(bars) < 2 {
 			continue
 		}
 
-		for _, snap := range snapshots {
-			score := scoreFromSnapshot(snap.TodaysChangePct, snap.Day.Volume, snap.PrevDay.Volume)
-			if err := o.deps.Universe.UpdateScore(ctx, snap.Ticker, score); err != nil {
-				o.logger.Warn("hot_scan: update score failed",
-					slog.String("ticker", snap.Ticker),
-					slog.Any("error", err),
-				)
-			}
-			topMovers = append(topMovers, mover{ticker: snap.Ticker, changePct: snap.TodaysChangePct})
+		lastBar := bars[len(bars)-1]
+		prevBar := bars[len(bars)-2]
+		changePct := 0.0
+		if prevBar.Close > 0 {
+			changePct = (lastBar.Close - prevBar.Close) / prevBar.Close * 100
 		}
+
+		score := scoreFromSnapshot(changePct, lastBar.Volume, prevBar.Volume)
+		if err := o.deps.Universe.UpdateScore(ctx, t.Ticker, score); err != nil {
+			o.logger.Warn("hot_scan: update score failed",
+				slog.String("ticker", t.Ticker),
+				slog.Any("error", err),
+			)
+		}
+		topMovers = append(topMovers, mover{ticker: t.Ticker, changePct: changePct})
 	}
 
 	// Sort movers by absolute change pct descending.
@@ -100,11 +92,12 @@ func (o *JobOrchestrator) hotScan(ctx context.Context) error {
 		)
 	}
 
-	o.logger.Info("hot_scan: complete", slog.Int("scanned", len(symbols)))
+	o.logger.Info("hot_scan: complete", slog.Int("scanned", len(tickers)))
 	return nil
 }
 
-// deepScan scans the entire active universe and updates all watch scores.
+// deepScan scores the universe using locally stored OHLCV data (from history_refresh)
+// instead of the Polygon snapshot API, which requires a paid plan.
 func (o *JobOrchestrator) deepScan(ctx context.Context) error {
 	allSymbols, err := o.deps.Universe.GetActiveTickers(ctx, "", 0)
 	if err != nil {
@@ -115,9 +108,6 @@ func (o *JobOrchestrator) deepScan(ctx context.Context) error {
 		return nil
 	}
 
-	const batchSize = 100
-	const batchPause = 300 * time.Millisecond
-
 	var totalScored int
 	var scoreSum float64
 
@@ -127,42 +117,39 @@ func (o *JobOrchestrator) deepScan(ctx context.Context) error {
 	}
 	var allScored []scored
 
-	for i := 0; i < len(allSymbols); i += batchSize {
-		end := i + batchSize
-		if end > len(allSymbols) {
-			end = len(allSymbols)
-		}
-		batch := allSymbols[i:end]
+	now := time.Now()
+	from := now.AddDate(0, -1, 0) // 1 month of recent bars for scoring
 
-		snapshots, snapErr := o.deps.Polygon.BulkSnapshot(ctx, batch)
-		if snapErr != nil {
-			o.logger.Warn("deep_scan: snapshot batch failed",
-				slog.Int("offset", i),
-				slog.Any("error", snapErr),
-			)
+	for i, ticker := range allSymbols {
+		bars, fetchErr := o.deps.DataService.GetOHLCV(ctx, "stock", ticker, data.Timeframe1d, from, now)
+		if fetchErr != nil || len(bars) < 5 {
 			continue
 		}
 
-		for _, snap := range snapshots {
-			score := scoreFromSnapshot(snap.TodaysChangePct, snap.Day.Volume, snap.PrevDay.Volume)
-			if err := o.deps.Universe.UpdateScore(ctx, snap.Ticker, score); err != nil {
-				o.logger.Warn("deep_scan: update score failed",
-					slog.String("ticker", snap.Ticker),
-					slog.Any("error", err),
-				)
-			}
-			totalScored++
-			scoreSum += score
-			allScored = append(allScored, scored{ticker: snap.Ticker, score: score})
+		// Score from recent bars: volatility + volume + momentum.
+		lastBar := bars[len(bars)-1]
+		prevBar := bars[len(bars)-2]
+		changePct := 0.0
+		if prevBar.Close > 0 {
+			changePct = (lastBar.Close - prevBar.Close) / prevBar.Close * 100
 		}
 
-		// Pause between batches to respect rate limits.
-		if end < len(allSymbols) {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(batchPause):
-			}
+		score := scoreFromSnapshot(changePct, lastBar.Volume, prevBar.Volume)
+		if err := o.deps.Universe.UpdateScore(ctx, ticker, score); err != nil {
+			o.logger.Warn("deep_scan: update score failed",
+				slog.String("ticker", ticker),
+				slog.Any("error", err),
+			)
+		}
+		totalScored++
+		scoreSum += score
+		allScored = append(allScored, scored{ticker: ticker, score: score})
+
+		if (i+1)%500 == 0 {
+			o.logger.Info("deep_scan: progress",
+				slog.Int("scored", i+1),
+				slog.Int("total", len(allSymbols)),
+			)
 		}
 	}
 
