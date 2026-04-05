@@ -574,16 +574,16 @@ func TestNewDataServiceSkipsProvidersWithoutAPIKeys(t *testing.T) {
 	if !ok {
 		t.Fatalf("stockChain.providers[0] type = %T, want *serviceStubProvider", stockChain.providers[0])
 	}
-	if first.name != "alpha" {
-		t.Fatalf("stockChain.providers[0].name = %q, want %q", first.name, "alpha")
+	if first.name != "yahoo" {
+		t.Fatalf("stockChain.providers[0].name = %q, want %q", first.name, "yahoo")
 	}
 
 	second, ok := stockChain.providers[1].(*serviceStubProvider)
 	if !ok {
 		t.Fatalf("stockChain.providers[1] type = %T, want *serviceStubProvider", stockChain.providers[1])
 	}
-	if second.name != "yahoo" {
-		t.Fatalf("stockChain.providers[1].name = %q, want %q", second.name, "yahoo")
+	if second.name != "alpha" {
+		t.Fatalf("stockChain.providers[1].name = %q, want %q", second.name, "alpha")
 	}
 
 	cryptoChain, ok := service.cryptoChain.(*ProviderChain)

@@ -69,12 +69,19 @@ func NewDataService(cfg config.Config, reg *ProviderRegistry, cacheRepo reposito
 		reg = &ProviderRegistry{}
 	}
 
-	stockProviders := make([]DataProvider, 0, 3)
+	// Stock provider chain: Yahoo first (unlimited, free, reliable for OHLCV),
+	// then Polygon (rate-limited but has snapshots/options). Finnhub, FMP, and
+	// AlphaVantage are registered for non-OHLCV use (news, fundamentals) but
+	// their free tiers cannot handle bulk OHLCV downloads reliably:
+	//   - Finnhub free: 403 on US stock candles
+	//   - FMP free: legacy endpoint deprecated
+	//   - AlphaVantage free: 25 req/day, rejects outputsize=full
+	stockProviders := make([]DataProvider, 0, 5)
+	if reg.Yahoo != nil {
+		stockProviders = append(stockProviders, reg.Yahoo(logger))
+	}
 	if apiKey := strings.TrimSpace(cfg.DataProviders.Polygon.APIKey); apiKey != "" && reg.Polygon != nil {
 		stockProviders = append(stockProviders, reg.Polygon(apiKey, logger))
-	}
-	if apiKey := strings.TrimSpace(cfg.DataProviders.AlphaVantage.APIKey); apiKey != "" && reg.AlphaVantage != nil {
-		stockProviders = append(stockProviders, reg.AlphaVantage(apiKey, cfg.DataProviders.AlphaVantage.RateLimitPerMinute, logger))
 	}
 	if apiKey := strings.TrimSpace(cfg.DataProviders.Finnhub.APIKey); apiKey != "" && reg.Finnhub != nil {
 		stockProviders = append(stockProviders, reg.Finnhub(apiKey, cfg.DataProviders.Finnhub.RateLimitPerMinute, logger))
@@ -82,8 +89,8 @@ func NewDataService(cfg config.Config, reg *ProviderRegistry, cacheRepo reposito
 	if apiKey := strings.TrimSpace(cfg.DataProviders.FMP.APIKey); apiKey != "" && reg.FMP != nil {
 		stockProviders = append(stockProviders, reg.FMP(apiKey, cfg.DataProviders.FMP.RateLimitPerMinute, logger))
 	}
-	if reg.Yahoo != nil {
-		stockProviders = append(stockProviders, reg.Yahoo(logger))
+	if apiKey := strings.TrimSpace(cfg.DataProviders.AlphaVantage.APIKey); apiKey != "" && reg.AlphaVantage != nil {
+		stockProviders = append(stockProviders, reg.AlphaVantage(apiKey, cfg.DataProviders.AlphaVantage.RateLimitPerMinute, logger))
 	}
 
 	cryptoProviders := make([]DataProvider, 0, 1)
