@@ -15,6 +15,8 @@ import { RunsPage } from '@/pages/runs-page'
 import { SettingsPage } from '@/pages/settings-page'
 import { StrategiesPage } from '@/pages/strategies-page'
 import { StrategyDetailPage } from '@/pages/strategy-detail-page'
+import { OrdersPage } from '@/pages/orders-page'
+import { OrderDetailPage } from '@/pages/order-detail-page'
 import { OptionsPage } from '@/pages/options-page'
 import { PortfolioPage } from '@/pages/portfolio-page'
 import { DiscoveryPage } from '@/pages/discovery-page'
@@ -37,6 +39,8 @@ export function AppRoutes() {
           <Route path="runs/:id" element={<PipelineRunPage />} />
           <Route path="backtests" element={<BacktestsPage />} />
           <Route path="backtests/:id" element={<BacktestDetailPage />} />
+          <Route path="orders" element={<OrdersPage />} />
+          <Route path="orders/:id" element={<OrderDetailPage />} />
           <Route path="options" element={<OptionsPage />} />
           <Route path="discovery" element={<DiscoveryPage />} />
           <Route path="universe" element={<UniversePage />} />
