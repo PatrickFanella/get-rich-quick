@@ -245,6 +245,9 @@ func buildUniverseListQuery(filter universe.ListFilter, limit, offset int) (stri
 	}
 
 	base += " ORDER BY watch_score DESC"
+	if limit <= 0 {
+		limit = 10000 // no limit requested — use a large default
+	}
 	base += fmt.Sprintf(" LIMIT %s OFFSET %s", nextArg(limit), nextArg(offset))
 
 	return base, args
