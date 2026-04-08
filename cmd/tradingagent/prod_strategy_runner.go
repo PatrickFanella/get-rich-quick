@@ -25,6 +25,7 @@ import (
 	alpacaexecution "github.com/PatrickFanella/get-rich-quick/internal/execution/alpaca"
 	binanceexecution "github.com/PatrickFanella/get-rich-quick/internal/execution/binance"
 	"github.com/PatrickFanella/get-rich-quick/internal/execution/paper"
+	polymarketexecution "github.com/PatrickFanella/get-rich-quick/internal/execution/polymarket"
 	"github.com/PatrickFanella/get-rich-quick/internal/llm"
 	"github.com/PatrickFanella/get-rich-quick/internal/notification"
 	"github.com/PatrickFanella/get-rich-quick/internal/repository"
@@ -69,6 +70,7 @@ type realStrategyRunner struct {
 	logger              *slog.Logger
 	localPaperMu        sync.Mutex
 	localPaperBroker    *paper.PaperBroker
+	polymarketClient    *polymarketexecution.Client // nil if not configured
 }
 
 func newRealStrategyRunner(
@@ -90,7 +92,7 @@ func newRealStrategyRunner(
 		logger = slog.Default()
 	}
 
-	return &realStrategyRunner{
+	runner := &realStrategyRunner{
 		cfg:                 cfg,
 		globals:             globalSettingsFromConfig(cfg),
 		dataService:         dataService,
@@ -107,6 +109,16 @@ func newRealStrategyRunner(
 		logger:              logger,
 		localPaperBroker:    paper.NewPaperBroker(localPaperBuyingPower, 0, 0),
 	}
+
+	// Wire Polymarket client if credentials are configured.
+	pm := cfg.Brokers.Polymarket
+	if strings.TrimSpace(pm.APIKey) != "" {
+		client := polymarketexecution.NewClient(pm.APIKey, pm.Secret, pm.Passphrase, logger)
+		client.SetBaseURL(pm.CLOBURL)
+		runner.polymarketClient = client
+	}
+
+	return runner
 }
 
 func (r *realStrategyRunner) RunStrategy(ctx context.Context, strategy domain.Strategy) (*api.StrategyRunResult, error) {
@@ -148,6 +160,35 @@ func (r *realStrategyRunner) RunStrategy(ctx context.Context, strategy domain.St
 	if err != nil {
 		return nil, err
 	}
+
+	// Polymarket pre-processing: replace slug ticker with the CLOB tokenID
+	// that corresponds to the trader's Side ("YES" or "NO").
+	planTicker := result.State.TradingPlan.Ticker
+	if strategy.MarketType.Normalize() == domain.MarketTypePolymarket && state.PredictionMarket != nil {
+		side := result.State.TradingPlan.Side
+		if side == "" {
+			return nil, fmt.Errorf("polymarket strategy %s: trader did not specify Side (YES/NO)", strategy.Name)
+		}
+		switch strings.ToUpper(side) {
+		case "YES":
+			if state.PredictionMarket.YesTokenID == "" {
+				return nil, fmt.Errorf("polymarket strategy %s: YES tokenID not available", strategy.Name)
+			}
+			planTicker = state.PredictionMarket.YesTokenID
+		case "NO":
+			if state.PredictionMarket.NoTokenID == "" {
+				return nil, fmt.Errorf("polymarket strategy %s: NO tokenID not available", strategy.Name)
+			}
+			planTicker = state.PredictionMarket.NoTokenID
+		default:
+			return nil, fmt.Errorf("polymarket strategy %s: invalid Side %q (want YES or NO)", strategy.Name, side)
+		}
+		entryPrice := result.State.TradingPlan.EntryPrice
+		if entryPrice > 0 && (entryPrice < 0 || entryPrice > 1) {
+			return nil, fmt.Errorf("polymarket strategy %s: entry price %.4f outside valid range [0,1]", strategy.Name, entryPrice)
+		}
+	}
+
 	if err := orderManager.ProcessSignal(
 		ctx,
 		execution.FinalSignal{
@@ -156,7 +197,7 @@ func (r *realStrategyRunner) RunStrategy(ctx context.Context, strategy domain.St
 		},
 		execution.TradingPlan{
 			Action:       signal,
-			Ticker:       result.State.TradingPlan.Ticker,
+			Ticker:       planTicker,
 			EntryType:    result.State.TradingPlan.EntryType,
 			EntryPrice:   result.State.TradingPlan.EntryPrice,
 			PositionSize: result.State.TradingPlan.PositionSize,
@@ -280,6 +321,19 @@ func (r *realStrategyRunner) loadInitialState(ctx context.Context, strategy doma
 			slog.String("ticker", strategy.Ticker),
 			slog.Any("error", err),
 		)
+	}
+
+	// Polymarket: load prediction market metadata for the market slug.
+	if strategy.MarketType.Normalize() == domain.MarketTypePolymarket && r.polymarketClient != nil {
+		pm, err := r.polymarketClient.GetMarketData(ctx, strategy.Ticker)
+		if err != nil {
+			r.logger.Warn("prod strategy runner: polymarket market data unavailable",
+				slog.String("slug", strategy.Ticker),
+				slog.Any("error", err),
+			)
+		} else {
+			seed.PredictionMarket = pm
+		}
 	}
 
 	return seed, nil
@@ -567,6 +621,8 @@ func (r *realStrategyRunner) newBrokerForStrategy(strategy domain.Strategy) (exe
 					r.logger,
 				)), "binance", nil
 			}
+		case domain.MarketTypePolymarket:
+			// Polymarket has no separate paper-trading mode; use local paper broker.
 		}
 
 		return r.fallbackPaperBroker(), "paper", nil
@@ -597,6 +653,15 @@ func (r *realStrategyRunner) newBrokerForStrategy(strategy domain.Strategy) (exe
 			false,
 			r.logger,
 		)), "binance", nil
+	case domain.MarketTypePolymarket:
+		pm := r.cfg.Brokers.Polymarket
+		if strings.TrimSpace(pm.APIKey) == "" {
+			return nil, "", errors.New("polymarket credentials (POLYMARKET_API_KEY) are required for live polymarket trading")
+		}
+		if r.polymarketClient == nil {
+			return nil, "", errors.New("polymarket client not initialised")
+		}
+		return polymarketexecution.NewBroker(r.polymarketClient), "polymarket", nil
 	default:
 		return nil, "", fmt.Errorf("live trading is not supported for market type %q", strategy.MarketType)
 	}
