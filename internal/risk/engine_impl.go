@@ -43,6 +43,7 @@ type engineState struct {
 // RiskEngineImpl is the concrete implementation of RiskEngine.
 type RiskEngineImpl struct {
 	limits                PositionLimits
+	pmLimits              PolymarketLimits
 	cbConfig              CircuitBreakerConfig
 	positionRepo          repository.PositionRepository
 	logger                *slog.Logger
@@ -78,6 +79,7 @@ func NewRiskEngine(limits PositionLimits, cbConfig CircuitBreakerConfig, positio
 	}
 	return &RiskEngineImpl{
 		limits:             limits,
+		pmLimits:           DefaultPolymarketLimits(),
 		cbConfig:           cbConfig,
 		positionRepo:       positionRepo,
 		logger:             logger,
@@ -91,6 +93,32 @@ func NewRiskEngine(limits PositionLimits, cbConfig CircuitBreakerConfig, positio
 			mks: make(map[domain.MarketType]KillSwitchStatus),
 		},
 	}
+}
+
+// WithPolymarketLimits sets prediction-market-specific risk limits on the engine.
+// Call this after NewRiskEngine before the engine handles any requests.
+func (e *RiskEngineImpl) WithPolymarketLimits(limits PolymarketLimits) *RiskEngineImpl {
+	e.pmLimits = limits
+	return e
+}
+
+// CheckPolymarketPreConditions validates liquidity, spread, and resolution
+// timeline conditions for a prediction market entry. Returns false with a
+// reason string when any limit is breached.
+func CheckPolymarketPreConditions(limits PolymarketLimits, liquidity, spreadMid float64, daysToResolution int, positionUSDC float64) (bool, string) {
+	if limits.MinLiquidity > 0 && liquidity < limits.MinLiquidity {
+		return false, fmt.Sprintf("polymarket: liquidity $%.0f below minimum $%.0f USDC", liquidity, limits.MinLiquidity)
+	}
+	if limits.MaxSpreadPct > 0 && spreadMid > limits.MaxSpreadPct {
+		return false, fmt.Sprintf("polymarket: bid-ask spread %.1f%% exceeds max %.1f%%", spreadMid*100, limits.MaxSpreadPct*100)
+	}
+	if limits.MinDaysToResolution > 0 && daysToResolution < limits.MinDaysToResolution {
+		return false, fmt.Sprintf("polymarket: market resolves in %d day(s), minimum is %d", daysToResolution, limits.MinDaysToResolution)
+	}
+	if limits.MaxPositionUSDC > 0 && positionUSDC > limits.MaxPositionUSDC {
+		return false, fmt.Sprintf("polymarket: position size $%.0f exceeds cap $%.0f USDC", positionUSDC, limits.MaxPositionUSDC)
+	}
+	return true, ""
 }
 
 // SetNowFunc overrides the risk engine time source, allowing backtests to
@@ -323,7 +351,11 @@ func (e *RiskEngineImpl) CheckPositionLimits(ctx context.Context, ticker string,
 	for market, exposure := range portfolio.MarketExposurePct {
 		limit := limits.MaxPerMarketPct
 		if market == domain.MarketTypePolymarket {
-			limit = polymarketMaxExposurePct
+			if e.pmLimits.MaxSingleMarketExposurePct > 0 {
+				limit = e.pmLimits.MaxSingleMarketExposurePct
+			} else {
+				limit = polymarketMaxExposurePct
+			}
 		}
 		if exposure > limit {
 			return false, fmt.Sprintf(

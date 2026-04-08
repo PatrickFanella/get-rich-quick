@@ -96,3 +96,26 @@ type Portfolio struct {
 	PositionExposureBySymbol map[string]float64            `json:"position_exposure_by_symbol,omitempty"`
 	MarketExposurePct        map[domain.MarketType]float64 `json:"market_exposure_pct,omitempty"`
 }
+
+// PolymarketLimits holds prediction-market-specific risk parameters that
+// supplement the standard position limits.
+type PolymarketLimits struct {
+	MaxSingleMarketExposurePct float64 // fraction of portfolio in one market (default: 0.05)
+	MaxTotalExposurePct        float64 // fraction across all polymarket positions (default: 0.30)
+	MaxPositionUSDC            float64 // hard USD cap per position; 0 disables
+	MinLiquidity               float64 // minimum market liquidity in USDC
+	MaxSpreadPct               float64 // max bid-ask spread as fraction of mid price
+	MinDaysToResolution        int     // skip markets resolving in fewer days
+}
+
+// DefaultPolymarketLimits returns conservative defaults for polymarket risk limits.
+func DefaultPolymarketLimits() PolymarketLimits {
+	return PolymarketLimits{
+		MaxSingleMarketExposurePct: 0.05,
+		MaxTotalExposurePct:        0.30,
+		MaxPositionUSDC:            0,
+		MinLiquidity:               1000,
+		MaxSpreadPct:               0.10,
+		MinDaysToResolution:        1,
+	}
+}

@@ -88,7 +88,14 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 		},
 		positionRepo,
 		logger,
-	)
+	).WithPolymarketLimits(risk.PolymarketLimits{
+		MaxSingleMarketExposurePct: cfg.Risk.Polymarket.MaxSingleMarketExposurePct,
+		MaxTotalExposurePct:        cfg.Risk.Polymarket.MaxTotalExposurePct,
+		MaxPositionUSDC:            cfg.Risk.Polymarket.MaxPositionUSDC,
+		MinLiquidity:               cfg.Risk.Polymarket.MinLiquidity,
+		MaxSpreadPct:               cfg.Risk.Polymarket.MaxSpreadPct,
+		MinDaysToResolution:        cfg.Risk.Polymarket.MinDaysToResolution,
+	})
 
 	deps := api.Deps{
 		Strategies:      strategyRepo,

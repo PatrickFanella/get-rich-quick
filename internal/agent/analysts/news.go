@@ -30,7 +30,11 @@ func NewNewsAnalyst(provider llm.Provider, providerName, model string, logger *s
 			if len(input.News) == 0 {
 				return "", false
 			}
-			return FormatNewsAnalystUserPrompt(input.Ticker, input.News), true
+			prompt := FormatNewsAnalystUserPrompt(input.Ticker, input.News)
+			if input.PredictionMarket != nil {
+				prompt += PolymarketNewsAnalystNote
+			}
+			return prompt, true
 		},
 	})}
 }

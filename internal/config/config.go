@@ -136,6 +136,17 @@ type RiskConfig struct {
 	MaxOpenPositions        int
 	CircuitBreakerThreshold float64
 	CircuitBreakerCooldown  time.Duration
+	Polymarket              PolymarketRiskConfig
+}
+
+// PolymarketRiskConfig contains prediction-market-specific risk limits.
+type PolymarketRiskConfig struct {
+	MaxSingleMarketExposurePct float64 // max fraction of portfolio in one market (default: 0.05)
+	MaxTotalExposurePct        float64 // max fraction across all polymarket positions (default: 0.30)
+	MaxPositionUSDC            float64 // hard USD cap per position (0 = disabled)
+	MinLiquidity               float64 // minimum market liquidity in USDC (default: 1000)
+	MaxSpreadPct               float64 // max bid-ask spread as fraction of mid price (default: 0.10)
+	MinDaysToResolution        int     // skip markets resolving in fewer than N days (default: 1)
 }
 
 // NotificationConfig contains outbound notifier credentials and alert rule thresholds.
@@ -327,6 +338,36 @@ func loadFromEnvironment() (Config, error) {
 		return Config{}, err
 	}
 
+	pmMaxSingleExposure, err := getEnvFloat64("RISK_POLYMARKET_MAX_SINGLE_EXPOSURE_PCT", 0.05)
+	if err != nil {
+		return Config{}, err
+	}
+
+	pmMaxTotalExposure, err := getEnvFloat64("RISK_POLYMARKET_MAX_TOTAL_EXPOSURE_PCT", 0.30)
+	if err != nil {
+		return Config{}, err
+	}
+
+	pmMaxPositionUSDC, err := getEnvFloat64("RISK_POLYMARKET_MAX_POSITION_USDC", 0)
+	if err != nil {
+		return Config{}, err
+	}
+
+	pmMinLiquidity, err := getEnvFloat64("RISK_POLYMARKET_MIN_LIQUIDITY_USDC", 1000)
+	if err != nil {
+		return Config{}, err
+	}
+
+	pmMaxSpreadPct, err := getEnvFloat64("RISK_POLYMARKET_MAX_SPREAD_PCT", 0.10)
+	if err != nil {
+		return Config{}, err
+	}
+
+	pmMinDaysToResolution, err := getEnvInt("RISK_POLYMARKET_MIN_DAYS_TO_RESOLUTION", 1)
+	if err != nil {
+		return Config{}, err
+	}
+
 	smtpPort, err := getEnvInt("NOTIFY_SMTP_PORT", 587)
 	if err != nil {
 		return Config{}, err
@@ -483,6 +524,14 @@ func loadFromEnvironment() (Config, error) {
 			MaxOpenPositions:        maxOpenPositions,
 			CircuitBreakerThreshold: circuitBreakerThreshold,
 			CircuitBreakerCooldown:  circuitBreakerCooldown,
+			Polymarket: PolymarketRiskConfig{
+				MaxSingleMarketExposurePct: pmMaxSingleExposure,
+				MaxTotalExposurePct:        pmMaxTotalExposure,
+				MaxPositionUSDC:            pmMaxPositionUSDC,
+				MinLiquidity:               pmMinLiquidity,
+				MaxSpreadPct:               pmMaxSpreadPct,
+				MinDaysToResolution:        pmMinDaysToResolution,
+			},
 		},
 		Notifications: NotificationConfig{
 			Telegram: TelegramNotificationConfig{

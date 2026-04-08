@@ -32,7 +32,11 @@ func NewMarketAnalyst(provider llm.Provider, providerName, model string, logger 
 				bars = input.Market.Bars
 				indicators = input.Market.Indicators
 			}
-			return FormatMarketAnalystUserPrompt(input.Ticker, bars, indicators), true
+			prompt := FormatMarketAnalystUserPrompt(input.Ticker, bars, indicators)
+			if input.PredictionMarket != nil {
+				prompt += PolymarketMarketAnalystNote
+			}
+			return prompt, true
 		},
 	})}
 }

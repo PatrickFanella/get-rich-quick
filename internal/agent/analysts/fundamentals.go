@@ -26,7 +26,13 @@ func NewFundamentalsAnalyst(provider llm.Provider, providerName, model string, l
 		Name:         "fundamentals_analyst",
 		SystemPrompt: FundamentalsAnalystSystemPrompt,
 		SkipMessage:  "No fundamentals available for this asset type.",
+		BuildSystemPrompt: func(input agent.AnalysisInput) string {
+			return polymarketSystemPromptFor(input.PredictionMarket != nil)
+		},
 		BuildPrompt: func(input agent.AnalysisInput) (string, bool) {
+			if input.PredictionMarket != nil {
+				return FormatPolymarketFundamentalsUserPrompt(input), true
+			}
 			if input.Fundamentals == nil {
 				return "", false
 			}

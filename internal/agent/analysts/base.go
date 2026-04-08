@@ -19,29 +19,31 @@ var _ agent.AnalystNode = (*BaseAnalyst)(nil)
 
 // BaseAnalystConfig holds all the parameters needed to construct a BaseAnalyst.
 type BaseAnalystConfig struct {
-	Provider     llm.Provider
-	ProviderName string
-	Model        string
-	Logger       *slog.Logger
-	Role         agent.AgentRole
-	Name         string
-	SystemPrompt string
-	BuildPrompt  PromptBuilder
-	SkipMessage  string // message stored when shouldCall=false
+	Provider          llm.Provider
+	ProviderName      string
+	Model             string
+	Logger            *slog.Logger
+	Role              agent.AgentRole
+	Name              string
+	SystemPrompt      string
+	BuildPrompt       PromptBuilder
+	SkipMessage       string                                       // message stored when shouldCall=false
+	BuildSystemPrompt func(input agent.AnalysisInput) string       // optional; overrides SystemPrompt per call
 }
 
 // BaseAnalyst holds the common dependencies and Execute logic shared by all
 // analyst nodes.
 type BaseAnalyst struct {
-	provider     llm.Provider
-	providerName string
-	model        string
-	logger       *slog.Logger
-	role         agent.AgentRole
-	name         string
-	systemPrompt string
-	buildPrompt  PromptBuilder
-	skipMessage  string
+	provider          llm.Provider
+	providerName      string
+	model             string
+	logger            *slog.Logger
+	role              agent.AgentRole
+	name              string
+	systemPrompt      string
+	buildPrompt       PromptBuilder
+	skipMessage       string
+	buildSystemPrompt func(input agent.AnalysisInput) string
 }
 
 // NewBaseAnalyst creates a BaseAnalyst from the given config. A nil logger is
@@ -52,15 +54,16 @@ func NewBaseAnalyst(cfg BaseAnalystConfig) BaseAnalyst {
 		logger = slog.Default()
 	}
 	return BaseAnalyst{
-		provider:     cfg.Provider,
-		providerName: cfg.ProviderName,
-		model:        cfg.Model,
-		logger:       logger,
-		role:         cfg.Role,
-		name:         cfg.Name,
-		systemPrompt: cfg.SystemPrompt,
-		buildPrompt:  cfg.BuildPrompt,
-		skipMessage:  cfg.SkipMessage,
+		provider:          cfg.Provider,
+		providerName:      cfg.ProviderName,
+		model:             cfg.Model,
+		logger:            logger,
+		role:              cfg.Role,
+		name:              cfg.Name,
+		systemPrompt:      cfg.SystemPrompt,
+		buildPrompt:       cfg.BuildPrompt,
+		skipMessage:       cfg.SkipMessage,
+		buildSystemPrompt: cfg.BuildSystemPrompt,
 	}
 }
 
@@ -77,11 +80,12 @@ func (b *BaseAnalyst) Phase() agent.Phase { return agent.PhaseAnalysis }
 // via applyAnalysisOutput.
 func (b *BaseAnalyst) Execute(ctx context.Context, state *agent.PipelineState) error {
 	input := agent.AnalysisInput{
-		Ticker:       state.Ticker,
-		Market:       state.Market,
-		News:         state.News,
-		Fundamentals: state.Fundamentals,
-		Social:       state.Social,
+		Ticker:           state.Ticker,
+		Market:           state.Market,
+		News:             state.News,
+		Fundamentals:     state.Fundamentals,
+		Social:           state.Social,
+		PredictionMarket: state.PredictionMarket,
 	}
 	_, err := b.Analyze(ctx, input)
 	return err
@@ -103,8 +107,13 @@ func (b *BaseAnalyst) Analyze(ctx context.Context, input agent.AnalysisInput) (a
 		return agent.AnalysisOutput{}, fmt.Errorf("%s: provider is nil", b.name)
 	}
 
+	systemPrompt := b.systemPrompt
+	if b.buildSystemPrompt != nil {
+		systemPrompt = b.buildSystemPrompt(input)
+	}
+
 	messages := []llm.Message{
-		{Role: "system", Content: b.systemPrompt},
+		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userPrompt},
 	}
 	promptText := agent.PromptTextFromMessages(messages)
