@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, Power, Shield, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Power, Shield, StopCircle, XCircle } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { apiClient } from '@/lib/api/client';
-import type { EngineStatus, RiskStatus } from '@/lib/api/types';
+import type { EngineStatus, KillSwitchStatus, RiskStatus } from '@/lib/api/types';
 import { cn } from '@/lib/utils';
 
 function riskStatusConfig(status: RiskStatus) {
@@ -88,6 +88,47 @@ function PositionLimitsDisplay({ status }: { status: EngineStatus }) {
   );
 }
 
+const MARKET_TYPES = ['stock', 'crypto', 'polymarket'] as const;
+const MARKET_LABELS: Record<string, string> = {
+  stock: 'Stocks',
+  crypto: 'Crypto',
+  polymarket: 'Polymarket',
+};
+
+function MarketKillSwitchCard({
+  marketType,
+  status,
+  onToggle,
+  isPending,
+}: {
+  marketType: string;
+  status: KillSwitchStatus | undefined;
+  onToggle: (active: boolean) => void;
+  isPending: boolean;
+}) {
+  const isActive = status?.active ?? false;
+  return (
+    <div className="flex items-center justify-between rounded border border-border px-3 py-2">
+      <div>
+        <p className="text-xs font-medium">{MARKET_LABELS[marketType] ?? marketType}</p>
+        {isActive && status?.reason ? (
+          <p className="mt-0.5 text-[11px] text-destructive">{status.reason}</p>
+        ) : null}
+      </div>
+      <Button
+        variant={isActive ? 'outline' : 'ghost'}
+        size="dense"
+        disabled={isPending}
+        onClick={() => onToggle(!isActive)}
+        data-testid={`market-kill-switch-${marketType}`}
+      >
+        <StopCircle className={cn('size-3', isActive && 'text-destructive')} />
+        {isActive ? 'Resume' : 'Stop'}
+      </Button>
+    </div>
+  );
+}
+
 export function RiskStatusBar() {
   const queryClient = useQueryClient();
 
@@ -101,8 +142,16 @@ export function RiskStatusBar() {
     mutationFn: (active: boolean) =>
       apiClient.toggleKillSwitch({
         active,
-        reason: active ? 'Activated from dashboard' : 'Deactivated from dashboard',
+        reason: active ? 'All trading halted from dashboard' : 'Trading resumed from dashboard',
       }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['risk', 'status'] });
+    },
+  });
+
+  const marketKillSwitchMutation = useMutation({
+    mutationFn: ({ marketType, active }: { marketType: string; active: boolean }) =>
+      apiClient.toggleMarketKillSwitch(marketType, active),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['risk', 'status'] });
     },
@@ -164,13 +213,13 @@ export function RiskStatusBar() {
         <CircuitBreakerDisplay status={data} />
         <PositionLimitsDisplay status={data} />
 
-        <div className="rounded-lg border border-border p-3">
+        <div className="rounded-lg border border-border p-3 space-y-3">
           <div className="flex items-center justify-between">
             <div>
               <p className="font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                 Kill switch
               </p>
-              <p className="mt-2 text-sm text-muted-foreground">
+              <p className="mt-1 text-sm text-muted-foreground">
                 {data.kill_switch.active
                   ? (data.kill_switch.reason && data.kill_switch.reason.trim()) ||
                     'All trading halted'
@@ -178,15 +227,32 @@ export function RiskStatusBar() {
               </p>
             </div>
             <Button
-              variant={data.kill_switch.active ? 'outline' : 'default'}
+              variant={data.kill_switch.active ? 'outline' : 'destructive'}
               size="dense"
               disabled={killSwitchMutation.isPending}
               onClick={() => killSwitchMutation.mutate(!data.kill_switch.active)}
               data-testid="kill-switch-toggle"
             >
-              <Power className={cn('size-4', data.kill_switch.active && 'text-destructive')} />
-              {data.kill_switch.active ? 'Deactivate' : 'Activate'}
+              <Power className="size-4" />
+              {data.kill_switch.active ? 'Resume All' : 'Stop All'}
             </Button>
+          </div>
+
+          <div className="space-y-1.5">
+            <p className="font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+              Per-market
+            </p>
+            {MARKET_TYPES.map((mt) => (
+              <MarketKillSwitchCard
+                key={mt}
+                marketType={mt}
+                status={data.market_kill_switches?.[mt]}
+                isPending={marketKillSwitchMutation.isPending}
+                onToggle={(active) =>
+                  marketKillSwitchMutation.mutate({ marketType: mt, active })
+                }
+              />
+            ))}
           </div>
         </div>
       </CardContent>

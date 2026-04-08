@@ -239,6 +239,7 @@ export interface EngineStatus {
   risk_status: RiskStatus
   circuit_breaker: CircuitBreakerStatus
   kill_switch: KillSwitchStatus
+  market_kill_switches?: Record<string, KillSwitchStatus>
   position_limits: PositionLimits
   updated_at: ISODateString
 }

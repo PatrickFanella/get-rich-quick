@@ -39,6 +39,7 @@ type ProviderRegistry struct {
 	FMP          func(apiKey string, rateLimitPerMinute int, logger *slog.Logger) DataProvider
 	Yahoo        func(logger *slog.Logger) DataProvider
 	Binance      func(logger *slog.Logger) DataProvider
+	Polymarket   func(clobURL string, logger *slog.Logger) DataProvider
 }
 
 // NewProviderRegistry returns an empty registry. Callers should populate the
@@ -49,13 +50,14 @@ func NewProviderRegistry() *ProviderRegistry {
 
 // DataService wraps market-data provider chains with cache lookups and writes.
 type DataService struct {
-	stockChain  DataProvider
-	cryptoChain DataProvider
-	cacheRepo   repository.MarketDataCacheRepository
-	historyRepo repository.HistoricalOHLCVRepository
-	logger      *slog.Logger
-	nowMu       sync.RWMutex
-	now         func() time.Time
+	stockChain       DataProvider
+	cryptoChain      DataProvider
+	polymarketChain  DataProvider
+	cacheRepo        repository.MarketDataCacheRepository
+	historyRepo      repository.HistoricalOHLCVRepository
+	logger           *slog.Logger
+	nowMu            sync.RWMutex
+	now              func() time.Time
 }
 
 // NewDataService constructs provider chains for each supported market type and
@@ -98,13 +100,19 @@ func NewDataService(cfg config.Config, reg *ProviderRegistry, cacheRepo reposito
 		cryptoProviders = append(cryptoProviders, reg.Binance(logger))
 	}
 
+	polymarketProviders := make([]DataProvider, 0, 1)
+	if reg.Polymarket != nil && strings.TrimSpace(cfg.Brokers.Polymarket.CLOBURL) != "" {
+		polymarketProviders = append(polymarketProviders, reg.Polymarket(cfg.Brokers.Polymarket.CLOBURL, logger))
+	}
+
 	return &DataService{
-		stockChain:  NewProviderChain(logger, stockProviders...),
-		cryptoChain: NewProviderChain(logger, cryptoProviders...),
-		cacheRepo:   cacheRepo,
-		historyRepo: historicalOHLCVRepo(cacheRepo),
-		logger:      logger,
-		now:         time.Now,
+		stockChain:      NewProviderChain(logger, stockProviders...),
+		cryptoChain:     NewProviderChain(logger, cryptoProviders...),
+		polymarketChain: NewProviderChain(logger, polymarketProviders...),
+		cacheRepo:       cacheRepo,
+		historyRepo:     historicalOHLCVRepo(cacheRepo),
+		logger:          logger,
+		now:             time.Now,
 	}
 }
 
@@ -193,6 +201,9 @@ func (s *DataService) GetNews(ctx context.Context, marketType domain.MarketType,
 
 	articles, err := chain.GetNews(ctx, ticker, from, to)
 	if err != nil {
+		if errors.Is(err, ErrNotImplemented) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	articles = normalizeNewsArticles(articles, fromUTC, toUTC)
@@ -312,6 +323,9 @@ func (s *DataService) GetSocialSentiment(ctx context.Context, marketType domain.
 
 	snapshots, err := chain.GetSocialSentiment(ctx, ticker, from, to)
 	if err != nil {
+		if errors.Is(err, ErrNotImplemented) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	snapshots = normalizeSocialSentiment(snapshots, fromUTC, toUTC)
@@ -358,12 +372,16 @@ func (s *DataService) ListHistoricalOHLCV(
 	return result, nil
 }
 
+const cacheProviderPolymarketChain = "polymarket-chain"
+
 func (s *DataService) resolveChain(marketType domain.MarketType) (string, DataProvider, error) {
 	switch normalizeMarketType(marketType) {
 	case domain.MarketTypeStock:
 		return cacheProviderStockChain, s.stockChain, nil
 	case domain.MarketTypeCrypto:
 		return cacheProviderCryptoChain, s.cryptoChain, nil
+	case domain.MarketTypePolymarket:
+		return cacheProviderPolymarketChain, s.polymarketChain, nil
 	default:
 		return "", nil, fmt.Errorf("%w: %s", ErrUnsupportedMarketType, marketType)
 	}

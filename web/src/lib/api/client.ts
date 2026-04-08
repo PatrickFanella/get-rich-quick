@@ -250,6 +250,14 @@ export class ApiClient {
     })
   }
 
+  async toggleMarketKillSwitch(marketType: string, active: boolean, reason?: string) {
+    const action = active ? 'stop' : 'resume'
+    return this.requestNoContent(`/api/v1/risk/market/${marketType}/${action}`, {
+      method: 'POST',
+      body: active ? { reason: reason ?? `${marketType} trading halted from dashboard` } : undefined,
+    })
+  }
+
   async getSettings() {
     return this.request<Settings>('/api/v1/settings')
   }

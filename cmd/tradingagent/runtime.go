@@ -25,6 +25,7 @@ import (
 	"github.com/PatrickFanella/get-rich-quick/internal/data/finnhub"
 	"github.com/PatrickFanella/get-rich-quick/internal/data/fmp"
 	"github.com/PatrickFanella/get-rich-quick/internal/data/polygon"
+	polymarketData "github.com/PatrickFanella/get-rich-quick/internal/data/polymarket"
 	"github.com/PatrickFanella/get-rich-quick/internal/data/tradier"
 	"github.com/PatrickFanella/get-rich-quick/internal/data/yahoo"
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
@@ -142,6 +143,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 		fmp.Register(reg)
 		yahoo.Register(reg)
 		binance.Register(reg)
+		polymarketData.Register(reg)
 		dataService := data.NewDataService(cfg, reg, marketDataCacheRepo, logger)
 		deps.DataService = dataService
 		// Options data chain: Tradier (full Greeks from ORATS) → Yahoo (free, BS Greeks)
