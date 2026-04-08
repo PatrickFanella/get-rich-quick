@@ -797,7 +797,7 @@ func TestBroadcastRunResultUsesRunningStatusForStartEvent(t *testing.T) {
 		},
 	}
 
-	srv.broadcastRunResult(result)
+	srv.BroadcastRunResult(result)
 
 	select {
 	case msg := <-srv.hub.broadcast:
@@ -1826,6 +1826,14 @@ func (s *stubStrategyRepo) Delete(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
+func (s *stubStrategyRepo) UpdateThesis(_ context.Context, _ uuid.UUID, _ json.RawMessage) error {
+	return nil
+}
+
+func (s *stubStrategyRepo) GetThesisRaw(_ context.Context, _ uuid.UUID) (json.RawMessage, error) {
+	return nil, nil
+}
+
 func (s *stubStrategyRepo) lastListedFilter() (repository.StrategyFilter, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -2030,10 +2038,13 @@ func (b *blockingHealthCheck) Check(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func (stubRiskEngine) IsKillSwitchActive(context.Context) (bool, error)           { return false, nil }
-func (stubRiskEngine) ActivateKillSwitch(context.Context, string) error           { return nil }
-func (stubRiskEngine) DeactivateKillSwitch(context.Context) error                 { return nil }
-func (stubRiskEngine) UpdateMetrics(context.Context, float64, float64, int) error { return nil }
+func (stubRiskEngine) IsKillSwitchActive(context.Context) (bool, error)                                   { return false, nil }
+func (stubRiskEngine) ActivateKillSwitch(context.Context, string) error                                   { return nil }
+func (stubRiskEngine) DeactivateKillSwitch(context.Context) error                                         { return nil }
+func (stubRiskEngine) UpdateMetrics(context.Context, float64, float64, int) error                         { return nil }
+func (stubRiskEngine) IsMarketKillSwitchActive(_ context.Context, _ domain.MarketType) (bool, error)     { return false, nil }
+func (stubRiskEngine) ActivateMarketKillSwitch(_ context.Context, _ domain.MarketType, _ string) error  { return nil }
+func (stubRiskEngine) DeactivateMarketKillSwitch(_ context.Context, _ domain.MarketType) error          { return nil }
 
 // ---------------------------------------------------------------------------
 // Stubs for new repository dependencies

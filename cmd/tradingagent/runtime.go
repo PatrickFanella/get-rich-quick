@@ -125,6 +125,11 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 	notificationManager := newNotificationManager(cfg)
 
 	var sched *scheduler.Scheduler
+	// serverRef is populated after api.NewServer returns. The scheduler only
+	// starts (via cli.Execute → runServeLifecycle) after newAPIServer returns,
+	// so any closure that reads serverRef will see the final non-nil value.
+	var serverRef *api.Server
+
 	if strings.EqualFold(cfg.Environment, "smoke") {
 		pipeline := newSmokePipeline(runRepo, snapshotRepo, decisionRepo, eventRepo, logger)
 		runner := newSmokeRunner(runRepo, snapshotRepo, decisionRepo, eventRepo, logger)
@@ -195,10 +200,14 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 			logger,
 		)
 		deps.Runner = strategyRunner
+
 		if cfg.Features.EnableScheduler {
 			schedOpts := []scheduler.Option{
 				scheduler.WithStrategyExecution(func(ctx context.Context, strategy domain.Strategy) error {
-					_, err := strategyRunner.RunStrategy(ctx, strategy)
+					result, err := strategyRunner.RunStrategy(ctx, strategy)
+					if err == nil && result != nil && serverRef != nil {
+						serverRef.BroadcastRunResult(result)
+					}
 					return err
 				}),
 			}
@@ -289,6 +298,14 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 		db.Close()
 		return nil, nil, nil, err
 	}
+
+	// Wire the WebSocket hub into the strategy runner so that phase events
+	// (agent decisions, debate rounds) are streamed in real time.
+	// Also set serverRef so scheduled-run closures can call BroadcastRunResult.
+	if sr, ok := deps.Runner.(*realStrategyRunner); ok {
+		sr.hub = server.Hub()
+	}
+	serverRef = server
 
 	// Avoid the Go nil-interface trap: explicitly return a nil interface when
 	// there is no scheduler so that the caller's nil check works correctly.

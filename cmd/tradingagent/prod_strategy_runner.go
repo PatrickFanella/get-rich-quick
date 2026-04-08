@@ -71,6 +71,7 @@ type realStrategyRunner struct {
 	localPaperMu        sync.Mutex
 	localPaperBroker    *paper.PaperBroker
 	polymarketClient    *polymarketexecution.Client // nil if not configured
+	hub                 *api.Hub                    // nil until wired; optional WebSocket broadcast
 }
 
 func newRealStrategyRunner(
@@ -87,7 +88,7 @@ func newRealStrategyRunner(
 	riskEngine risk.RiskEngine,
 	notificationManager *notification.Manager,
 	logger *slog.Logger,
-) api.StrategyRunner {
+) *realStrategyRunner {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -122,12 +123,24 @@ func newRealStrategyRunner(
 }
 
 func (r *realStrategyRunner) RunStrategy(ctx context.Context, strategy domain.Strategy) (*api.StrategyRunResult, error) {
-	runner, prepared, strategyConfig, err := r.prepareStrategyRun(ctx, strategy)
+	runner, prepared, strategyConfig, eventsCh, err := r.prepareStrategyRun(ctx, strategy)
 	if err != nil {
 		return nil, err
 	}
 
+	// Drain phase events to the WebSocket hub in a background goroutine.
+	// The channel is closed after runner.Run returns so the goroutine exits naturally.
+	if eventsCh != nil {
+		go r.drainPipelineEvents(eventsCh)
+	}
+
 	result, err := runner.Run(ctx, prepared)
+
+	// Close the channel regardless of success/failure — the drainer exits via range.
+	if eventsCh != nil {
+		close(eventsCh)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -231,39 +244,44 @@ func (r *realStrategyRunner) RunStrategy(ctx context.Context, strategy domain.St
 	}, nil
 }
 
-func (r *realStrategyRunner) prepareStrategyRun(ctx context.Context, strategy domain.Strategy) (*agent.Runner, agent.PreparedRun, *agent.StrategyConfig, error) {
+func (r *realStrategyRunner) prepareStrategyRun(ctx context.Context, strategy domain.Strategy) (*agent.Runner, agent.PreparedRun, *agent.StrategyConfig, chan agent.PipelineEvent, error) {
 	strategyConfig, err := parseStrategyConfig(strategy.Config)
 	if err != nil {
-		return nil, agent.PreparedRun{}, nil, err
+		return nil, agent.PreparedRun{}, nil, nil, err
 	}
 
 	resolved := agent.ResolveConfig(strategyConfig, r.globals)
 	provider, err := newLLMProviderForSelection(r.cfg.LLM, resolved.LLMConfig.Provider, resolved.LLMConfig.QuickThinkModel, r.logger)
 	if err != nil {
-		return nil, agent.PreparedRun{}, nil, fmt.Errorf("build llm provider for strategy %s: %w", strategy.Name, err)
+		return nil, agent.PreparedRun{}, nil, nil, fmt.Errorf("build llm provider for strategy %s: %w", strategy.Name, err)
 	}
 
 	definition, err := buildRunnerDefinition(provider, resolved.LLMConfig.Provider, resolved, r.logger)
 	if err != nil {
-		return nil, agent.PreparedRun{}, nil, err
+		return nil, agent.PreparedRun{}, nil, nil, err
 	}
 
+	var eventsCh chan agent.PipelineEvent
+	if r.hub != nil {
+		eventsCh = make(chan agent.PipelineEvent, 64)
+	}
 	runner := agent.NewRunner(definition, agent.Dependencies{
 		Persister: agent.NewRepoPersister(r.runRepo, r.snapshotRepo, r.decisionRepo, r.eventRepo, r.logger),
+		Events:    eventsCh,
 		Logger:    r.logger,
 	})
 
 	prepared, err := runner.Prepare(strategy, r.globals)
 	if err != nil {
-		return nil, agent.PreparedRun{}, nil, err
+		return nil, agent.PreparedRun{}, nil, nil, err
 	}
 
 	prepared.InitialState, err = r.loadInitialState(ctx, strategy)
 	if err != nil {
-		return nil, agent.PreparedRun{}, nil, err
+		return nil, agent.PreparedRun{}, nil, nil, err
 	}
 
-	return runner, prepared, strategyConfig, nil
+	return runner, prepared, strategyConfig, eventsCh, nil
 }
 
 func (r *realStrategyRunner) loadInitialState(ctx context.Context, strategy domain.Strategy) (agent.InitialStateSeed, error) {
@@ -716,6 +734,60 @@ func latestSocialSnapshot(snapshots []data.SocialSentiment) *data.SocialSentimen
 	}
 
 	return &latest
+}
+
+// drainPipelineEvents reads phase events emitted by the agent runner and
+// broadcasts them to the WebSocket hub. It exits when the channel is closed.
+func (r *realStrategyRunner) drainPipelineEvents(events <-chan agent.PipelineEvent) {
+	for e := range events {
+		msg := pipelineEventToWSMessage(e)
+		if msg.Type == "" {
+			continue // unmapped event type — skip
+		}
+		r.hub.Broadcast(msg)
+	}
+}
+
+// pipelineEventToWSMessage converts an agent.PipelineEvent to an api.WSMessage
+// using the event-type vocabulary defined in internal/api/hub.go.
+func pipelineEventToWSMessage(e agent.PipelineEvent) api.WSMessage {
+	switch e.Type {
+	case agent.PipelineStarted:
+		return api.WSMessage{
+			Type:       api.EventPipelineStart,
+			StrategyID: e.StrategyID,
+			RunID:      e.PipelineRunID,
+			Data:       map[string]any{"phase": e.Phase, "ticker": e.Ticker},
+			Timestamp:  e.OccurredAt,
+		}
+	case agent.AgentDecisionMade:
+		return api.WSMessage{
+			Type:       api.EventAgentDecision,
+			StrategyID: e.StrategyID,
+			RunID:      e.PipelineRunID,
+			Data:       map[string]any{"agent_role": e.AgentRole, "phase": e.Phase},
+			Timestamp:  e.OccurredAt,
+		}
+	case agent.DebateRoundCompleted:
+		return api.WSMessage{
+			Type:       api.EventDebateRound,
+			StrategyID: e.StrategyID,
+			RunID:      e.PipelineRunID,
+			Data:       map[string]any{"phase": e.Phase, "round": e.Round},
+			Timestamp:  e.OccurredAt,
+		}
+	case agent.PipelineError:
+		return api.WSMessage{
+			Type:       api.EventError,
+			StrategyID: e.StrategyID,
+			RunID:      e.PipelineRunID,
+			Data:       map[string]any{"error": e.Error},
+			Timestamp:  e.OccurredAt,
+		}
+	default:
+		// LLMCacheStatsReported, PipelineCompleted — no WS mapping needed.
+		return api.WSMessage{}
+	}
 }
 
 func contextErr(err error) error {

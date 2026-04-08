@@ -155,6 +155,18 @@ func (r *mockRiskEngine) UpdateMetrics(ctx context.Context, dailyPnL, totalDrawd
 	return nil
 }
 
+func (r *mockRiskEngine) IsMarketKillSwitchActive(_ context.Context, _ domain.MarketType) (bool, error) {
+	return false, nil
+}
+
+func (r *mockRiskEngine) ActivateMarketKillSwitch(_ context.Context, _ domain.MarketType, _ string) error {
+	return nil
+}
+
+func (r *mockRiskEngine) DeactivateMarketKillSwitch(_ context.Context, _ domain.MarketType) error {
+	return nil
+}
+
 // mockOrderRepo implements repository.OrderRepository.
 type mockOrderRepo struct {
 	mu      sync.Mutex

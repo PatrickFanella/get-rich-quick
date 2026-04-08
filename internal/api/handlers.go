@@ -176,7 +176,7 @@ func (s *Server) handleRunStrategy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.broadcastRunResult(result)
+	s.BroadcastRunResult(result)
 	respondJSON(w, http.StatusOK, result)
 }
 

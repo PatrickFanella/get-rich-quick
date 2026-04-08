@@ -329,6 +329,14 @@ func (f fakeStrategyRepo) Delete(context.Context, uuid.UUID) error {
 	return fmt.Errorf("not implemented")
 }
 
+func (f fakeStrategyRepo) UpdateThesis(context.Context, uuid.UUID, json.RawMessage) error {
+	return fmt.Errorf("not implemented")
+}
+
+func (f fakeStrategyRepo) GetThesisRaw(_ context.Context, _ uuid.UUID) (json.RawMessage, error) {
+	return nil, nil
+}
+
 type fakeBacktestConfigRepo struct {
 	byID map[uuid.UUID]domain.BacktestConfig
 }

@@ -495,7 +495,9 @@ func (s *Server) Hub() *Hub {
 	return s.hub
 }
 
-func (s *Server) broadcastRunResult(result *StrategyRunResult) {
+// BroadcastRunResult sends WebSocket events for the result of a strategy run.
+// It is safe to call from goroutines outside the API package (e.g. the scheduler).
+func (s *Server) BroadcastRunResult(result *StrategyRunResult) {
 	if s.hub == nil || result == nil {
 		return
 	}
