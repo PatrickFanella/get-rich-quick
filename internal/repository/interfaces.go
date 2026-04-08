@@ -230,6 +230,8 @@ type AgentDecisionRepository interface {
 type AgentEventRepository interface {
 	Create(ctx context.Context, event *domain.AgentEvent) error
 	List(ctx context.Context, filter AgentEventFilter, limit, offset int) ([]domain.AgentEvent, error)
+	// Count returns the total number of events matching the filter.
+	Count(ctx context.Context, filter AgentEventFilter) (int, error)
 }
 
 // ConversationRepository provides access to conversations and their messages.
@@ -246,6 +248,8 @@ type OrderRepository interface {
 	Create(ctx context.Context, order *domain.Order) error
 	Get(ctx context.Context, id uuid.UUID) (*domain.Order, error)
 	List(ctx context.Context, filter OrderFilter, limit, offset int) ([]domain.Order, error)
+	// Count returns the total number of orders matching the filter.
+	Count(ctx context.Context, filter OrderFilter) (int, error)
 	Update(ctx context.Context, order *domain.Order) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetByStrategy(ctx context.Context, strategyID uuid.UUID, filter OrderFilter, limit, offset int) ([]domain.Order, error)
@@ -257,6 +261,8 @@ type PositionRepository interface {
 	Create(ctx context.Context, position *domain.Position) error
 	Get(ctx context.Context, id uuid.UUID) (*domain.Position, error)
 	List(ctx context.Context, filter PositionFilter, limit, offset int) ([]domain.Position, error)
+	// Count returns the total number of positions matching the filter.
+	Count(ctx context.Context, filter PositionFilter) (int, error)
 	Update(ctx context.Context, position *domain.Position) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetOpen(ctx context.Context, filter PositionFilter, limit, offset int) ([]domain.Position, error)
@@ -267,6 +273,8 @@ type PositionRepository interface {
 type TradeRepository interface {
 	Create(ctx context.Context, trade *domain.Trade) error
 	List(ctx context.Context, filter TradeFilter, limit, offset int) ([]domain.Trade, error)
+	// Count returns the total number of trades matching the filter.
+	Count(ctx context.Context, filter TradeFilter) (int, error)
 	GetByOrder(ctx context.Context, orderID uuid.UUID, filter TradeFilter, limit, offset int) ([]domain.Trade, error)
 	GetByPosition(ctx context.Context, positionID uuid.UUID, filter TradeFilter, limit, offset int) ([]domain.Trade, error)
 }

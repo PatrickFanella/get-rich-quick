@@ -286,6 +286,8 @@ func (s *Server) handleRunBacktestConfig(w http.ResponseWriter, r *http.Request)
 		respondError(w, http.StatusInternalServerError, "failed to persist backtest run: "+err.Error(), ErrCodeInternal)
 		return
 	}
+	s.writeAuditLog(ctx, actorOf(r), "backtest.run", "backtest_config", &id,
+		map[string]any{"ticker": strategy.Ticker, "run_id": run.ID})
 
 	// Auto-activate inactive strategies that pass backtesting.
 	// Criteria: positive Sharpe ratio and at least one trade executed.

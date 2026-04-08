@@ -253,6 +253,55 @@ func scanOrder(sc scanner) (*domain.Order, error) {
 
 // buildOrderListQuery constructs the SELECT query and arguments for List with
 // dynamic WHERE conditions. All values are parameterized.
+// Count returns the total number of orders matching the filter (ignoring pagination).
+func (r *OrderRepo) Count(ctx context.Context, filter repository.OrderFilter) (int, error) {
+	query, args := buildOrderCountQuery(filter)
+	var total int
+	if err := r.pool.QueryRow(ctx, query, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("postgres: count orders: %w", err)
+	}
+	return total, nil
+}
+
+func buildOrderCountQuery(filter repository.OrderFilter) (string, []any) {
+	var (
+		conditions []string
+		args       []any
+		argIdx     int
+	)
+	nextArg := func(v any) string {
+		argIdx++
+		args = append(args, v)
+		return fmt.Sprintf("$%d", argIdx)
+	}
+	if filter.Ticker != "" {
+		conditions = append(conditions, "ticker = "+nextArg(filter.Ticker))
+	}
+	if filter.Broker != "" {
+		conditions = append(conditions, "broker = "+nextArg(filter.Broker))
+	}
+	if filter.Side != "" {
+		conditions = append(conditions, "side = "+nextArg(filter.Side))
+	}
+	if filter.OrderType != "" {
+		conditions = append(conditions, "order_type = "+nextArg(filter.OrderType))
+	}
+	if filter.Status != "" {
+		conditions = append(conditions, "status = "+nextArg(filter.Status))
+	}
+	if filter.SubmittedAfter != nil {
+		conditions = append(conditions, "submitted_at >= "+nextArg(*filter.SubmittedAfter))
+	}
+	if filter.SubmittedBefore != nil {
+		conditions = append(conditions, "submitted_at <= "+nextArg(*filter.SubmittedBefore))
+	}
+	query := `SELECT COUNT(*) FROM orders`
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	return query, args
+}
+
 func buildOrderListQuery(filter repository.OrderFilter, limit, offset int) (string, []any) {
 	return buildOrderQuery("", nil, filter, limit, offset)
 }

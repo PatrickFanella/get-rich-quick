@@ -290,24 +290,27 @@ Response:
 #### `GET /api/v1/portfolio/positions`
 
 - auth: required
-- returns positions
+- filters: `ticker`, `side` (`long` / `short`), `limit` / `offset`
+- response includes `total`
 
 #### `GET /api/v1/portfolio/positions/open`
 
 - auth: required
-- returns current open positions
+- filters: `ticker`, `side`, `limit` / `offset`
+- returns only positions where `closed_at` is null
 
 #### `GET /api/v1/portfolio/summary`
 
 - auth: required
-- returns portfolio summary figures used by the dashboard and CLI
+- returns `open_positions` (count), `unrealized_pnl`, `realized_pnl`
 
 ### Orders and trades
 
 #### `GET /api/v1/orders`
 
 - auth: required
-- filters: `ticker`, `status`, `side`, `limit` / `offset`
+- filters: `ticker`, `status`, `side`, `broker`, `order_type`, `limit` / `offset`
+- response includes `total`
 
 #### `GET /api/v1/orders/{id}`
 
@@ -319,24 +322,25 @@ Response:
 - auth: required
 - filters: `order_id`, `position_id`, `ticker`, `side`, `start_date`, `end_date`, `limit` / `offset`
 - `order_id` and `position_id` are mutually exclusive
+- response includes `total`
 
 ### Memories
 
 #### `GET /api/v1/memories`
 
 - auth: required
-- list stored agent memories
+- filters: `agent_role`, `q` (search query), `limit` / `offset`
 
 #### `POST /api/v1/memories/search`
 
 - auth: required
-- body includes a natural-language `query`
-- returns the most relevant memories first
+- body: `{"query": "your natural language query"}`
+- returns memories ordered by relevance
 
 #### `DELETE /api/v1/memories/{id}`
 
 - auth: required
-- deletes one memory record
+- returns `204 No Content`
 
 ### Risk
 
@@ -394,22 +398,25 @@ Response:
 #### `GET /api/v1/conversations`
 
 - auth: required
-- list conversations
+- filters: `agent_role`, `pipeline_run_id` (UUID), `limit` / `offset`
 
 #### `POST /api/v1/conversations`
 
 - auth: required
-- create a conversation record
+- body: `{"pipeline_run_id": "<uuid>", "agent_role": "<role>"}`
+- auto-generates a title from the agent role and run ticker
 
 #### `GET /api/v1/conversations/{id}/messages`
 
 - auth: required
-- list messages for a conversation
+- filters: `limit`, `offset`
+- at `offset=0` prepends agent pipeline decisions as synthetic assistant messages
 
 #### `POST /api/v1/conversations/{id}/messages`
 
 - auth: required
-- append a message to a conversation
+- body: `{"role": "user", "content": "..."}`
+- appends a message; assistant replies are generated via the configured LLM provider
 
 ### Audit log
 
@@ -576,6 +583,79 @@ Real-time signal and trigger events from the signal intelligence subsystem. All 
 - auth: required
 - removes a manual watch term
 - returns `204 No Content`
+
+### Calendar
+
+All calendar endpoints require a configured `eventsProvider` (Finnhub is the primary source). Returns `501 Not Implemented` otherwise.
+
+Date parameters use `YYYY-MM-DD` format. Earnings and IPO endpoints default to `now` → `now+7days` when dates are omitted.
+
+#### `GET /api/v1/calendar/earnings`
+
+- auth: required
+- filters: `from`, `to` (YYYY-MM-DD)
+- returns upcoming earnings releases for all tracked tickers
+
+#### `GET /api/v1/calendar/economic`
+
+- auth: required
+- returns the upcoming economic event calendar (no date filter — provider returns its own window)
+
+#### `GET /api/v1/calendar/ipo`
+
+- auth: required
+- filters: `from`, `to` (YYYY-MM-DD)
+- returns expected IPO filings in the date window
+
+#### `GET /api/v1/calendar/filings`
+
+- auth: required
+- filters: `ticker`, `form` (e.g. `10-K`, `8-K`), `from`, `to` (YYYY-MM-DD; defaults to last 30 days)
+- returns SEC filings matching the filter
+
+### Universe
+
+Requires `POLYGON_API_KEY` and `TICKER_DISCOVERY=true` for automatic refresh. The universe repo and universe engine are wired independently — some endpoints may be unavailable when only one is configured.
+
+#### `GET /api/v1/universe`
+
+- auth: required
+- filters: `index_group` (e.g. `sp500`, `nasdaq100`), `search` (prefix match), `limit` / `offset`
+
+#### `GET /api/v1/universe/watchlist`
+
+- auth: required
+- query: `top` (integer, default 30) — returns the top-N scored tickers
+- requires the `Universe` engine (not just the repo)
+
+#### `POST /api/v1/universe/refresh`
+
+- auth: required
+- triggers a full constituent refresh from Polygon
+- returns `503` when universe engine not configured
+
+#### `POST /api/v1/universe/scan`
+
+- auth: required
+- runs an immediate scoring pass over current constituents
+
+### Discovery
+
+Strategy discovery runs a screener → generator → sweep pipeline to identify and deploy new strategies. Requires `POLYGON_API_KEY` and LLM provider.
+
+#### `POST /api/v1/discovery/run`
+
+- auth: required
+- triggers a synchronous discovery run
+- runs screener (volume, momentum, volatility filters), LLM-based strategy generation, and parameter sweep
+- returns `503` when discovery deps not configured
+
+#### `GET /api/v1/discovery/results`
+
+- auth: required
+- lists past discovery runs with candidate counts and deployment outcomes
+- filters: `limit` / `offset`
+- returns `503` when discovery run repo not configured
 
 ## WebSocket reference
 

@@ -226,6 +226,46 @@ func scanPosition(sc scanner) (*domain.Position, error) {
 
 // buildPositionListQuery constructs the SELECT query and arguments for List
 // with dynamic WHERE conditions.
+// Count returns the total number of positions matching the filter (ignoring pagination).
+func (r *PositionRepo) Count(ctx context.Context, filter repository.PositionFilter) (int, error) {
+	query, args := buildPositionCountQuery(filter)
+	var total int
+	if err := r.pool.QueryRow(ctx, query, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("postgres: count positions: %w", err)
+	}
+	return total, nil
+}
+
+func buildPositionCountQuery(filter repository.PositionFilter) (string, []any) {
+	var (
+		conditions []string
+		args       []any
+		argIdx     int
+	)
+	nextArg := func(v any) string {
+		argIdx++
+		args = append(args, v)
+		return fmt.Sprintf("$%d", argIdx)
+	}
+	if filter.Ticker != "" {
+		conditions = append(conditions, "ticker = "+nextArg(filter.Ticker))
+	}
+	if filter.Side != "" {
+		conditions = append(conditions, "side = "+nextArg(filter.Side))
+	}
+	if filter.OpenedAfter != nil {
+		conditions = append(conditions, "opened_at >= "+nextArg(*filter.OpenedAfter))
+	}
+	if filter.OpenedBefore != nil {
+		conditions = append(conditions, "opened_at <= "+nextArg(*filter.OpenedBefore))
+	}
+	query := `SELECT COUNT(*) FROM positions`
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	return query, args
+}
+
 func buildPositionListQuery(filter repository.PositionFilter, limit, offset int) (string, []any) {
 	return buildPositionQuery("", nil, false, filter, limit, offset)
 }

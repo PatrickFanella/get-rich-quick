@@ -462,7 +462,11 @@ func (s *Server) handleListPositions(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to list positions", ErrCodeInternal)
 		return
 	}
-	respondList(w, positions, limit, offset)
+	total, err := s.positions.Count(r.Context(), filter)
+	if err != nil {
+		s.logger.Warn("count positions", slog.String("error", err.Error()))
+	}
+	respondListWithTotal(w, positions, total, limit, offset)
 }
 
 func (s *Server) handleGetOpenPositions(w http.ResponseWriter, r *http.Request) {
@@ -515,7 +519,11 @@ func (s *Server) handleListOrders(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to list orders", ErrCodeInternal)
 		return
 	}
-	respondList(w, orders, limit, offset)
+	total, err := s.orders.Count(r.Context(), filter)
+	if err != nil {
+		s.logger.Warn("count orders", slog.String("error", err.Error()))
+	}
+	respondListWithTotal(w, orders, total, limit, offset)
 }
 
 func (s *Server) handleGetOrder(w http.ResponseWriter, r *http.Request) {
@@ -630,7 +638,11 @@ func (s *Server) handleListTrades(w http.ResponseWriter, r *http.Request) {
 		trades = []domain.Trade{}
 	}
 
-	respondList(w, trades, limit, offset)
+	total, err := s.trades.Count(r.Context(), filter)
+	if err != nil {
+		s.logger.Warn("count trades", slog.String("error", err.Error()))
+	}
+	respondListWithTotal(w, trades, total, limit, offset)
 }
 
 // --- Memory handlers ---
@@ -1005,7 +1017,11 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to list events", ErrCodeInternal)
 		return
 	}
-	respondList(w, events, limit, offset)
+	total, err := s.events.Count(r.Context(), filter)
+	if err != nil {
+		s.logger.Warn("count events", slog.String("error", err.Error()))
+	}
+	respondListWithTotal(w, events, total, limit, offset)
 }
 
 // --- Conversations (#454, #445) ---

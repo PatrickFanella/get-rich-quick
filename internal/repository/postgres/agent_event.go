@@ -86,6 +86,55 @@ func (r *AgentEventRepo) List(ctx context.Context, filter repository.AgentEventF
 	return events, nil
 }
 
+// Count returns the total number of events matching the filter (ignoring pagination).
+func (r *AgentEventRepo) Count(ctx context.Context, filter repository.AgentEventFilter) (int, error) {
+	query, args := buildAgentEventCountQuery(filter)
+	var total int
+	if err := r.pool.QueryRow(ctx, query, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("postgres: count agent events: %w", err)
+	}
+	return total, nil
+}
+
+func buildAgentEventCountQuery(filter repository.AgentEventFilter) (string, []any) {
+	var (
+		conditions []string
+		args       []any
+		argIdx     int
+	)
+	nextArg := func(v any) string {
+		argIdx++
+		args = append(args, v)
+		return fmt.Sprintf("$%d", argIdx)
+	}
+	if filter.PipelineRunID != nil {
+		conditions = append(conditions, "pipeline_run_id = "+nextArg(*filter.PipelineRunID))
+	}
+	if filter.StrategyID != nil {
+		conditions = append(conditions, "strategy_id = "+nextArg(*filter.StrategyID))
+	}
+	if filter.AgentRole != "" {
+		conditions = append(conditions, "agent_role = "+nextArg(filter.AgentRole))
+	}
+	if filter.EventKind != "" {
+		conditions = append(conditions, "event_kind = "+nextArg(filter.EventKind))
+	}
+	if len(filter.Tags) > 0 {
+		conditions = append(conditions, "tags && "+nextArg(filter.Tags))
+	}
+	if filter.CreatedAfter != nil {
+		conditions = append(conditions, "created_at >= "+nextArg(*filter.CreatedAfter))
+	}
+	if filter.CreatedBefore != nil {
+		conditions = append(conditions, "created_at <= "+nextArg(*filter.CreatedBefore))
+	}
+	query := `SELECT COUNT(*) FROM agent_events`
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	return query, args
+}
+
 func buildAgentEventListQuery(filter repository.AgentEventFilter, limit, offset int) (string, []any) {
 	var (
 		conditions []string

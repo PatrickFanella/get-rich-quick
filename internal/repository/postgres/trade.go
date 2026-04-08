@@ -133,6 +133,52 @@ func scanTrade(sc scanner) (*domain.Trade, error) {
 
 // buildTradeListQuery constructs the SELECT query and arguments for List using
 // the provided optional filters.
+// Count returns the total number of trades matching the filter (ignoring pagination).
+func (r *TradeRepo) Count(ctx context.Context, filter repository.TradeFilter) (int, error) {
+	query, args := buildTradeCountQuery(filter)
+	var total int
+	if err := r.pool.QueryRow(ctx, query, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("postgres: count trades: %w", err)
+	}
+	return total, nil
+}
+
+func buildTradeCountQuery(filter repository.TradeFilter) (string, []any) {
+	var (
+		conditions []string
+		args       []any
+		argIdx     int
+	)
+	nextArg := func(v any) string {
+		argIdx++
+		args = append(args, v)
+		return fmt.Sprintf("$%d", argIdx)
+	}
+	if filter.OrderID != nil {
+		conditions = append(conditions, "order_id = "+nextArg(*filter.OrderID))
+	}
+	if filter.PositionID != nil {
+		conditions = append(conditions, "position_id = "+nextArg(*filter.PositionID))
+	}
+	if filter.Ticker != nil {
+		conditions = append(conditions, "ticker = "+nextArg(*filter.Ticker))
+	}
+	if filter.Side != nil {
+		conditions = append(conditions, "side = "+nextArg(*filter.Side))
+	}
+	if filter.StartDate != nil {
+		conditions = append(conditions, "executed_at >= "+nextArg(*filter.StartDate))
+	}
+	if filter.EndDate != nil {
+		conditions = append(conditions, "executed_at <= "+nextArg(*filter.EndDate))
+	}
+	query := `SELECT COUNT(*) FROM trades`
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	return query, args
+}
+
 func buildTradeListQuery(filter repository.TradeFilter, limit, offset int) (string, []any) {
 	var (
 		conditions []string

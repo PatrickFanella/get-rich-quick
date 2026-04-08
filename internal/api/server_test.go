@@ -1930,6 +1930,7 @@ func (stubOrderRepo) GetByStrategy(context.Context, uuid.UUID, repository.OrderF
 func (stubOrderRepo) GetByRun(context.Context, uuid.UUID, repository.OrderFilter, int, int) ([]domain.Order, error) {
 	return nil, nil
 }
+func (stubOrderRepo) Count(context.Context, repository.OrderFilter) (int, error) { return 0, nil }
 
 // stubPositionRepo
 
@@ -1951,6 +1952,9 @@ func (stubPositionRepo) GetOpen(context.Context, repository.PositionFilter, int,
 
 func (stubPositionRepo) GetByStrategy(context.Context, uuid.UUID, repository.PositionFilter, int, int) ([]domain.Position, error) {
 	return nil, nil
+}
+func (stubPositionRepo) Count(context.Context, repository.PositionFilter) (int, error) {
+	return 0, nil
 }
 
 // stubTradeRepo
@@ -2005,6 +2009,10 @@ func (s *stubTradeRepo) GetByPosition(_ context.Context, positionID uuid.UUID, f
 	s.lastPositionID = &positionID
 	s.getByPositionCalls++
 	return s.getByPositionTrades, nil
+}
+
+func (s *stubTradeRepo) Count(_ context.Context, _ repository.TradeFilter) (int, error) {
+	return len(s.listTrades), nil
 }
 
 // stubMemoryRepo
@@ -2165,6 +2173,10 @@ func (s *stubEventRepo) Create(_ context.Context, event *domain.AgentEvent) erro
 
 func (s *stubEventRepo) List(_ context.Context, _ repository.AgentEventFilter, _, _ int) ([]domain.AgentEvent, error) {
 	return s.events, nil
+}
+
+func (s *stubEventRepo) Count(_ context.Context, _ repository.AgentEventFilter) (int, error) {
+	return len(s.events), nil
 }
 
 // ---------------------------------------------------------------------------

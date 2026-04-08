@@ -89,13 +89,13 @@ are unchanged and always re-evaluated at runtime.
 timeout settings: `(analysts × analysis_timeout) + (2 × rounds × debate_timeout) + overhead`.
 Falls back to 30 minutes when any constituent is unconfigured.
 
-### ~~Pagination `total` field never populated~~ ✓ Mostly fixed
+### ~~Pagination `total` field never populated~~ ✓ Fixed (except memories, conversations, api-keys)
 
-`GET /api/v1/strategies`, `/runs`, `/backtests/configs`, `/backtests/runs`, and
-`/audit-log` now return a `total` field in the list envelope. Each calls a
-`SELECT COUNT(*)` with the same filter conditions used for the page query. Count errors
-are logged but do not fail the list response (total defaults to `0`). Remaining endpoints
-without `total`: orders, positions, trades, memories, conversations, events, api-keys.
+`GET /api/v1/strategies`, `/runs`, `/backtests/configs`, `/backtests/runs`, `/audit-log`,
+`/orders`, `/portfolio/positions`, `/trades`, and `/events` all return a `total` field.
+Each calls a `SELECT COUNT(*)` with the same filter conditions as the page query. Count
+errors are logged but do not fail the list response. Remaining without `total`: memories
+(full-text search semantics differ), conversations, api-keys.
 
 ### ~~Operator actions were not audited~~ ✓ Fixed
 
@@ -112,6 +112,7 @@ for every critical operator action:
 | `strategy.skip_next` | `POST /api/v1/strategies/{id}/skip-next` |
 | `user.registered` | `POST /api/v1/auth/register` |
 | `api_key.created` / `.revoked` | `POST/DELETE /api/v1/api-keys` |
+| `backtest.run` | `POST /api/v1/backtests/configs/{id}/run` |
 
 Entries are queryable via `GET /api/v1/audit-log`.
 
