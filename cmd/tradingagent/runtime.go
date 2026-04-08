@@ -99,6 +99,9 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 		MinDaysToResolution:        cfg.Risk.Polymarket.MinDaysToResolution,
 	})
 
+	settingsSvc := api.NewMemorySettingsServiceFromConfig(cfg).
+		WithPersister(ctx, pgrepo.NewSettingsPersister(db.Pool), logger)
+
 	deps := api.Deps{
 		Strategies:      strategyRepo,
 		Runs:            runRepo,
@@ -110,7 +113,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 		APIKeys:         apiKeyRepo,
 		Users:           userRepo,
 		Risk:            riskEngine,
-		Settings:        api.NewMemorySettingsServiceFromConfig(cfg),
+		Settings:        settingsSvc,
 		DBHealth:        api.HealthCheckFunc(db.Pool.Ping),
 		RedisHealth:     redisHealth,
 		Conversations:   conversationRepo,

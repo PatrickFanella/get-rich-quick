@@ -2,7 +2,7 @@
 title: "Known Issues"
 description: "Current implementation gaps, repo-health problems, and behavioral caveats for get-rich-quick."
 status: "canonical"
-updated: "2026-04-03"
+updated: "2026-04-08"
 tags: [known-issues, limitations]
 ---
 
@@ -31,21 +31,17 @@ pass credentials via the standard `Authorization: Bearer <token>` or `X-API-Key`
 headers, or via `?token=<jwt>` / `?api_key=<key>` query parameters (for browser
 WebSocket clients that cannot send custom headers).
 
-### Settings edits are in-memory only
+### ~~Settings edits are in-memory only~~ ✓ Fixed
 
-The settings page and `PUT /api/v1/settings` update a memory-backed settings service. They do not rewrite `.env`, do not persist to the database, and do not survive restart.
+Non-secret settings (model selections, provider base URLs, risk thresholds) are now
+persisted to the `app_settings` table (migration 000024). `PUT /api/v1/settings`
+saves to Postgres on every successful update and restores on startup via
+`MemorySettingsService.WithPersister`. API keys are never stored.
 
-Impact:
+### ~~There is no user registration flow~~ ✓ Fixed
 
-- the UI behaves like a control surface, but today it is a runtime-session editor
-
-### There is no user registration flow
-
-Login exists. Registration does not. Local users must be inserted directly into Postgres.
-
-Impact:
-
-- onboarding for anything outside local/dev workflows is incomplete
+`POST /api/v1/auth/register` now accepts `{username, password}`, creates the user,
+and returns a token pair. Duplicate usernames return `409 Conflict`.
 
 ## Runtime and execution caveats
 

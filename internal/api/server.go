@@ -312,6 +312,7 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 	r.Route("/api/v1/auth", func(auth chi.Router) {
 		auth.Post("/login", s.handleLogin)
 		auth.Post("/refresh", s.handleRefreshToken)
+		auth.Post("/register", s.handleRegister)
 	})
 
 	r.Route("/api/v1", func(v1 chi.Router) {

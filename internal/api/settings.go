@@ -3,13 +3,27 @@ package api
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/config"
+	"github.com/PatrickFanella/get-rich-quick/internal/domain"
 )
+
+// SettingsPersister is an optional persistence layer for the MemorySettingsService.
+// Implementations store and restore non-secret runtime settings (model selections,
+// risk thresholds) so that UI edits survive process restarts.
+// API keys are never stored through this interface.
+type SettingsPersister interface {
+	// Load retrieves persisted settings. Returns zero values without error when
+	// no settings have been saved yet.
+	Load(ctx context.Context) (domain.LLMPersisted, domain.RiskSettings, error)
+	// Save persists the current non-secret settings.
+	Save(ctx context.Context, llm domain.LLMPersisted, risk domain.RiskSettings) error
+}
 
 // SettingsService provides the editable settings surfaced by the frontend.
 type SettingsService interface {
@@ -19,9 +33,9 @@ type SettingsService interface {
 
 // SettingsResponse is the API payload returned to the settings page.
 type SettingsResponse struct {
-	LLM    LLMSettingsResponse `json:"llm"`
-	Risk   RiskSettings        `json:"risk"`
-	System SystemInfo          `json:"system"`
+	LLM    LLMSettingsResponse  `json:"llm"`
+	Risk   domain.RiskSettings  `json:"risk"`
+	System SystemInfo           `json:"system"`
 }
 
 // LLMSettingsResponse contains provider configuration and model selection state.
@@ -39,7 +53,7 @@ type LLMProvidersResponse struct {
 	Google     LLMProviderResponse `json:"google"`
 	OpenRouter LLMProviderResponse `json:"openrouter"`
 	XAI        LLMProviderResponse `json:"xai"`
-	Ollama     OllamaSettings      `json:"ollama"`
+	Ollama     domain.OllamaSettings `json:"ollama"`
 }
 
 // LLMProviderResponse represents a provider without exposing the raw secret.
@@ -48,24 +62,6 @@ type LLMProviderResponse struct {
 	APIKeyLast4      string `json:"api_key_last4,omitempty"`
 	BaseURL          string `json:"base_url,omitempty"`
 	Model            string `json:"model"`
-}
-
-// OllamaSettings contains local model settings.
-type OllamaSettings struct {
-	BaseURL string `json:"base_url,omitempty"`
-	Model   string `json:"model"`
-}
-
-// RiskSettings contains configurable risk thresholds shown in the settings UI.
-type RiskSettings struct {
-	MaxPositionSizePct         float64 `json:"max_position_size_pct"`
-	MaxDailyLossPct            float64 `json:"max_daily_loss_pct"`
-	MaxDrawdownPct             float64 `json:"max_drawdown_pct"`
-	MaxOpenPositions           int     `json:"max_open_positions"`
-	MaxTotalExposurePct        float64 `json:"max_total_exposure_pct"`
-	MaxPerMarketExposurePct    float64 `json:"max_per_market_exposure_pct"`
-	CircuitBreakerThresholdPct float64 `json:"circuit_breaker_threshold_pct"`
-	CircuitBreakerCooldownMin  int     `json:"circuit_breaker_cooldown_min"`
 }
 
 // SystemInfo provides non-editable system metadata for the settings page.
@@ -86,7 +82,7 @@ type BrokerConnection struct {
 // SettingsUpdateRequest is the payload accepted by the settings update endpoint.
 type SettingsUpdateRequest struct {
 	LLM  LLMSettingsUpdateRequest `json:"llm"`
-	Risk RiskSettings             `json:"risk"`
+	Risk domain.RiskSettings      `json:"risk"`
 }
 
 // LLMSettingsUpdateRequest contains updated provider and tier selections.
@@ -104,7 +100,7 @@ type LLMProvidersUpdateRequest struct {
 	Google     LLMProviderUpdateRequest `json:"google"`
 	OpenRouter LLMProviderUpdateRequest `json:"openrouter"`
 	XAI        LLMProviderUpdateRequest `json:"xai"`
-	Ollama     OllamaSettings           `json:"ollama"`
+	Ollama     domain.OllamaSettings    `json:"ollama"`
 }
 
 // LLMProviderUpdateRequest captures editable fields for API-backed providers.
@@ -117,7 +113,7 @@ type LLMProviderUpdateRequest struct {
 // SettingsBootstrap contains the initial values used to seed the settings service.
 type SettingsBootstrap struct {
 	LLM              llmSettingsState
-	Risk             RiskSettings
+	Risk             domain.RiskSettings
 	Environment      string
 	Version          string
 	ConnectedBrokers []BrokerConnection
@@ -137,7 +133,7 @@ type llmProvidersState struct {
 	Google     providerState
 	OpenRouter providerState
 	XAI        providerState
-	Ollama     OllamaSettings
+	Ollama     domain.OllamaSettings
 }
 
 type providerState struct {
@@ -147,12 +143,16 @@ type providerState struct {
 }
 
 // MemorySettingsService stores settings in memory for authenticated UI editing.
+// If a SettingsPersister is provided, non-secret settings are loaded on startup
+// and saved on every successful Update call.
 type MemorySettingsService struct {
-	mu      sync.RWMutex
-	llm     llmSettingsState
-	risk    RiskSettings
-	system  SystemInfo
-	started time.Time
+	mu        sync.RWMutex
+	llm       llmSettingsState
+	risk      domain.RiskSettings
+	system    SystemInfo
+	started   time.Time
+	persister SettingsPersister
+	logger    *slog.Logger
 }
 
 // NewMemorySettingsService creates an in-memory settings service.
@@ -177,6 +177,64 @@ func NewMemorySettingsService(bootstrap SettingsBootstrap) *MemorySettingsServic
 		},
 		started: startedAt,
 	}
+}
+
+// WithPersister attaches a SettingsPersister to the service and immediately
+// loads any previously persisted settings, overriding the bootstrap values for
+// non-secret fields. The logger is used to warn on load errors without crashing.
+// Returns the receiver for chaining.
+func (s *MemorySettingsService) WithPersister(ctx context.Context, p SettingsPersister, logger *slog.Logger) *MemorySettingsService {
+	s.persister = p
+	if logger == nil {
+		logger = slog.Default()
+	}
+	s.logger = logger
+
+	llmP, risk, err := p.Load(ctx)
+	if err != nil {
+		logger.Warn("settings: failed to load persisted settings, using bootstrap values",
+			slog.String("error", err.Error()))
+		return s
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Apply only non-empty persisted values so the service starts correctly
+	// even when the DB row was seeded but never written.
+	if llmP.DefaultProvider != "" {
+		s.llm.DefaultProvider = llmP.DefaultProvider
+	}
+	if llmP.DeepThinkModel != "" {
+		s.llm.DeepThinkModel = llmP.DeepThinkModel
+	}
+	if llmP.QuickThinkModel != "" {
+		s.llm.QuickThinkModel = llmP.QuickThinkModel
+	}
+	applyPersistedProvider(&s.llm.Providers.OpenAI, llmP.Providers.OpenAI)
+	applyPersistedProvider(&s.llm.Providers.Anthropic, llmP.Providers.Anthropic)
+	applyPersistedProvider(&s.llm.Providers.Google, llmP.Providers.Google)
+	applyPersistedProvider(&s.llm.Providers.OpenRouter, llmP.Providers.OpenRouter)
+	applyPersistedProvider(&s.llm.Providers.XAI, llmP.Providers.XAI)
+
+	if llmP.Providers.Ollama.Model != "" {
+		s.llm.Providers.Ollama = llmP.Providers.Ollama
+	}
+	if risk.MaxPositionSizePct > 0 {
+		s.risk = risk
+	}
+
+	return s
+}
+
+func applyPersistedProvider(target *providerState, p domain.ProviderPersisted) {
+	if p.BaseURL != "" {
+		target.BaseURL = p.BaseURL
+	}
+	if p.Model != "" {
+		target.Model = p.Model
+	}
+	// API key is deliberately not restored from DB.
 }
 
 // NewMemorySettingsServiceFromConfig seeds the settings API from application config.
@@ -210,13 +268,13 @@ func NewMemorySettingsServiceFromConfig(cfg config.Config) *MemorySettingsServic
 					BaseURL: cfg.LLM.Providers.XAI.BaseURL,
 					Model:   cfg.LLM.Providers.XAI.Model,
 				},
-				Ollama: OllamaSettings{
+				Ollama: domain.OllamaSettings{
 					BaseURL: cfg.LLM.Providers.Ollama.BaseURL,
 					Model:   cfg.LLM.Providers.Ollama.Model,
 				},
 			},
 		},
-		Risk: RiskSettings{
+		Risk: domain.RiskSettings{
 			MaxPositionSizePct:         cfg.Risk.MaxPositionSizePct * 100,
 			MaxDailyLossPct:            cfg.Risk.MaxDailyLossPct * 100,
 			MaxDrawdownPct:             cfg.Risk.MaxDrawdownPct * 100,
@@ -278,7 +336,9 @@ func (s *MemorySettingsService) getLocked() SettingsResponse {
 }
 
 // Update replaces editable settings while preserving existing secrets unless a new one is supplied.
-func (s *MemorySettingsService) Update(_ context.Context, req SettingsUpdateRequest) (SettingsResponse, error) {
+// Non-secret fields are persisted to the SettingsPersister (if configured) after the in-memory
+// update succeeds.
+func (s *MemorySettingsService) Update(ctx context.Context, req SettingsUpdateRequest) (SettingsResponse, error) {
 	if err := validateSettingsUpdate(req); err != nil {
 		return SettingsResponse{}, err
 	}
@@ -292,13 +352,39 @@ func (s *MemorySettingsService) Update(_ context.Context, req SettingsUpdateRequ
 	applyProviderUpdate(&s.llm.Providers.Google, req.LLM.Providers.Google)
 	applyProviderUpdate(&s.llm.Providers.OpenRouter, req.LLM.Providers.OpenRouter)
 	applyProviderUpdate(&s.llm.Providers.XAI, req.LLM.Providers.XAI)
-	s.llm.Providers.Ollama = OllamaSettings{
+	s.llm.Providers.Ollama = domain.OllamaSettings{
 		BaseURL: strings.TrimSpace(req.LLM.Providers.Ollama.BaseURL),
 		Model:   strings.TrimSpace(req.LLM.Providers.Ollama.Model),
 	}
 	s.risk = req.Risk
 	response := s.getLocked()
+
+	// Snapshot non-secret persisted fields while still holding the lock.
+	llmP := domain.LLMPersisted{
+		DefaultProvider: s.llm.DefaultProvider,
+		DeepThinkModel:  s.llm.DeepThinkModel,
+		QuickThinkModel: s.llm.QuickThinkModel,
+		Providers: domain.LLMProvidersPersisted{
+			OpenAI:     domain.ProviderPersisted{BaseURL: s.llm.Providers.OpenAI.BaseURL, Model: s.llm.Providers.OpenAI.Model},
+			Anthropic:  domain.ProviderPersisted{Model: s.llm.Providers.Anthropic.Model},
+			Google:     domain.ProviderPersisted{Model: s.llm.Providers.Google.Model},
+			OpenRouter: domain.ProviderPersisted{BaseURL: s.llm.Providers.OpenRouter.BaseURL, Model: s.llm.Providers.OpenRouter.Model},
+			XAI:        domain.ProviderPersisted{BaseURL: s.llm.Providers.XAI.BaseURL, Model: s.llm.Providers.XAI.Model},
+			Ollama:     s.llm.Providers.Ollama,
+		},
+	}
+	risk := s.risk
 	s.mu.Unlock()
+
+	if s.persister != nil {
+		if err := s.persister.Save(ctx, llmP, risk); err != nil {
+			logger := s.logger
+			if logger == nil {
+				logger = slog.Default()
+			}
+			logger.Warn("settings: failed to persist update", slog.String("error", err.Error()))
+		}
+	}
 
 	return response, nil
 }

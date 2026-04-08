@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -783,7 +784,64 @@ func isNotFound(err error) bool {
 	return errors.Is(err, repository.ErrNotFound)
 }
 
+// isUniqueConstraintViolation reports whether err is a PostgreSQL unique-constraint
+// violation (SQLSTATE 23505). Works with pgconn.PgError wrapped by pgx.
+func isUniqueConstraintViolation(err error) bool {
+	var pgErr interface{ SQLState() string }
+	if errors.As(err, &pgErr) {
+		return pgErr.SQLState() == "23505"
+	}
+	return false
+}
+
 // --- Auth: Refresh token (#417) ---
+
+// handleRegister creates a new user account and returns a token pair.
+// The first registered user effectively becomes the local admin; subsequent
+// registrations are open unless the caller chooses to gate the route.
+func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body", ErrCodeBadRequest)
+		return
+	}
+	req.Username = strings.TrimSpace(req.Username)
+	if req.Username == "" || req.Password == "" {
+		respondError(w, http.StatusBadRequest, "username and password are required", ErrCodeValidation)
+		return
+	}
+
+	user := &domain.User{
+		Username: req.Username,
+		Password: req.Password,
+	}
+	if err := s.users.Create(r.Context(), user); err != nil {
+		if isUniqueConstraintViolation(err) {
+			respondError(w, http.StatusConflict, "username already taken", ErrCodeConflict)
+			return
+		}
+		s.logger.Error("register: create user", slog.String("error", err.Error()))
+		respondError(w, http.StatusInternalServerError, "failed to create user", ErrCodeInternal)
+		return
+	}
+
+	tokenPair, err := s.auth.GenerateTokenPair(user.Username)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to generate auth tokens", ErrCodeInternal)
+		return
+	}
+
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	respondJSON(w, http.StatusCreated, LoginResponse{
+		AccessToken:  tokenPair.AccessToken,
+		RefreshToken: tokenPair.RefreshToken,
+		ExpiresAt:    tokenPair.ExpiresAt.UTC(),
+	})
+}
 
 func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 	var body struct {

@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/PatrickFanella/get-rich-quick/internal/domain"
 )
 
 func TestGetSettings(t *testing.T) {
@@ -36,13 +38,13 @@ func TestGetSettings(t *testing.T) {
 				XAI: providerState{
 					Model: "grok-3-mini",
 				},
-				Ollama: OllamaSettings{
+				Ollama: domain.OllamaSettings{
 					BaseURL: "http://localhost:11434",
 					Model:   "llama3.2",
 				},
 			},
 		},
-		Risk: RiskSettings{
+		Risk: domain.RiskSettings{
 			MaxPositionSizePct:         10,
 			MaxDailyLossPct:            2,
 			MaxDrawdownPct:             10,
@@ -109,13 +111,13 @@ func TestUpdateSettings(t *testing.T) {
 					Model: "openai/gpt-4.1-mini",
 				},
 				XAI: providerState{Model: "grok-3-mini"},
-				Ollama: OllamaSettings{
+				Ollama: domain.OllamaSettings{
 					BaseURL: "http://localhost:11434",
 					Model:   "llama3.2",
 				},
 			},
 		},
-		Risk: RiskSettings{
+		Risk: domain.RiskSettings{
 			MaxPositionSizePct:         10,
 			MaxDailyLossPct:            2,
 			MaxDrawdownPct:             10,
@@ -151,13 +153,13 @@ func TestUpdateSettings(t *testing.T) {
 					BaseURL: "https://api.x.ai/v1",
 					Model:   "grok-3-beta",
 				},
-				Ollama: OllamaSettings{
+				Ollama: domain.OllamaSettings{
 					BaseURL: "http://ollama.internal:11434",
 					Model:   "llama3.3",
 				},
 			},
 		},
-		Risk: RiskSettings{
+		Risk: domain.RiskSettings{
 			MaxPositionSizePct:         12.5,
 			MaxDailyLossPct:            3,
 			MaxDrawdownPct:             11,
@@ -203,10 +205,10 @@ func TestUpdateSettingsValidatesPayload(t *testing.T) {
 				Google:     LLMProviderUpdateRequest{Model: "gemini-2.5-flash"},
 				OpenRouter: LLMProviderUpdateRequest{Model: "openai/gpt-4.1-mini"},
 				XAI:        LLMProviderUpdateRequest{Model: "grok-3-mini"},
-				Ollama:     OllamaSettings{Model: "llama3.2"},
+				Ollama:     domain.OllamaSettings{Model: "llama3.2"},
 			},
 		},
-		Risk: RiskSettings{
+		Risk: domain.RiskSettings{
 			MaxPositionSizePct:         10,
 			MaxDailyLossPct:            2,
 			MaxDrawdownPct:             10,
@@ -241,10 +243,10 @@ func TestUpdateSettingsRejectsUnknownDefaultProvider(t *testing.T) {
 				Google:     LLMProviderUpdateRequest{Model: "gemini-2.5-flash"},
 				OpenRouter: LLMProviderUpdateRequest{Model: "openai/gpt-4.1-mini"},
 				XAI:        LLMProviderUpdateRequest{Model: "grok-3-mini"},
-				Ollama:     OllamaSettings{Model: "llama3.2"},
+				Ollama:     domain.OllamaSettings{Model: "llama3.2"},
 			},
 		},
-		Risk: RiskSettings{
+		Risk: domain.RiskSettings{
 			MaxPositionSizePct:         10,
 			MaxDailyLossPct:            2,
 			MaxDrawdownPct:             10,
