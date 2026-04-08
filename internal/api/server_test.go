@@ -741,6 +741,56 @@ func TestCreateStrategyValidation(t *testing.T) {
 	}
 }
 
+func TestCreateStrategyRejectsInvalidCron(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t)
+
+	rr := doRequest(t, srv, http.MethodPost, "/api/v1/strategies", map[string]any{
+		"name":          "test",
+		"ticker":        "AAPL",
+		"market_type":   "stock",
+		"schedule_cron": "not a cron",
+	})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 for bad cron", rr.Code)
+	}
+}
+
+func TestCreateStrategyAcceptsValidCron(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t)
+
+	rr := doRequest(t, srv, http.MethodPost, "/api/v1/strategies", map[string]any{
+		"name":          "test",
+		"ticker":        "AAPL",
+		"market_type":   "stock",
+		"schedule_cron": "0 9 * * 1-5",
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201 for valid cron", rr.Code)
+	}
+}
+
+func TestListPositionsRejectsBadSide(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t)
+
+	rr := doRequest(t, srv, http.MethodGet, "/api/v1/portfolio/positions?side=sideways", nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rr.Code)
+	}
+}
+
+func TestGetOpenPositionsRejectsBadSide(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t)
+
+	rr := doRequest(t, srv, http.MethodGet, "/api/v1/portfolio/positions/open?side=sideways", nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rr.Code)
+	}
+}
+
 func TestRunStrategy(t *testing.T) {
 	t.Parallel()
 
@@ -2491,6 +2541,18 @@ func TestListConversationsEndpoint(t *testing.T) {
 	rr := doRequest(t, srv, http.MethodGet, "/api/v1/conversations", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+}
+
+func TestListConversationsRejectsBadAgentRole(t *testing.T) {
+	t.Parallel()
+	deps := testDeps()
+	deps.Conversations = newStubConversationRepo()
+	srv := newTestServerWithDeps(t, deps)
+
+	rr := doRequest(t, srv, http.MethodGet, "/api/v1/conversations?agent_role=fake_role", nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rr.Code)
 	}
 }
 

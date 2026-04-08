@@ -212,6 +212,7 @@ Response:
   - valid `market_type`
   - valid `status`
   - valid typed JSON config if `config` is present
+  - valid standard cron expression in `schedule_cron` if present — invalid expression returns `400`
 
 #### `GET /api/v1/strategies/{id}`
 
@@ -274,7 +275,8 @@ Response:
 #### `GET /api/v1/runs/{id}/decisions`
 
 - auth: required
-- filters: `agent_role`, `phase`, `limit`, `offset`
+- filters: `limit`, `offset`
+- enum filters: `agent_role` (e.g. `trader`, `market_analyst`), `phase` (`analysis`, `research_debate`, `trading`, `risk_debate`) — invalid value returns `400`
 - query: `include_prompt=true` to include full prompt text in each decision
 - returns `total` in list envelope
 - returns agent decisions associated with the run
@@ -294,13 +296,15 @@ Response:
 #### `GET /api/v1/portfolio/positions`
 
 - auth: required
-- filters: `ticker`, `side` (`long` / `short`), `limit` / `offset`
+- filters: `ticker`, `limit` / `offset`
+- enum filters: `side` (`long`, `short`) — invalid value returns `400`
 - response includes `total`
 
 #### `GET /api/v1/portfolio/positions/open`
 
 - auth: required
-- filters: `ticker`, `side`, `limit` / `offset`
+- filters: `ticker`, `limit` / `offset`
+- enum filters: `side` (`long`, `short`) — invalid value returns `400`
 - returns only positions where `closed_at` is null
 
 #### `GET /api/v1/portfolio/summary`
@@ -403,7 +407,9 @@ Response:
 #### `GET /api/v1/conversations`
 
 - auth: required
-- filters: `agent_role`, `pipeline_run_id` (UUID), `limit` / `offset`
+- filters: `pipeline_run_id` (UUID), `limit` / `offset`
+- enum filters: `agent_role` (e.g. `trader`, `market_analyst`) — invalid value returns `400`
+- returns `total` in list envelope
 
 #### `POST /api/v1/conversations`
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/robfig/cron/v3"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/agent"
 	"github.com/PatrickFanella/get-rich-quick/internal/agent/conversation"
@@ -219,6 +220,10 @@ func (s *Server) handleCreateStrategy(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, err.Error(), ErrCodeValidation)
 		return
 	}
+	if err := validateScheduleCron(strategy.ScheduleCron); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error(), ErrCodeValidation)
+		return
+	}
 	strategy.ID = uuid.New()
 	if err := s.strategies.Create(r.Context(), &strategy); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to create strategy", ErrCodeInternal)
@@ -247,6 +252,10 @@ func (s *Server) handleUpdateStrategy(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, err.Error(), ErrCodeValidation)
 		return
 	}
+	if err := validateScheduleCron(strategy.ScheduleCron); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error(), ErrCodeValidation)
+		return
+	}
 	if err := s.strategies.Update(r.Context(), &strategy); err != nil {
 		if isNotFound(err) {
 			respondError(w, http.StatusNotFound, "strategy not found", ErrCodeNotFound)
@@ -256,6 +265,17 @@ func (s *Server) handleUpdateStrategy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, http.StatusOK, strategy)
+}
+
+func validateScheduleCron(expr string) error {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return nil
+	}
+	if _, err := cron.ParseStandard(expr); err != nil {
+		return fmt.Errorf("invalid schedule_cron %q: %w", expr, err)
+	}
+	return nil
 }
 
 func validateStrategyConfigPayload(raw domain.StrategyConfig) error {
@@ -402,9 +422,22 @@ func (s *Server) handleGetRunDecisions(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	includePrompt := q.Get("include_prompt") == "true"
 
-	filter := repository.AgentDecisionFilter{
-		AgentRole: domain.AgentRole(q.Get("agent_role")),
-		Phase:     domain.Phase(q.Get("phase")),
+	filter := repository.AgentDecisionFilter{}
+	if ar := q.Get("agent_role"); ar != "" {
+		role := domain.AgentRole(ar)
+		if !role.IsValid() {
+			respondError(w, http.StatusBadRequest, "invalid agent_role", ErrCodeBadRequest)
+			return
+		}
+		filter.AgentRole = role
+	}
+	if ph := q.Get("phase"); ph != "" {
+		phase := domain.Phase(ph)
+		if !phase.IsValid() {
+			respondError(w, http.StatusBadRequest, "invalid phase", ErrCodeBadRequest)
+			return
+		}
+		filter.Phase = phase
 	}
 
 	decisions, err := s.decisions.GetByRun(r.Context(), id, filter, limit, offset)
@@ -500,7 +533,14 @@ func (s *Server) handleListPositions(w http.ResponseWriter, r *http.Request) {
 
 	filter := repository.PositionFilter{
 		Ticker: q.Get("ticker"),
-		Side:   domain.PositionSide(q.Get("side")),
+	}
+	if side := q.Get("side"); side != "" {
+		ps := domain.PositionSide(side)
+		if !ps.IsValid() {
+			respondError(w, http.StatusBadRequest, "invalid side", ErrCodeBadRequest)
+			return
+		}
+		filter.Side = ps
 	}
 
 	positions, err := s.positions.List(r.Context(), filter, limit, offset)
@@ -520,7 +560,14 @@ func (s *Server) handleGetOpenPositions(w http.ResponseWriter, r *http.Request) 
 	q := r.URL.Query()
 	filter := repository.PositionFilter{
 		Ticker: q.Get("ticker"),
-		Side:   domain.PositionSide(q.Get("side")),
+	}
+	if side := q.Get("side"); side != "" {
+		ps := domain.PositionSide(side)
+		if !ps.IsValid() {
+			respondError(w, http.StatusBadRequest, "invalid side", ErrCodeBadRequest)
+			return
+		}
+		filter.Side = ps
 	}
 	positions, err := s.positions.GetOpen(r.Context(), filter, limit, offset)
 	if err != nil {
@@ -1115,8 +1162,14 @@ func (s *Server) handleListConversations(w http.ResponseWriter, r *http.Request)
 	limit, offset := parsePagination(r)
 	q := r.URL.Query()
 
-	filter := repository.ConversationFilter{
-		AgentRole: domain.AgentRole(q.Get("agent_role")),
+	filter := repository.ConversationFilter{}
+	if ar := q.Get("agent_role"); ar != "" {
+		role := domain.AgentRole(ar)
+		if !role.IsValid() {
+			respondError(w, http.StatusBadRequest, "invalid agent_role", ErrCodeBadRequest)
+			return
+		}
+		filter.AgentRole = role
 	}
 	if v := q.Get("pipeline_run_id"); v != "" {
 		if id, err := uuid.Parse(v); err == nil {
