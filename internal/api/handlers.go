@@ -364,9 +364,15 @@ func (s *Server) handleGetRunDecisions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	limit, offset := parsePagination(r)
-	includePrompt := r.URL.Query().Get("include_prompt") == "true"
+	q := r.URL.Query()
+	includePrompt := q.Get("include_prompt") == "true"
 
-	decisions, err := s.decisions.GetByRun(r.Context(), id, repository.AgentDecisionFilter{}, limit, offset)
+	filter := repository.AgentDecisionFilter{
+		AgentRole: domain.AgentRole(q.Get("agent_role")),
+		Phase:     domain.Phase(q.Get("phase")),
+	}
+
+	decisions, err := s.decisions.GetByRun(r.Context(), id, filter, limit, offset)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to get decisions", ErrCodeInternal)
 		return
@@ -385,7 +391,12 @@ func (s *Server) handleGetRunDecisions(w http.ResponseWriter, r *http.Request) {
 		}
 		responses[i] = resp
 	}
-	respondList(w, responses, limit, offset)
+
+	total, err := s.decisions.CountByRun(r.Context(), id, filter)
+	if err != nil {
+		s.logger.Warn("count run decisions", slog.String("error", err.Error()))
+	}
+	respondListWithTotal(w, responses, total, limit, offset)
 }
 
 func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
@@ -1421,7 +1432,11 @@ func (s *Server) handleListAPIKeys(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to list api keys", ErrCodeInternal)
 		return
 	}
-	respondList(w, keys, limit, offset)
+	total, err := s.auth.CountAPIKeys(r.Context())
+	if err != nil {
+		s.logger.Warn("count api keys", slog.String("error", err.Error()))
+	}
+	respondListWithTotal(w, keys, total, limit, offset)
 }
 
 // handleCreateAPIKey creates a new API key and returns the plaintext value once.

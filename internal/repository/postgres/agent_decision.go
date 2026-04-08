@@ -94,6 +94,41 @@ func (r *AgentDecisionRepo) GetByRun(ctx context.Context, runID uuid.UUID, filte
 	return decisions, nil
 }
 
+// CountByRun returns the total number of agent decisions for the given run
+// matching the filter.
+func (r *AgentDecisionRepo) CountByRun(ctx context.Context, runID uuid.UUID, filter repository.AgentDecisionFilter) (int, error) {
+	query, args := buildCountByRunQuery(runID, filter)
+	var total int
+	if err := r.pool.QueryRow(ctx, query, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("postgres: count agent decisions by run: %w", err)
+	}
+	return total, nil
+}
+
+func buildCountByRunQuery(runID uuid.UUID, filter repository.AgentDecisionFilter) (string, []any) {
+	var (
+		conditions []string
+		args       []any
+		argIdx     int
+	)
+	nextArg := func(v any) string {
+		argIdx++
+		args = append(args, v)
+		return fmt.Sprintf("$%d", argIdx)
+	}
+	conditions = append(conditions, "pipeline_run_id = "+nextArg(runID))
+	if filter.AgentRole != "" {
+		conditions = append(conditions, "agent_role = "+nextArg(filter.AgentRole))
+	}
+	if filter.Phase != "" {
+		conditions = append(conditions, "phase = "+nextArg(filter.Phase))
+	}
+	if filter.RoundNumber != nil {
+		conditions = append(conditions, "round_number = "+nextArg(*filter.RoundNumber))
+	}
+	return `SELECT COUNT(*) FROM agent_decisions WHERE ` + strings.Join(conditions, " AND "), args
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

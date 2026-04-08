@@ -1710,6 +1710,12 @@ func (s *stubAPIKeyRepo) List(_ context.Context, _, _ int) ([]domain.APIKey, err
 	return out, nil
 }
 
+func (s *stubAPIKeyRepo) Count(_ context.Context) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.items), nil
+}
+
 func (s *stubAPIKeyRepo) Revoke(_ context.Context, id uuid.UUID, revokedAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1907,6 +1913,9 @@ type stubDecisionRepo struct {
 func (stubDecisionRepo) Create(context.Context, *domain.AgentDecision) error { return nil }
 func (s *stubDecisionRepo) GetByRun(_ context.Context, _ uuid.UUID, _ repository.AgentDecisionFilter, _, _ int) ([]domain.AgentDecision, error) {
 	return s.decisions, nil
+}
+func (s *stubDecisionRepo) CountByRun(_ context.Context, _ uuid.UUID, _ repository.AgentDecisionFilter) (int, error) {
+	return len(s.decisions), nil
 }
 
 // stubOrderRepo

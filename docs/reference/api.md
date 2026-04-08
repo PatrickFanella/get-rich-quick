@@ -85,8 +85,8 @@ Notes:
 
 - `limit` defaults to `50`
 - `limit` is capped at `100`
-- `total` is populated for: strategies, runs, portfolio/positions, portfolio/positions/open, orders, trades, conversations, backtests/configs, backtests/runs, audit-log, events, discovery/results
-- `total` is omitted (`0`) for: memories (full-text search semantics differ), api-keys
+- `total` is populated for: strategies, runs, portfolio/positions, portfolio/positions/open, orders, trades, conversations, api-keys, runs/{id}/decisions, backtests/configs, backtests/runs, audit-log, events, discovery/results
+- `total` is omitted (`0`) for: memories (full-text search semantics differ), conversations/{id}/messages (synthetic message injection makes DB count inaccurate)
 
 ## Route map
 
@@ -274,6 +274,9 @@ Response:
 #### `GET /api/v1/runs/{id}/decisions`
 
 - auth: required
+- filters: `agent_role`, `phase`, `limit`, `offset`
+- query: `include_prompt=true` to include full prompt text in each decision
+- returns `total` in list envelope
 - returns agent decisions associated with the run
 
 #### `POST /api/v1/runs/{id}/cancel`

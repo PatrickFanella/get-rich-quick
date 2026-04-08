@@ -224,6 +224,8 @@ type PipelineRunSnapshotRepository interface {
 type AgentDecisionRepository interface {
 	Create(ctx context.Context, decision *domain.AgentDecision) error
 	GetByRun(ctx context.Context, runID uuid.UUID, filter AgentDecisionFilter, limit, offset int) ([]domain.AgentDecision, error)
+	// CountByRun returns the total number of decisions for the given run matching the filter.
+	CountByRun(ctx context.Context, runID uuid.UUID, filter AgentDecisionFilter) (int, error)
 }
 
 // AgentEventRepository provides access to structured agent and pipeline events.
@@ -320,6 +322,8 @@ type APIKeyRepository interface {
 	Create(ctx context.Context, key *domain.APIKey) error
 	GetByPrefix(ctx context.Context, prefix string) (*domain.APIKey, error)
 	List(ctx context.Context, limit, offset int) ([]domain.APIKey, error)
+	// Count returns the total number of API key records.
+	Count(ctx context.Context) (int, error)
 	Revoke(ctx context.Context, id uuid.UUID, revokedAt time.Time) error
 	TouchLastUsed(ctx context.Context, id uuid.UUID, lastUsedAt time.Time) error
 }

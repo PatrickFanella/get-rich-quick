@@ -300,6 +300,14 @@ func (a *AuthManager) ListAPIKeys(ctx context.Context, limit, offset int) ([]dom
 	return a.apiKeys.List(ctx, limit, offset)
 }
 
+// CountAPIKeys returns the total number of API key records.
+func (a *AuthManager) CountAPIKeys(ctx context.Context) (int, error) {
+	if a.apiKeys == nil {
+		return 0, fmt.Errorf("api key repository is required")
+	}
+	return a.apiKeys.Count(ctx)
+}
+
 // RevokeAPIKey marks the API key with the given ID as revoked.
 func (a *AuthManager) RevokeAPIKey(ctx context.Context, id uuid.UUID) error {
 	if a.apiKeys == nil {

@@ -103,6 +103,15 @@ func (r *APIKeyRepo) List(ctx context.Context, limit, offset int) ([]domain.APIK
 	return keys, nil
 }
 
+// Count returns the total number of API key records.
+func (r *APIKeyRepo) Count(ctx context.Context) (int, error) {
+	var total int
+	if err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM api_keys`).Scan(&total); err != nil {
+		return 0, fmt.Errorf("postgres: count api keys: %w", err)
+	}
+	return total, nil
+}
+
 // Revoke marks an API key as revoked.
 func (r *APIKeyRepo) Revoke(ctx context.Context, id uuid.UUID, revokedAt time.Time) error {
 	tag, err := r.pool.Exec(ctx,
