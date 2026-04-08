@@ -1,5 +1,7 @@
 package agent
 
+import "fmt"
+
 // Hardcoded defaults used as the final fallback in ResolveConfig.
 const (
 	defaultLLMProvider            = "openai"
@@ -138,6 +140,34 @@ func ResolveConfig(strategyConfig *StrategyConfig, globalSettings GlobalSettings
 		AnalystSelection: resolveAgentRoles(s.AnalystSelection, globalSettings.AnalystSelection),
 		PromptOverrides:  resolvePromptOverrides(s.PromptOverrides, globalSettings.PromptOverrides),
 	}
+}
+
+// ValidateResolvedConfig checks that a ResolvedConfig has sensible values.
+// Call after ResolveConfig to catch misconfigurations early rather than at
+// pipeline execution time.
+func ValidateResolvedConfig(rc ResolvedConfig) error {
+	if rc.LLMConfig.Provider == "" {
+		return fmt.Errorf("resolved config: provider must be non-empty")
+	}
+	if rc.LLMConfig.DeepThinkModel == "" && rc.LLMConfig.QuickThinkModel == "" {
+		return fmt.Errorf("resolved config: at least one model must be specified")
+	}
+	if rc.PipelineConfig.DebateRounds < 1 {
+		return fmt.Errorf("resolved config: debate rounds must be >= 1, got %d", rc.PipelineConfig.DebateRounds)
+	}
+	if rc.PipelineConfig.AnalysisTimeoutSeconds < 0 {
+		return fmt.Errorf("resolved config: analysis timeout must be >= 0, got %d", rc.PipelineConfig.AnalysisTimeoutSeconds)
+	}
+	if rc.PipelineConfig.DebateTimeoutSeconds < 0 {
+		return fmt.Errorf("resolved config: debate timeout must be >= 0, got %d", rc.PipelineConfig.DebateTimeoutSeconds)
+	}
+	if rc.RiskConfig.PositionSizePct <= 0 || rc.RiskConfig.PositionSizePct > 100 {
+		return fmt.Errorf("resolved config: position size pct must be in (0, 100], got %v", rc.RiskConfig.PositionSizePct)
+	}
+	if rc.RiskConfig.MinConfidence < 0 || rc.RiskConfig.MinConfidence > 1 {
+		return fmt.Errorf("resolved config: min confidence must be in [0, 1], got %v", rc.RiskConfig.MinConfidence)
+	}
+	return nil
 }
 
 // resolveStringPtr returns the first non-nil pointer value, or defaultVal if both are nil.

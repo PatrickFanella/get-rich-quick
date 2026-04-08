@@ -380,3 +380,188 @@ func TestRunnerRun_SeedsInitialStateBeforeAnalysis(t *testing.T) {
 		t.Fatalf("captured social = %+v, want seeded social", captured.Social)
 	}
 }
+
+func TestRunnerRun_PhaseOrdering(t *testing.T) {
+	t.Parallel()
+
+	var order []string
+	var mu sync.Mutex
+	recordPhase := func(phase string) {
+		mu.Lock()
+		order = append(order, phase)
+		mu.Unlock()
+	}
+
+	def := Definition{
+		Analysis: []AnalysisAgent{
+			stubAnalysisAgent{name: "market", role: AgentRoleMarketAnalyst, fn: func(_ context.Context, _ AnalysisInput) (AnalysisOutput, error) {
+				recordPhase("analysis")
+				return AnalysisOutput{Report: "ok"}, nil
+			}},
+		},
+		Research: ResearchDebateStage{
+			Debaters: []DebateAgent{
+				stubDebateAgent{name: "bull", role: AgentRoleBullResearcher, fn: func(_ context.Context, _ DebateInput) (DebateOutput, error) {
+					recordPhase("research")
+					return DebateOutput{Contribution: "bull-contrib"}, nil
+				}},
+			},
+			Judge: stubResearchJudge{name: "judge", role: AgentRoleInvestJudge, fn: func(_ context.Context, _ DebateInput) (ResearchJudgeOutput, error) {
+				return ResearchJudgeOutput{InvestmentPlan: "plan"}, nil
+			}},
+		},
+		Trader: stubTradeAgent{name: "trader", role: AgentRoleTrader, fn: func(_ context.Context, input TradingInput) (TradingOutput, error) {
+			recordPhase("trading")
+			plan := TradingPlan{Action: PipelineSignalBuy, Ticker: input.Ticker, EntryType: "market", EntryPrice: 100}
+			payload, _ := json.Marshal(plan)
+			return TradingOutput{Plan: plan, StoredOutput: string(payload)}, nil
+		}},
+		Risk: RiskDebateStage{
+			Debaters: []DebateAgent{
+				stubDebateAgent{name: "risk", role: AgentRoleAggressiveAnalyst, fn: func(_ context.Context, _ DebateInput) (DebateOutput, error) {
+					recordPhase("risk")
+					return DebateOutput{Contribution: "risk-contrib"}, nil
+				}},
+			},
+			Judge: stubRiskJudge{name: "rm", role: AgentRoleRiskManager, fn: func(_ context.Context, input RiskJudgeInput) (RiskJudgeOutput, error) {
+				return RiskJudgeOutput{FinalSignal: FinalSignal{Signal: PipelineSignalBuy, Confidence: 0.9}, StoredSignal: `{"action":"buy"}`, TradingPlan: input.TradingPlan}, nil
+			}},
+		},
+	}
+
+	persister := newRunnerSpyPersister()
+	runner := NewRunner(def, Dependencies{Persister: persister})
+
+	prepared, err := runner.Prepare(strategyWithDebateRounds(t, "TEST", 1), GlobalSettings{})
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	prepared.Runtime.SkipPhases = nil // Enable all phases.
+
+	if _, err := runner.Run(context.Background(), prepared); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	want := []string{"analysis", "research", "trading", "risk"}
+	if len(order) != len(want) {
+		t.Fatalf("phase order = %v, want %v", order, want)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Fatalf("phase[%d] = %q, want %q (full order: %v)", i, order[i], want[i], order)
+		}
+	}
+}
+
+func TestRunnerRun_PhaseSkip(t *testing.T) {
+	t.Parallel()
+
+	analysisRan := false
+	def := defaultRunnerDefinition()
+	def.Analysis = []AnalysisAgent{
+		stubAnalysisAgent{name: "market", role: AgentRoleMarketAnalyst, fn: func(_ context.Context, _ AnalysisInput) (AnalysisOutput, error) {
+			analysisRan = true
+			return AnalysisOutput{Report: "ok"}, nil
+		}},
+	}
+
+	persister := newRunnerSpyPersister()
+	runner := NewRunner(def, Dependencies{Persister: persister})
+
+	prepared, err := runner.Prepare(strategyWithDebateRounds(t, "TEST", 1), GlobalSettings{})
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	prepared.Runtime.SkipPhases = map[Phase]bool{
+		PhaseAnalysis: true,
+	}
+
+	result, err := runner.Run(context.Background(), prepared)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if analysisRan {
+		t.Error("analysis phase ran despite being skipped")
+	}
+	if result.Run.Status != domain.PipelineStatusCompleted {
+		t.Errorf("run status = %s, want completed", result.Run.Status)
+	}
+}
+
+func TestRunnerRun_ErrorMidPipeline_HaltsSubsequentPhases(t *testing.T) {
+	t.Parallel()
+
+	tradingRan := false
+	def := defaultRunnerDefinition()
+	def.Research = ResearchDebateStage{
+		Debaters: []DebateAgent{
+			stubDebateAgent{name: "bull", role: AgentRoleBullResearcher, fn: func(_ context.Context, _ DebateInput) (DebateOutput, error) {
+				return DebateOutput{}, errors.New("research failed")
+			}},
+		},
+		Judge: stubResearchJudge{name: "judge", role: AgentRoleInvestJudge, fn: func(_ context.Context, _ DebateInput) (ResearchJudgeOutput, error) {
+			return ResearchJudgeOutput{InvestmentPlan: "plan"}, nil
+		}},
+	}
+	def.Trader = stubTradeAgent{name: "trader", role: AgentRoleTrader, fn: func(_ context.Context, input TradingInput) (TradingOutput, error) {
+		tradingRan = true
+		plan := TradingPlan{Action: PipelineSignalHold, Ticker: input.Ticker}
+		payload, _ := json.Marshal(plan)
+		return TradingOutput{Plan: plan, StoredOutput: string(payload)}, nil
+	}}
+
+	persister := newRunnerSpyPersister()
+	runner := NewRunner(def, Dependencies{Persister: persister})
+
+	prepared, err := runner.Prepare(strategyWithDebateRounds(t, "TEST", 1), GlobalSettings{})
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	prepared.Runtime.SkipPhases = nil // Enable all phases.
+
+	result, runErr := runner.Run(context.Background(), prepared)
+	if runErr == nil {
+		t.Fatal("expected error from research phase")
+	}
+	if tradingRan {
+		t.Error("trading phase ran after research failure")
+	}
+	if result.Run.Status != domain.PipelineStatusFailed {
+		t.Errorf("run status = %s, want failed", result.Run.Status)
+	}
+}
+
+func TestRunnerRun_ContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	def := defaultRunnerDefinition()
+	def.Analysis = []AnalysisAgent{
+		stubAnalysisAgent{name: "slow", role: AgentRoleMarketAnalyst, fn: func(ctx context.Context, _ AnalysisInput) (AnalysisOutput, error) {
+			<-ctx.Done()
+			return AnalysisOutput{}, ctx.Err()
+		}},
+	}
+
+	persister := newRunnerSpyPersister()
+	runner := NewRunner(def, Dependencies{Persister: persister})
+
+	prepared, err := runner.Prepare(strategyWithDebateRounds(t, "TEST", 1), GlobalSettings{})
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel after a short delay to let Run start.
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+	}()
+
+	result, runErr := runner.Run(ctx, prepared)
+	if runErr == nil {
+		t.Fatal("expected error from cancelled context")
+	}
+	if result.Run.Status != domain.PipelineStatusFailed {
+		t.Errorf("run status = %s, want failed", result.Run.Status)
+	}
+}

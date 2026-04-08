@@ -632,3 +632,88 @@ func TestResolveConfig_EdgeCases(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateResolvedConfig_Defaults(t *testing.T) {
+	// Default config from ResolveConfig(nil, {}) should always be valid.
+	rc := agent.ResolveConfig(nil, agent.GlobalSettings{})
+	if err := agent.ValidateResolvedConfig(rc); err != nil {
+		t.Fatalf("default resolved config should be valid: %v", err)
+	}
+}
+
+func TestValidateResolvedConfig_Failures(t *testing.T) {
+	valid := agent.ResolveConfig(nil, agent.GlobalSettings{})
+
+	tests := []struct {
+		name   string
+		modify func(rc *agent.ResolvedConfig)
+	}{
+		{
+			name:   "empty provider",
+			modify: func(rc *agent.ResolvedConfig) { rc.LLMConfig.Provider = "" },
+		},
+		{
+			name: "no models",
+			modify: func(rc *agent.ResolvedConfig) {
+				rc.LLMConfig.DeepThinkModel = ""
+				rc.LLMConfig.QuickThinkModel = ""
+			},
+		},
+		{
+			name:   "debate rounds zero",
+			modify: func(rc *agent.ResolvedConfig) { rc.PipelineConfig.DebateRounds = 0 },
+		},
+		{
+			name:   "negative analysis timeout",
+			modify: func(rc *agent.ResolvedConfig) { rc.PipelineConfig.AnalysisTimeoutSeconds = -1 },
+		},
+		{
+			name:   "position size zero",
+			modify: func(rc *agent.ResolvedConfig) { rc.RiskConfig.PositionSizePct = 0 },
+		},
+		{
+			name:   "position size over 100",
+			modify: func(rc *agent.ResolvedConfig) { rc.RiskConfig.PositionSizePct = 101 },
+		},
+		{
+			name:   "min confidence negative",
+			modify: func(rc *agent.ResolvedConfig) { rc.RiskConfig.MinConfidence = -0.1 },
+		},
+		{
+			name:   "min confidence over 1",
+			modify: func(rc *agent.ResolvedConfig) { rc.RiskConfig.MinConfidence = 1.1 },
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rc := valid // copy
+			tc.modify(&rc)
+			if err := agent.ValidateResolvedConfig(rc); err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestValidateResolvedConfig_EdgeCases(t *testing.T) {
+	valid := agent.ResolveConfig(nil, agent.GlobalSettings{})
+
+	// One model empty but other set should be fine.
+	rc := valid
+	rc.LLMConfig.DeepThinkModel = ""
+	if err := agent.ValidateResolvedConfig(rc); err != nil {
+		t.Errorf("should be valid with only quick model: %v", err)
+	}
+
+	// MinConfidence at boundaries should be valid.
+	rc = valid
+	rc.RiskConfig.MinConfidence = 0
+	if err := agent.ValidateResolvedConfig(rc); err != nil {
+		t.Errorf("min confidence 0 should be valid: %v", err)
+	}
+	rc.RiskConfig.MinConfidence = 1
+	if err := agent.ValidateResolvedConfig(rc); err != nil {
+		t.Errorf("min confidence 1 should be valid: %v", err)
+	}
+}

@@ -1345,3 +1345,222 @@ func TestProcessSignal_EventRepoError_DoesNotFailOrder(t *testing.T) {
 		t.Fatalf("expected 1 order, got %d", gotOrders)
 	}
 }
+
+func TestProcessSignal_ZeroPositionSize(t *testing.T) {
+	t.Parallel()
+
+	broker := &mockBroker{
+		getAccountBalanceFn: func(_ context.Context) (execution.Balance, error) {
+			return execution.Balance{Currency: "USD", Cash: 100, BuyingPower: 100, Equity: 100}, nil
+		},
+	}
+	riskEng := &mockRiskEngine{}
+	orderRepo := &mockOrderRepo{}
+	positionRepo := &mockPositionRepo{}
+	tradeRepo := &mockTradeRepo{}
+	auditRepo := &mockAuditLogRepo{}
+
+	// FractionPct zero causes FixedFractionalSize to return 0.
+	cfg := execution.SizingConfig{
+		Method:      execution.PositionSizingMethodFixedFractional,
+		FractionPct: 0,
+	}
+
+	mgr := execution.NewOrderManager(
+		broker,
+		"paper",
+		riskEng,
+		positionRepo,
+		orderRepo,
+		tradeRepo,
+		auditRepo,
+		nil,
+		cfg,
+		slog.Default(),
+	)
+
+	err := mgr.ProcessSignal(
+		context.Background(),
+		defaultSignal(),
+		defaultPlan(),
+		uuid.New(),
+		uuid.New(),
+	)
+	if err == nil {
+		t.Fatal("expected error for zero position size")
+	}
+
+	// No order should be created.
+	if len(orderRepo.orders) != 0 {
+		t.Errorf("expected 0 orders, got %d", len(orderRepo.orders))
+	}
+}
+
+func TestProcessSignal_ZeroEquity(t *testing.T) {
+	t.Parallel()
+
+	broker := &mockBroker{
+		getAccountBalanceFn: func(_ context.Context) (execution.Balance, error) {
+			return execution.Balance{Currency: "USD", Cash: 0, BuyingPower: 0, Equity: 0}, nil
+		},
+	}
+	riskEng := &mockRiskEngine{}
+	orderRepo := &mockOrderRepo{}
+	positionRepo := &mockPositionRepo{}
+	tradeRepo := &mockTradeRepo{}
+	auditRepo := &mockAuditLogRepo{}
+
+	mgr := newTestOrderManager(broker, riskEng, orderRepo, positionRepo, tradeRepo, auditRepo)
+
+	err := mgr.ProcessSignal(
+		context.Background(),
+		defaultSignal(),
+		defaultPlan(),
+		uuid.New(),
+		uuid.New(),
+	)
+	if err == nil {
+		t.Fatal("expected error for zero equity")
+	}
+
+	// No order should be created.
+	if len(orderRepo.orders) != 0 {
+		t.Errorf("expected 0 orders, got %d", len(orderRepo.orders))
+	}
+}
+
+func TestProcessSignal_TradeCreationFailure_PartialFill(t *testing.T) {
+	t.Parallel()
+
+	broker := &mockBroker{}
+	riskEng := &mockRiskEngine{}
+	orderRepo := &mockOrderRepo{}
+	positionRepo := &mockPositionRepo{}
+	tradeRepo := &mockTradeRepo{
+		createFn: func(_ context.Context, _ *domain.Trade) error {
+			return errors.New("trade repo down")
+		},
+	}
+	auditRepo := &mockAuditLogRepo{}
+
+	mgr := newTestOrderManager(broker, riskEng, orderRepo, positionRepo, tradeRepo, auditRepo)
+
+	err := mgr.ProcessSignal(
+		context.Background(),
+		defaultSignal(),
+		defaultPlan(),
+		uuid.New(),
+		uuid.New(),
+	)
+	if err == nil {
+		t.Fatal("expected error when trade creation fails")
+	}
+
+	// Position should still have been created (before trade).
+	positionRepo.mu.Lock()
+	posCount := len(positionRepo.positions)
+	positionRepo.mu.Unlock()
+	if posCount != 1 {
+		t.Errorf("expected 1 position (partial state), got %d", posCount)
+	}
+
+	// Audit log should contain an incomplete fill record.
+	auditRepo.mu.Lock()
+	auditTypes := auditEventTypes(auditRepo.entries)
+	auditRepo.mu.Unlock()
+
+	hasIncompleteFill := false
+	for _, at := range auditTypes {
+		if at == "order_fill_incomplete" {
+			hasIncompleteFill = true
+			break
+		}
+	}
+	if !hasIncompleteFill {
+		t.Errorf("expected 'order_fill_incomplete' audit event, got %v", auditTypes)
+	}
+}
+
+func TestProcessSignal_BalanceError(t *testing.T) {
+	t.Parallel()
+
+	broker := &mockBroker{
+		getAccountBalanceFn: func(_ context.Context) (execution.Balance, error) {
+			return execution.Balance{}, errors.New("broker unreachable")
+		},
+	}
+	riskEng := &mockRiskEngine{}
+	orderRepo := &mockOrderRepo{}
+	positionRepo := &mockPositionRepo{}
+	tradeRepo := &mockTradeRepo{}
+	auditRepo := &mockAuditLogRepo{}
+
+	mgr := newTestOrderManager(broker, riskEng, orderRepo, positionRepo, tradeRepo, auditRepo)
+
+	err := mgr.ProcessSignal(
+		context.Background(),
+		defaultSignal(),
+		defaultPlan(),
+		uuid.New(),
+		uuid.New(),
+	)
+	if err == nil {
+		t.Fatal("expected error when broker is unreachable")
+	}
+
+	// No order should be created.
+	if len(orderRepo.orders) != 0 {
+		t.Errorf("expected 0 orders, got %d", len(orderRepo.orders))
+	}
+}
+
+func TestProcessSignal_AuditLogFailure_NonFatal(t *testing.T) {
+	t.Parallel()
+
+	broker := &mockBroker{}
+	riskEng := &mockRiskEngine{
+		isKillSwitchActiveFn: func(_ context.Context) (bool, error) {
+			return true, nil
+		},
+	}
+	orderRepo := &mockOrderRepo{}
+	positionRepo := &mockPositionRepo{}
+	tradeRepo := &mockTradeRepo{}
+	auditRepo := &mockAuditLogRepo{
+		createFn: func(_ context.Context, _ *domain.AuditLogEntry) error {
+			return errors.New("audit repo down")
+		},
+	}
+
+	mgr := newTestOrderManager(broker, riskEng, orderRepo, positionRepo, tradeRepo, auditRepo)
+
+	// Kill switch is active, so ProcessSignal will try to audit and then return error.
+	// The audit failure itself should be non-fatal (logged, not propagated).
+	err := mgr.ProcessSignal(
+		context.Background(),
+		defaultSignal(),
+		defaultPlan(),
+		uuid.New(),
+		uuid.New(),
+	)
+	// Error should be about kill switch, not about audit failure.
+	if err == nil {
+		t.Fatal("expected kill switch error")
+	}
+	if !contains(err.Error(), "kill switch") {
+		t.Errorf("expected kill switch error, got: %v", err)
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
+}
+
+func containsSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

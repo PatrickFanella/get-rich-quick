@@ -17,21 +17,19 @@ import (
 func TestBuildListQuery_NoFilters(t *testing.T) {
 	query, args := buildListQuery(repository.StrategyFilter{}, 10, 0)
 
-	if len(args) != 2 {
-		t.Fatalf("expected 2 args (limit, offset), got %d", len(args))
+	// offset=0 is omitted, so only limit is parameterised.
+	if len(args) != 1 {
+		t.Fatalf("expected 1 arg (limit), got %d", len(args))
 	}
 
 	if args[0] != 10 {
 		t.Errorf("expected limit=10, got %v", args[0])
 	}
 
-	if args[1] != 0 {
-		t.Errorf("expected offset=0, got %v", args[1])
-	}
-
 	assertContains(t, query, "FROM strategies")
 	assertContains(t, query, "ORDER BY created_at DESC")
-	assertContains(t, query, "LIMIT $1 OFFSET $2")
+	assertContains(t, query, "LIMIT $1")
+	assertNotContains(t, query, "OFFSET")
 	assertNotContains(t, query, "WHERE")
 }
 
@@ -83,16 +81,17 @@ func TestBuildListQuery_PartialFilters(t *testing.T) {
 
 	query, args := buildListQuery(filter, 10, 0)
 
-	// 2 filter args + limit + offset = 4
-	if len(args) != 4 {
-		t.Fatalf("expected 4 args, got %d: %v", len(args), args)
+	// 2 filter args + limit (offset=0 omitted) = 3
+	if len(args) != 3 {
+		t.Fatalf("expected 3 args, got %d: %v", len(args), args)
 	}
 
 	assertContains(t, query, "ticker = $1")
 	assertNotContains(t, query, "market_type =")
 	assertContains(t, query, "status = $2")
 	assertNotContains(t, query, "is_paper =")
-	assertContains(t, query, "LIMIT $3 OFFSET $4")
+	assertContains(t, query, "LIMIT $3")
+	assertNotContains(t, query, "OFFSET")
 }
 
 func TestMarshalConfig_ValidJSON(t *testing.T) {

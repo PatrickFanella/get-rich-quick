@@ -222,7 +222,7 @@ func RunOptionsDiscovery(ctx context.Context, cfg OptionsDiscoveryConfig, deps O
 
 		cron := cfg.ScheduleCron
 		if cron == "" {
-			cron = "0 */4 * * *" // every 4 hours
+			cron = "0 */2 * * 1-5" // every 2 hours, weekdays
 		}
 
 		strategy := domain.Strategy{

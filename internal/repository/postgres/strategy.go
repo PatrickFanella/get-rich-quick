@@ -238,7 +238,12 @@ func buildListQuery(filter repository.StrategyFilter, limit, offset int) (string
 	}
 
 	base += " ORDER BY created_at DESC"
-	base += fmt.Sprintf(" LIMIT %s OFFSET %s", nextArg(limit), nextArg(offset))
+	if limit > 0 {
+		base += fmt.Sprintf(" LIMIT %s", nextArg(limit))
+	}
+	if offset > 0 {
+		base += fmt.Sprintf(" OFFSET %s", nextArg(offset))
+	}
 
 	return base, args
 }

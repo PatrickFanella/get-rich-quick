@@ -538,6 +538,217 @@ func TestDataServiceGetSocialSentimentCacheMissCallsChainAndCachesResult(t *test
 	}
 }
 
+func TestDataServiceGetOHLCVUnsupportedMarketType(t *testing.T) {
+	service := &DataService{
+		logger: discardLogger(),
+		now:    func() time.Time { return time.Now() },
+	}
+
+	_, err := service.GetOHLCV(context.Background(), "forex", "EURUSD", Timeframe1d, time.Now().Add(-time.Hour), time.Now())
+	if err == nil {
+		t.Fatal("expected error for unsupported market type")
+	}
+	if !errors.Is(err, ErrUnsupportedMarketType) {
+		t.Errorf("error = %v, want ErrUnsupportedMarketType", err)
+	}
+}
+
+func TestDataServiceGetOHLCVFallbackThroughChain(t *testing.T) {
+	now := time.Date(2026, 3, 22, 17, 0, 0, 0, time.UTC)
+	from := now.Add(-time.Hour)
+	to := now
+	want := []domain.OHLCV{
+		{Timestamp: from, Open: 100, High: 110, Low: 95, Close: 105, Volume: 1000},
+	}
+
+	// First provider fails, second succeeds. DataService should fall through.
+	chain := NewProviderChain(discardLogger(),
+		&serviceStubProvider{ohlcvErr: errors.New("yahoo down")},
+		&serviceStubProvider{ohlcv: want},
+	)
+	cacheRepo := &fakeMarketDataCacheRepo{
+		getErr: errors.New("cache miss"),
+	}
+	service := &DataService{
+		stockChain: chain,
+		cacheRepo:  cacheRepo,
+		logger:     discardLogger(),
+		now:        func() time.Time { return now },
+	}
+
+	got, err := service.GetOHLCV(context.Background(), domain.MarketTypeStock, "AAPL", Timeframe1d, from, to)
+	if err != nil {
+		t.Fatalf("GetOHLCV() error = %v", err)
+	}
+	if len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("GetOHLCV() = %v, want %v", got, want)
+	}
+	if cacheRepo.setCalls != 1 {
+		t.Errorf("cache Set() calls = %d, want 1", cacheRepo.setCalls)
+	}
+}
+
+func TestDataServiceGetOHLCVAllProvidersFail(t *testing.T) {
+	now := time.Date(2026, 3, 22, 17, 0, 0, 0, time.UTC)
+	chain := NewProviderChain(discardLogger(),
+		&serviceStubProvider{ohlcvErr: errors.New("yahoo down")},
+		&serviceStubProvider{ohlcvErr: errors.New("polygon down")},
+	)
+	cacheRepo := &fakeMarketDataCacheRepo{
+		getErr: errors.New("cache miss"),
+	}
+	service := &DataService{
+		stockChain: chain,
+		cacheRepo:  cacheRepo,
+		logger:     discardLogger(),
+		now:        func() time.Time { return now },
+	}
+
+	_, err := service.GetOHLCV(context.Background(), domain.MarketTypeStock, "AAPL", Timeframe1d, now.Add(-time.Hour), now)
+	if err == nil {
+		t.Fatal("expected error when all providers fail")
+	}
+	if cacheRepo.setCalls != 0 {
+		t.Errorf("cache Set() calls = %d, want 0 (nothing to cache)", cacheRepo.setCalls)
+	}
+}
+
+func TestDataServiceGetOHLCVNilCacheRepoSkipsCache(t *testing.T) {
+	now := time.Date(2026, 3, 22, 17, 0, 0, 0, time.UTC)
+	want := []domain.OHLCV{
+		{Timestamp: now, Open: 100, High: 110, Low: 95, Close: 105, Volume: 1000},
+	}
+	service := &DataService{
+		stockChain: &serviceStubProvider{ohlcv: want},
+		cacheRepo:  nil,
+		logger:     discardLogger(),
+		now:        func() time.Time { return now },
+	}
+
+	got, err := service.GetOHLCV(context.Background(), domain.MarketTypeStock, "AAPL", Timeframe1d, now.Add(-time.Hour), now)
+	if err != nil {
+		t.Fatalf("GetOHLCV() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Errorf("GetOHLCV() len = %d, want 1", len(got))
+	}
+}
+
+func TestDetectHistoricalOHLCVGapsNoCoverage(t *testing.T) {
+	from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
+
+	gaps, err := detectHistoricalOHLCVGaps(nil, Timeframe1d, from, to)
+	if err != nil {
+		t.Fatalf("detectHistoricalOHLCVGaps() error = %v", err)
+	}
+	if len(gaps) != 1 {
+		t.Fatalf("gaps = %d, want 1", len(gaps))
+	}
+	if !gaps[0].From.Equal(from) || !gaps[0].To.Equal(to) {
+		t.Errorf("gap = [%s, %s], want [%s, %s]", gaps[0].From, gaps[0].To, from, to)
+	}
+}
+
+func TestDetectHistoricalOHLCVGapsFullCoverage(t *testing.T) {
+	from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
+
+	coverage := []domain.HistoricalOHLCVCoverage{
+		{DateFrom: from, DateTo: to},
+	}
+
+	gaps, err := detectHistoricalOHLCVGaps(coverage, Timeframe1d, from, to)
+	if err != nil {
+		t.Fatalf("detectHistoricalOHLCVGaps() error = %v", err)
+	}
+	if len(gaps) != 0 {
+		t.Errorf("gaps = %d, want 0 (full coverage)", len(gaps))
+	}
+}
+
+func TestDetectHistoricalOHLCVGapsPartialCoverage(t *testing.T) {
+	from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
+
+	// Coverage only for Jan 3-5. Gaps before and after.
+	coverage := []domain.HistoricalOHLCVCoverage{
+		{DateFrom: time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC), DateTo: time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC)},
+	}
+
+	gaps, err := detectHistoricalOHLCVGaps(coverage, Timeframe1d, from, to)
+	if err != nil {
+		t.Fatalf("detectHistoricalOHLCVGaps() error = %v", err)
+	}
+	if len(gaps) != 2 {
+		t.Fatalf("gaps = %d, want 2", len(gaps))
+	}
+	// First gap: Jan 1 - Jan 2
+	if !gaps[0].From.Equal(from) {
+		t.Errorf("gap[0].From = %s, want %s", gaps[0].From, from)
+	}
+	// Second gap: Jan 6 - Jan 10
+	if !gaps[1].To.Equal(to) {
+		t.Errorf("gap[1].To = %s, want %s", gaps[1].To, to)
+	}
+}
+
+func TestDetectHistoricalOHLCVGapsInvalidRange(t *testing.T) {
+	from := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) // to < from
+
+	_, err := detectHistoricalOHLCVGaps(nil, Timeframe1d, from, to)
+	if err == nil {
+		t.Fatal("expected error for invalid range")
+	}
+}
+
+func TestDetectHistoricalOHLCVGapsMultipleCoverageSegments(t *testing.T) {
+	from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 1, 20, 0, 0, 0, 0, time.UTC)
+
+	// Two coverage segments with a gap between them.
+	coverage := []domain.HistoricalOHLCVCoverage{
+		{DateFrom: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), DateTo: time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC)},
+		{DateFrom: time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC), DateTo: time.Date(2026, 1, 20, 0, 0, 0, 0, time.UTC)},
+	}
+
+	gaps, err := detectHistoricalOHLCVGaps(coverage, Timeframe1d, from, to)
+	if err != nil {
+		t.Fatalf("detectHistoricalOHLCVGaps() error = %v", err)
+	}
+	// Should have one gap: Jan 6 - Jan 14
+	if len(gaps) != 1 {
+		t.Fatalf("gaps = %d, want 1", len(gaps))
+	}
+	expectedGapFrom := time.Date(2026, 1, 6, 0, 0, 0, 0, time.UTC)
+	if !gaps[0].From.Equal(expectedGapFrom) {
+		t.Errorf("gap.From = %s, want %s", gaps[0].From, expectedGapFrom)
+	}
+}
+
+func TestTTLForOHLCV(t *testing.T) {
+	tests := []struct {
+		name      string
+		timeframe Timeframe
+		wantTTL   time.Duration
+	}{
+		{"1m intraday", Timeframe1m, 5 * time.Minute},
+		{"5m intraday", Timeframe5m, 5 * time.Minute},
+		{"15m intraday", Timeframe15m, 5 * time.Minute},
+		{"1h intraday", Timeframe1h, 5 * time.Minute},
+		{"1d historical", Timeframe1d, 24 * time.Hour},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ttlForOHLCV(tc.timeframe)
+			if got != tc.wantTTL {
+				t.Errorf("ttlForOHLCV(%s) = %v, want %v", tc.timeframe, got, tc.wantTTL)
+			}
+		})
+	}
+}
+
 func TestNewDataServiceSkipsProvidersWithoutAPIKeys(t *testing.T) {
 	reg := &ProviderRegistry{
 		Polygon: func(_ string, _ *slog.Logger) DataProvider {

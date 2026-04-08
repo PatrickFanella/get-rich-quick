@@ -16,10 +16,9 @@ func IsMarketOpen(t time.Time, marketType domain.MarketType) bool {
 	switch normalizeMarketType(marketType) {
 	case domain.MarketTypeCrypto, domain.MarketTypePolymarket:
 		return true
-	case domain.MarketTypeStock:
-		return isUSEquityMarketOpen(t)
 	default:
-		return false
+		// Treat stock and unknown/empty market types as US equities.
+		return isUSEquityMarketOpen(t)
 	}
 }
 

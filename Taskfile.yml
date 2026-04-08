@@ -11,7 +11,7 @@ vars:
   DOCKER_IMAGE: tradingagent
   DOCKER_TAG: latest
   MIGRATE_DIR: ./migrations
-  DB_URL: '{{.DB_URL | default "postgres://postgres:postgres@localhost:5432/tradingagent?sslmode=disable"}}'
+  DB_URL: '{{.DB_URL | default "postgres://postgres:postgres@localhost:5434/tradingagent?sslmode=disable"}}'
   COVERAGE_DIR: ./coverage
   VERSION:
     sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
@@ -22,6 +22,30 @@ tasks:
     desc: List all available tasks
     cmds:
       - task --list-all
+
+  workspace:
+    desc: Open the standard tmux agent workspace for this repo
+    interactive: true
+    cmds:
+      - ./scripts/workspace.sh {{.CLI_ARGS}}
+
+  workspace:research:
+    desc: Open the workspace with the Agent Deck research profile
+    interactive: true
+    cmds:
+      - AGENT_DECK_PROFILE=opencode-research ./scripts/workspace.sh {{.CLI_ARGS}}
+
+  workspace:review:
+    desc: Open the workspace with the Agent Deck review profile
+    interactive: true
+    cmds:
+      - AGENT_DECK_PROFILE=review ./scripts/workspace.sh {{.CLI_ARGS}}
+
+  workspace:ops:
+    desc: Open the workspace with the Agent Deck ops profile
+    interactive: true
+    cmds:
+      - AGENT_DECK_PROFILE=ops ./scripts/workspace.sh {{.CLI_ARGS}}
 
   # ─── Build ──────────────────────────────────────────────────────────────
 

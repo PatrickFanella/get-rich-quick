@@ -3,8 +3,19 @@ package parse
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 )
+
+// thinkRegexp matches Qwen3-style <think>...</think> reasoning blocks that
+// appear before the actual response content.
+var thinkRegexp = regexp.MustCompile(`(?s)<think>.*?</think>`)
+
+// StripThinkingTags removes <think>...</think> blocks emitted by models like
+// Qwen3 that use an explicit reasoning phase before the response.
+func StripThinkingTags(s string) string {
+	return strings.TrimSpace(thinkRegexp.ReplaceAllString(s, ""))
+}
 
 // StripCodeFences removes optional markdown code fences (```json ... ``` or ``` ... ```)
 // from LLM response content so the JSON can be parsed cleanly. It handles both
@@ -40,7 +51,8 @@ func StripCodeFences(s string) string {
 // runs the supplied validation function. It returns the parsed value or a
 // descriptive error.
 func Parse[T any](content string, validate func(*T) error) (*T, error) {
-	cleaned := StripCodeFences(content)
+	cleaned := StripThinkingTags(content)
+	cleaned = StripCodeFences(cleaned)
 
 	var result T
 	if err := json.Unmarshal([]byte(cleaned), &result); err != nil {

@@ -140,7 +140,14 @@ func (p *Pipeline) executeDebatePhase(ctx context.Context, state *PipelineState,
 		return fmt.Errorf("agent/pipeline: %s phase requires a %s node", spec.phase, spec.judge)
 	}
 
-	return NewDebateExecutor(p, DebateConfig{
+	return NewDebateExecutor(DebateContext{
+		Helper:          p.helper,
+		Persister:       p.persister,
+		Events:          p.events,
+		Logger:          p.logger,
+		NowFunc:         p.currentTime,
+		DecisionPayload: p.decisionPayload,
+	}, DebateConfig{
 		Phase:       spec.phase,
 		Rounds:      spec.rounds,
 		Debaters:    debaters,

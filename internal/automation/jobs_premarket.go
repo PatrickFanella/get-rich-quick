@@ -127,6 +127,28 @@ func (o *JobOrchestrator) gapScanner(ctx context.Context) error {
 		)
 	}
 
+	// Trigger active strategies for tickers with detected gaps.
+	if o.deps.StrategyTrigger != nil && len(gaps) > 0 {
+		gapTickers := make(map[string]struct{}, len(gaps))
+		for _, g := range gaps {
+			gapTickers[g.ticker] = struct{}{}
+		}
+		strategies, listErr := o.deps.StrategyRepo.List(ctx, repository.StrategyFilter{
+			Status: domain.StrategyStatusActive,
+		}, 0, 0)
+		if listErr == nil {
+			for _, s := range strategies {
+				if _, ok := gapTickers[s.Ticker]; ok {
+					o.logger.Info("gap_scanner: triggering strategy for gap ticker",
+						slog.String("ticker", s.Ticker),
+						slog.String("strategy_id", s.ID.String()),
+					)
+					o.deps.StrategyTrigger.TriggerStrategy(s)
+				}
+			}
+		}
+	}
+
 	o.logger.Info("gap_scanner: complete",
 		slog.Int("scanned", len(symbols)),
 		slog.Int("gaps_found", len(gaps)),

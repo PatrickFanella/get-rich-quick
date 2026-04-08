@@ -6,6 +6,54 @@ import (
 	"testing"
 )
 
+func TestStripThinkingTags(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "no thinking tags",
+			input: `{"key": "value"}`,
+			want:  `{"key": "value"}`,
+		},
+		{
+			name:  "thinking block before JSON",
+			input: "<think>\nLet me analyze this...\nThe user wants JSON.\n</think>\n{\"key\": \"value\"}",
+			want:  `{"key": "value"}`,
+		},
+		{
+			name:  "thinking block before code-fenced JSON",
+			input: "<think>\nReasoning here\n</think>\n```json\n{\"key\": \"value\"}\n```",
+			want:  "```json\n{\"key\": \"value\"}\n```",
+		},
+		{
+			name:  "empty thinking block",
+			input: "<think></think>{\"key\": \"value\"}",
+			want:  `{"key": "value"}`,
+		},
+		{
+			name:  "thinking block with free text response",
+			input: "<think>\nI should analyze the market trends.\n</think>\nThe market shows bullish momentum.",
+			want:  "The market shows bullish momentum.",
+		},
+		{
+			name:  "no content after thinking block",
+			input: "<think>\nJust thinking\n</think>",
+			want:  "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := StripThinkingTags(tc.input)
+			if got != tc.want {
+				t.Fatalf("StripThinkingTags(%q) =\n  %q\nwant:\n  %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestStripCodeFences(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -195,6 +243,28 @@ func TestParseInlineFence(t *testing.T) {
 	}
 	if result.Name != "inline" || result.Value != 5 {
 		t.Fatalf("Parse() = %+v, want {Name:inline Value:5}", result)
+	}
+}
+
+func TestParseWithThinkingTags(t *testing.T) {
+	input := "<think>\nThe user wants name=qwen and value=14.\n</think>\n{\"name\":\"qwen\",\"value\":14}"
+	result, err := Parse[testPayload](input, nil)
+	if err != nil {
+		t.Fatalf("Parse() error = %v, want nil", err)
+	}
+	if result.Name != "qwen" || result.Value != 14 {
+		t.Fatalf("Parse() = %+v, want {Name:qwen Value:14}", result)
+	}
+}
+
+func TestParseWithThinkingTagsAndCodeFences(t *testing.T) {
+	input := "<think>\nLet me generate valid JSON.\n</think>\n```json\n{\"name\":\"combo\",\"value\":99}\n```"
+	result, err := Parse[testPayload](input, nil)
+	if err != nil {
+		t.Fatalf("Parse() error = %v, want nil", err)
+	}
+	if result.Name != "combo" || result.Value != 99 {
+		t.Fatalf("Parse() = %+v, want {Name:combo Value:99}", result)
 	}
 }
 

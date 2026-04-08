@@ -233,6 +233,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 				JobRunRepo:      jobRunRepo,
 				OptionsScanRepo: optionsScanRepo,
 				NewsFeedRepo:    newsFeedRepo,
+				StrategyTrigger: sched,
 				Logger:          logger,
 			})
 			orch.RegisterAll()

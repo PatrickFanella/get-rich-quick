@@ -112,6 +112,37 @@ docker compose down
 docker compose down -v
 ```
 
+### Agent Workspace
+
+If you use the shared `~/.agents` hub, this repo has a local launcher for the standard tmux workspace:
+
+```bash
+task workspace
+```
+
+That opens the standard window layout:
+
+- `edit`
+- `deck`
+- `claude`
+- `opencode`
+- `db`
+- `ops`
+
+Alternate Agent Deck profiles:
+
+```bash
+task workspace:research
+task workspace:review
+task workspace:ops
+```
+
+You can also override the profile directly or pick a custom tmux session name:
+
+```bash
+AGENT_DECK_PROFILE=opencode-research ./scripts/workspace.sh research
+```
+
 ### Production Compose Verification
 
 To verify the production image and `docker-compose.prod.yml` end-to-end, run:

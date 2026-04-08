@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"log/slog"
+	"time"
 )
 
 // DebateConfig configures a debate phase execution.
@@ -14,36 +15,43 @@ type DebateConfig struct {
 	AppendRound func(state *PipelineState, round DebateRound)
 }
 
-// DebateExecutor runs a multi-round debate followed by a judge decision.
-type DebateExecutor struct {
-	pipeline *Pipeline
-	config   DebateConfig
+// DebateContext holds the dependencies that a DebateExecutor needs. This
+// replaces the previous *Pipeline coupling, making the executor testable
+// independently.
+type DebateContext struct {
+	Helper          PhaseHelper
+	Persister       DecisionPersister
+	Events          chan<- PipelineEvent
+	Logger          *slog.Logger
+	NowFunc         func() time.Time
+	DecisionPayload func(*PipelineState, Node, *int) (string, *DecisionLLMResponse, error)
 }
 
-// NewDebateExecutor constructs a DebateExecutor with the supplied Pipeline and
+// DebateExecutor runs a multi-round debate followed by a judge decision.
+type DebateExecutor struct {
+	ctx    DebateContext
+	config DebateConfig
+}
+
+// NewDebateExecutor constructs a DebateExecutor with the supplied context and
 // configuration.
-func NewDebateExecutor(p *Pipeline, cfg DebateConfig) *DebateExecutor {
+func NewDebateExecutor(dctx DebateContext, cfg DebateConfig) *DebateExecutor {
 	return &DebateExecutor{
-		pipeline: p,
-		config:   cfg,
+		ctx:    dctx,
+		config: cfg,
 	}
 }
 
 // Execute runs the configured number of debate rounds, executing each debater
 // sequentially within a round, then runs the judge node to produce a final
-// decision. It applies the pipeline's PhaseTimeout, clamps rounds to >= 1,
+// decision. It applies the PhaseHelper timeout, clamps rounds to >= 1,
 // persists decisions, and emits DebateRoundCompleted events.
 func (d *DebateExecutor) Execute(ctx context.Context, state *PipelineState) error {
 	phaseCtx := ctx
-	if d.pipeline.config.PhaseTimeout > 0 {
-		var cancel context.CancelFunc
-		phaseCtx, cancel = context.WithTimeout(ctx, d.pipeline.config.PhaseTimeout)
-		defer cancel()
-	}
 
 	rounds := d.config.Rounds
 	if rounds < 1 {
-		d.pipeline.logger.Warn("agent/pipeline: invalid debate rounds; clamping to 1",
+		d.ctx.Logger.Warn("agent/pipeline: invalid debate rounds; clamping to 1",
 			slog.String("phase", string(d.config.Phase)),
 			slog.Int("configured_rounds", d.config.Rounds),
 		)
@@ -66,7 +74,7 @@ func (d *DebateExecutor) Execute(ctx context.Context, state *PipelineState) erro
 
 		// Execute each debater sequentially.
 		for _, debater := range d.config.Debaters {
-			d.pipeline.helper.persistStructuredEvent(phaseCtx, d.pipeline.helper.newStructuredEvent(
+			d.ctx.Helper.persistStructuredEvent(phaseCtx, d.ctx.Helper.newStructuredEvent(
 				state.PipelineRunID,
 				state.StrategyID,
 				AgentEventKindAgentStarted,
@@ -97,14 +105,14 @@ func (d *DebateExecutor) Execute(ctx context.Context, state *PipelineState) erro
 					return err
 				}
 			}
-			output, llmResponse, err := d.pipeline.decisionPayload(state, debater, &roundNumber)
+			output, llmResponse, err := d.ctx.DecisionPayload(state, debater, &roundNumber)
 			if err != nil {
 				return err
 			}
-			if err := d.pipeline.persister.PersistDecision(phaseCtx, state.PipelineRunID, debater, &roundNumber, output, llmResponse); err != nil {
+			if err := d.ctx.Persister.PersistDecision(phaseCtx, state.PipelineRunID, debater, &roundNumber, output, llmResponse); err != nil {
 				return err
 			}
-			d.pipeline.helper.persistStructuredEvent(phaseCtx, d.pipeline.helper.newStructuredEvent(
+			d.ctx.Helper.persistStructuredEvent(phaseCtx, d.ctx.Helper.newStructuredEvent(
 				state.PipelineRunID,
 				state.StrategyID,
 				AgentEventKindAgentCompleted,
@@ -119,7 +127,7 @@ func (d *DebateExecutor) Execute(ctx context.Context, state *PipelineState) erro
 				[]string{"agent", d.config.Phase.String()},
 			))
 		}
-		d.pipeline.helper.persistStructuredEvent(phaseCtx, d.pipeline.helper.newStructuredEvent(
+		d.ctx.Helper.persistStructuredEvent(phaseCtx, d.ctx.Helper.newStructuredEvent(
 			state.PipelineRunID,
 			state.StrategyID,
 			AgentEventKindDebateRoundCompleted,
@@ -134,7 +142,7 @@ func (d *DebateExecutor) Execute(ctx context.Context, state *PipelineState) erro
 		))
 
 		// Emit DebateRoundCompleted event.
-		if d.pipeline.events != nil {
+		if d.ctx.Events != nil {
 			event := PipelineEvent{
 				Type:          DebateRoundCompleted,
 				PipelineRunID: state.PipelineRunID,
@@ -142,16 +150,16 @@ func (d *DebateExecutor) Execute(ctx context.Context, state *PipelineState) erro
 				Ticker:        state.Ticker,
 				Phase:         d.config.Phase,
 				Round:         i,
-				OccurredAt:    d.pipeline.currentTime().UTC(),
+				OccurredAt:    d.ctx.NowFunc().UTC(),
 			}
 			select {
-			case d.pipeline.events <- event:
+			case d.ctx.Events <- event:
 			case <-phaseCtx.Done():
-				d.pipeline.logger.Debug("agent/pipeline: DebateRoundCompleted event dropped; phase context cancelled",
+				d.ctx.Logger.Debug("agent/pipeline: DebateRoundCompleted event dropped; phase context cancelled",
 					slog.Int("round", i),
 				)
 			default:
-				d.pipeline.logger.Debug("agent/pipeline: DebateRoundCompleted event dropped; events channel full",
+				d.ctx.Logger.Debug("agent/pipeline: DebateRoundCompleted event dropped; events channel full",
 					slog.Int("round", i),
 				)
 			}
@@ -159,7 +167,7 @@ func (d *DebateExecutor) Execute(ctx context.Context, state *PipelineState) erro
 	}
 
 	// Execute the judge node.
-	d.pipeline.helper.persistStructuredEvent(phaseCtx, d.pipeline.helper.newStructuredEvent(
+	d.ctx.Helper.persistStructuredEvent(phaseCtx, d.ctx.Helper.newStructuredEvent(
 		state.PipelineRunID,
 		state.StrategyID,
 		AgentEventKindAgentStarted,
@@ -188,14 +196,14 @@ func (d *DebateExecutor) Execute(ctx context.Context, state *PipelineState) erro
 			return err
 		}
 	}
-	output, llmResponse, err := d.pipeline.decisionPayload(state, d.config.Judge, nil)
+	output, llmResponse, err := d.ctx.DecisionPayload(state, d.config.Judge, nil)
 	if err != nil {
 		return err
 	}
-	if err := d.pipeline.persister.PersistDecision(phaseCtx, state.PipelineRunID, d.config.Judge, nil, output, llmResponse); err != nil {
+	if err := d.ctx.Persister.PersistDecision(phaseCtx, state.PipelineRunID, d.config.Judge, nil, output, llmResponse); err != nil {
 		return err
 	}
-	d.pipeline.helper.persistStructuredEvent(phaseCtx, d.pipeline.helper.newStructuredEvent(
+	d.ctx.Helper.persistStructuredEvent(phaseCtx, d.ctx.Helper.newStructuredEvent(
 		state.PipelineRunID,
 		state.StrategyID,
 		AgentEventKindAgentCompleted,
@@ -209,7 +217,7 @@ func (d *DebateExecutor) Execute(ctx context.Context, state *PipelineState) erro
 		[]string{"agent", d.config.Phase.String()},
 	))
 	if d.config.Phase == PhaseRiskDebate && state.RiskDebate.FinalSignal != "" {
-		d.pipeline.helper.persistStructuredEvent(phaseCtx, d.pipeline.helper.newStructuredEvent(
+		d.ctx.Helper.persistStructuredEvent(phaseCtx, d.ctx.Helper.newStructuredEvent(
 			state.PipelineRunID,
 			state.StrategyID,
 			AgentEventKindSignalProduced,

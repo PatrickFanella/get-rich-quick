@@ -157,8 +157,9 @@ func (t *Trader) Trade(ctx context.Context, input agent.TradingInput) (agent.Tra
 	promptText := agent.PromptTextFromMessages(messages)
 
 	resp, err := t.provider.Complete(ctx, llm.CompletionRequest{
-		Model:    t.model,
-		Messages: messages,
+		Model:          t.model,
+		Messages:       messages,
+		ResponseFormat: &llm.ResponseFormat{Type: llm.ResponseFormatJSONObject},
 	})
 	if err != nil {
 		return agent.TradingOutput{}, fmt.Errorf("trader (trading): llm completion failed: %w", err)
@@ -282,9 +283,12 @@ func ParseTradingPlan(content string) (*TradingPlanOutput, error) {
 
 // validateTradingPlan checks that the parsed plan has valid field values.
 func validateTradingPlan(plan *TradingPlanOutput) error {
+	plan.Action = strings.ToLower(strings.TrimSpace(plan.Action))
 	switch plan.Action {
 	case "buy", "sell", "hold":
 		// valid
+	case "wait", "none", "pass", "skip":
+		plan.Action = "hold"
 	case "":
 		return fmt.Errorf("trading plan missing required field: action")
 	default:

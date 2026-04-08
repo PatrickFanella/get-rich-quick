@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/data"
+	"github.com/PatrickFanella/get-rich-quick/internal/domain"
+	"github.com/PatrickFanella/get-rich-quick/internal/repository"
 	"github.com/PatrickFanella/get-rich-quick/internal/scheduler"
 	"github.com/PatrickFanella/get-rich-quick/internal/universe"
 )
@@ -91,6 +93,33 @@ func (o *JobOrchestrator) hotScan(ctx context.Context) error {
 			slog.String("ticker", m.ticker),
 			slog.Float64("change_pct", m.changePct),
 		)
+	}
+
+	// Trigger active strategies for significant movers (|change| > 3%).
+	if o.deps.StrategyTrigger != nil {
+		significantTickers := make(map[string]float64)
+		for _, m := range topMovers {
+			if math.Abs(m.changePct) > 3.0 {
+				significantTickers[m.ticker] = m.changePct
+			}
+		}
+		if len(significantTickers) > 0 {
+			strategies, listErr := o.deps.StrategyRepo.List(ctx, repository.StrategyFilter{
+				Status: domain.StrategyStatusActive,
+			}, 0, 0)
+			if listErr == nil {
+				for _, s := range strategies {
+					if changePct, ok := significantTickers[s.Ticker]; ok {
+						o.logger.Info("hot_scan: triggering strategy for significant move",
+							slog.String("ticker", s.Ticker),
+							slog.String("strategy_id", s.ID.String()),
+							slog.Float64("change_pct", changePct),
+						)
+						o.deps.StrategyTrigger.TriggerStrategy(s)
+					}
+				}
+			}
+		}
 	}
 
 	o.logger.Info("hot_scan: complete", slog.Int("scanned", len(tickers)))

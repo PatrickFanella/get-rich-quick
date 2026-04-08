@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/llm"
+	"github.com/PatrickFanella/get-rich-quick/internal/llm/parse"
 	openaisdk "github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/shared"
@@ -129,7 +130,7 @@ func (p *Provider) Complete(ctx context.Context, request llm.CompletionRequest) 
 	}
 
 	return &llm.CompletionResponse{
-		Content: completion.Choices[0].Message.Content,
+		Content: parse.StripThinkingTags(completion.Choices[0].Message.Content),
 		Usage: llm.CompletionUsage{
 			PromptTokens:     int(completion.Usage.PromptTokens),
 			CompletionTokens: int(completion.Usage.CompletionTokens),

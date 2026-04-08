@@ -291,6 +291,13 @@ func (s *Scheduler) Start() error {
 	return nil
 }
 
+// TriggerStrategy triggers an immediate pipeline run for the given strategy,
+// subject to the same concurrency semaphore and dedup guards as cron-triggered
+// runs. Execution is asynchronous; this method returns immediately.
+func (s *Scheduler) TriggerStrategy(strategy domain.Strategy) {
+	go s.runStrategy(strategy)
+}
+
 // Stop gracefully stops the cron engine and waits for running jobs to finish.
 func (s *Scheduler) Stop() {
 	s.mu.Lock()

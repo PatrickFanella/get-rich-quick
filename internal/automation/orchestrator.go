@@ -12,6 +12,7 @@ import (
 
 	"github.com/PatrickFanella/get-rich-quick/internal/data"
 	"github.com/PatrickFanella/get-rich-quick/internal/data/polygon"
+	"github.com/PatrickFanella/get-rich-quick/internal/domain"
 	"github.com/PatrickFanella/get-rich-quick/internal/data/rss"
 	"github.com/PatrickFanella/get-rich-quick/internal/llm"
 	"github.com/PatrickFanella/get-rich-quick/internal/repository"
@@ -32,6 +33,12 @@ func mustLoadEastern() *time.Location {
 	return loc
 }
 
+// StrategyTrigger triggers an immediate pipeline run for a strategy.
+// The scheduler satisfies this interface.
+type StrategyTrigger interface {
+	TriggerStrategy(strategy domain.Strategy)
+}
+
 // OrchestratorDeps bundles external dependencies required by the orchestrator.
 type OrchestratorDeps struct {
 	Universe        *universe.Universe
@@ -45,6 +52,7 @@ type OrchestratorDeps struct {
 	JobRunRepo      *pgrepo.JobRunRepo
 	OptionsScanRepo *pgrepo.OptionsScanRepo
 	NewsFeedRepo    *pgrepo.NewsFeedRepo
+	StrategyTrigger StrategyTrigger // optional; nil = no event-driven triggers
 	Logger          *slog.Logger
 }
 
