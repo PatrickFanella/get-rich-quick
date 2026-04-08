@@ -2,7 +2,7 @@
 title: "Roadmap"
 description: "Planned and proposed future work inferred from the current codebase and existing design material."
 status: "canonical"
-updated: "2026-04-03"
+updated: "2026-04-08"
 tags: [roadmap, planning]
 ---
 
@@ -24,22 +24,22 @@ The highest-leverage future work is not adding yet another speculative feature. 
 
 ### 2. Close security and safety gaps
 
-- Put authentication or signed access in front of the WebSocket endpoint.
-- Persist kill-switch and critical safety state more explicitly across restarts.
-- tighten auditability around operator actions, manual runs, and settings changes.
+- ~~Put authentication or signed access in front of the WebSocket endpoint.~~ ✓ Done
+- ~~Persist kill-switch and critical safety state more explicitly across restarts.~~ ✓ Done
+- ~~Tighten auditability around operator actions, manual runs, and settings changes.~~ ✓ Done — kill-switch toggle, market kill-switch stop/resume, settings changes, manual strategy runs, user registration, and API key lifecycle events now all write to the audit log.
 
 ### 3. Finish settings and control-plane persistence
 
-- Replace the in-memory settings service with a persisted configuration model.
-- define precedence between environment config, persisted settings, and per-strategy overrides.
+- ~~Replace the in-memory settings service with a persisted configuration model.~~ ✓ Done — settings persist to `app_settings` table (migration 000024).
+- Define precedence between environment config, persisted settings, and per-strategy overrides.
 - Make broker/provider configuration edits survive restarts.
 
 ### 4. Turn partial features into supported features
 
-- finish the realtime page and its backing UX flows once merge conflicts are resolved
-- expose backtest capabilities through supported API/UI routes
-- clarify or complete Polymarket execution behavior
-- wire remaining data-provider surfaces that are already represented in config
+- Finish the realtime page and its backing UX flows once merge conflicts are resolved.
+- ~~Expose backtest capabilities through supported API/UI routes.~~ ✓ Done — `GET/POST /api/v1/backtests/configs`, `POST .../run`, `GET /api/v1/backtests/runs` are live.
+- ~~Clarify or complete Polymarket execution behavior.~~ ✓ Done — fully wired; see `docs/known-issues.md`.
+- Wire remaining data-provider surfaces that are already represented in config.
 
 ## Medium-term product work
 
@@ -85,11 +85,11 @@ The highest-leverage future work is not adding yet another speculative feature. 
 
 Even though the repository contains code, docs, or type surfaces for these areas, they are not yet presented as fully finished product capabilities:
 
-- durable settings persistence
-- authenticated WebSocket access
-- end-user account management/registration
-- full backtest product surface
-- complete social/news provider coverage across all market types
+- ~~durable settings persistence~~ ✓ persisted (migration 000024)
+- ~~authenticated WebSocket access~~ ✓ enforced
+- ~~end-user account management/registration~~ ✓ registration and API key management are live
+- ~~full backtest product surface~~ ✓ exposed
+- complete social/news provider coverage across all market types (Finnhub required for sentiment)
 - fully settled realtime UI implementation
 
 ## How to use this roadmap

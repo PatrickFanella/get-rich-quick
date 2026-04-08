@@ -178,6 +178,8 @@ func (s *Server) handleRunStrategy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.BroadcastRunResult(result)
+	s.writeAuditLog(r.Context(), actorOf(r), "strategy.manual_run", "strategy", &id,
+		map[string]string{"ticker": strategy.Ticker})
 	respondJSON(w, http.StatusOK, result)
 }
 
@@ -710,11 +712,14 @@ func (s *Server) handleKillSwitchToggle(w http.ResponseWriter, r *http.Request) 
 			respondError(w, http.StatusInternalServerError, "failed to activate kill switch", ErrCodeInternal)
 			return
 		}
+		s.writeAuditLog(r.Context(), actorOf(r), "kill_switch.activated", "system", nil,
+			map[string]string{"reason": body.Reason})
 	} else {
 		if err := s.risk.DeactivateKillSwitch(r.Context()); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to deactivate kill switch", ErrCodeInternal)
 			return
 		}
+		s.writeAuditLog(r.Context(), actorOf(r), "kill_switch.deactivated", "system", nil, nil)
 	}
 	respondJSON(w, http.StatusOK, map[string]bool{"active": body.Active})
 }
@@ -743,12 +748,16 @@ func (s *Server) handleMarketKillSwitch(w http.ResponseWriter, r *http.Request) 
 			respondError(w, http.StatusInternalServerError, "failed to activate market kill switch", ErrCodeInternal)
 			return
 		}
+		s.writeAuditLog(r.Context(), actorOf(r), "market_kill_switch.activated", "market", nil,
+			map[string]string{"market_type": string(marketType), "reason": body.Reason})
 		respondJSON(w, http.StatusOK, map[string]any{"market_type": marketType, "active": true})
 	case "resume":
 		if err := s.risk.DeactivateMarketKillSwitch(r.Context(), marketType); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to deactivate market kill switch", ErrCodeInternal)
 			return
 		}
+		s.writeAuditLog(r.Context(), actorOf(r), "market_kill_switch.deactivated", "market", nil,
+			map[string]string{"market_type": string(marketType)})
 		respondJSON(w, http.StatusOK, map[string]any{"market_type": marketType, "active": false})
 	default:
 		respondError(w, http.StatusNotFound, "unknown action", ErrCodeNotFound)
@@ -776,6 +785,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, err.Error(), ErrCodeValidation)
 		return
 	}
+	s.writeAuditLog(r.Context(), actorOf(r), "settings.updated", "settings", nil, nil)
 	respondJSON(w, http.StatusOK, settings)
 }
 
@@ -827,6 +837,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to create user", ErrCodeInternal)
 		return
 	}
+	s.writeAuditLog(r.Context(), user.Username, "user.registered", "user", &user.ID, nil)
 
 	tokenPair, err := s.auth.GenerateTokenPair(user.Username)
 	if err != nil {
@@ -905,6 +916,7 @@ func (s *Server) handleSkipNextStrategy(w http.ResponseWriter, r *http.Request) 
 		respondError(w, http.StatusInternalServerError, "failed to update strategy", ErrCodeInternal)
 		return
 	}
+	s.writeAuditLog(r.Context(), actorOf(r), "strategy.skip_next", "strategy", &id, nil)
 	respondJSON(w, http.StatusOK, strategy)
 }
 
@@ -933,6 +945,7 @@ func (s *Server) handleStrategyTransition(w http.ResponseWriter, r *http.Request
 		respondError(w, http.StatusInternalServerError, "failed to update strategy", ErrCodeInternal)
 		return
 	}
+	s.writeAuditLog(r.Context(), actorOf(r), "strategy."+verb+"d", "strategy", &id, nil)
 	respondJSON(w, http.StatusOK, strategy)
 }
 
@@ -1388,6 +1401,8 @@ func (s *Server) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to create api key", ErrCodeInternal)
 		return
 	}
+	s.writeAuditLog(r.Context(), actorOf(r), "api_key.created", "api_key", &key.ID,
+		map[string]string{"name": key.Name})
 
 	respondJSON(w, http.StatusCreated, struct {
 		Key      string         `json:"key"`
@@ -1413,8 +1428,47 @@ func (s *Server) handleRevokeAPIKey(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to revoke api key", ErrCodeInternal)
 		return
 	}
+	s.writeAuditLog(r.Context(), actorOf(r), "api_key.revoked", "api_key", &id, nil)
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// actorOf extracts the authenticated subject name from the request context.
+// Returns an empty string when the request is unauthenticated.
+func actorOf(r *http.Request) string {
+	if p, ok := PrincipalFromContext(r.Context()); ok {
+		return p.Subject
+	}
+	return ""
+}
+
+// writeAuditLog persists an audit log entry on a best-effort basis.
+// Errors are logged but not propagated to avoid blocking the calling handler.
+func (s *Server) writeAuditLog(ctx context.Context, actor, eventType, entityType string, entityID *uuid.UUID, details any) {
+	if s.auditLog == nil {
+		return
+	}
+	var raw json.RawMessage
+	if details != nil {
+		if b, err := json.Marshal(details); err == nil {
+			raw = b
+		}
+	}
+	entry := &domain.AuditLogEntry{
+		ID:         uuid.New(),
+		EventType:  eventType,
+		EntityType: entityType,
+		EntityID:   entityID,
+		Actor:      actor,
+		Details:    raw,
+		CreatedAt:  time.Now().UTC(),
+	}
+	if err := s.auditLog.Create(ctx, entry); err != nil {
+		s.logger.Warn("audit log write failed",
+			slog.String("event_type", eventType),
+			slog.String("error", err.Error()),
+		)
+	}
 }
 
 // titleCase capitalises the first letter of each whitespace-delimited word.

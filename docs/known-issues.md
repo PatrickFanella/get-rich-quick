@@ -2,7 +2,7 @@
 title: "Known Issues"
 description: "Current implementation gaps, repo-health problems, and behavioral caveats for get-rich-quick."
 status: "canonical"
-updated: "2026-04-08"
+updated: "2026-04-08T16:00:00Z"
 tags: [known-issues, limitations]
 ---
 
@@ -88,6 +88,24 @@ are unchanged and always re-evaluated at runtime.
 `runtimePipelineTimeout` now derives a finite wall-clock budget from the per-phase
 timeout settings: `(analysts × analysis_timeout) + (2 × rounds × debate_timeout) + overhead`.
 Falls back to 30 minutes when any constituent is unconfigured.
+
+### ~~Operator actions were not audited~~ ✓ Fixed
+
+`internal/api/handlers.go` now writes an `AuditLogEntry` (best-effort, never blocks the handler)
+for every critical operator action:
+
+| Event type | Trigger |
+| --- | --- |
+| `kill_switch.activated` / `.deactivated` | `POST /api/v1/risk/killswitch` |
+| `market_kill_switch.activated` / `.deactivated` | `POST /api/v1/risk/markets/{type}/stop\|resume` |
+| `settings.updated` | `PUT /api/v1/settings` |
+| `strategy.manual_run` | `POST /api/v1/strategies/{id}/run` |
+| `strategy.pausedd` / `.resumedd` | `POST /api/v1/strategies/{id}/pause\|resume` |
+| `strategy.skip_next` | `POST /api/v1/strategies/{id}/skip-next` |
+| `user.registered` | `POST /api/v1/auth/register` |
+| `api_key.created` / `.revoked` | `POST/DELETE /api/v1/api-keys` |
+
+Entries are queryable via `GET /api/v1/audit-log`.
 
 ## Documentation caveats
 
