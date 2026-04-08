@@ -780,8 +780,14 @@ func (s *Server) handleListMemories(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
 	query := q.Get("q")
-	filter := repository.MemorySearchFilter{
-		AgentRole: domain.AgentRole(q.Get("agent_role")),
+	filter := repository.MemorySearchFilter{}
+	if ar := q.Get("agent_role"); ar != "" {
+		role := domain.AgentRole(ar)
+		if !role.IsValid() {
+			respondError(w, http.StatusBadRequest, "invalid agent_role", ErrCodeBadRequest)
+			return
+		}
+		filter.AgentRole = role
 	}
 
 	memories, err := s.memories.Search(r.Context(), query, filter, limit, offset)
@@ -1121,7 +1127,12 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if v := q.Get("agent_role"); v != "" {
-		filter.AgentRole = domain.AgentRole(v)
+		role := domain.AgentRole(v)
+		if !role.IsValid() {
+			respondError(w, http.StatusBadRequest, "invalid agent_role", ErrCodeBadRequest)
+			return
+		}
+		filter.AgentRole = role
 	}
 	if v := q.Get("after"); v != "" {
 		t, err := time.Parse(time.RFC3339Nano, v)

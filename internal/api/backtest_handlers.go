@@ -53,6 +53,10 @@ func (s *Server) handleCreateBacktestConfig(w http.ResponseWriter, r *http.Reque
 		respondError(w, http.StatusBadRequest, err.Error(), ErrCodeValidation)
 		return
 	}
+	if err := validateScheduleCron(config.ScheduleCron); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error(), ErrCodeValidation)
+		return
+	}
 	config.ID = uuid.New()
 	if err := s.backtestConfigs.Create(r.Context(), &config); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to create backtest config", ErrCodeInternal)
@@ -92,6 +96,10 @@ func (s *Server) handleUpdateBacktestConfig(w http.ResponseWriter, r *http.Reque
 	}
 	config.ID = id
 	if err := config.Validate(); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error(), ErrCodeValidation)
+		return
+	}
+	if err := validateScheduleCron(config.ScheduleCron); err != nil {
 		respondError(w, http.StatusBadRequest, err.Error(), ErrCodeValidation)
 		return
 	}

@@ -2888,3 +2888,123 @@ func TestCreateConversationMessage_ConversationNotFound(t *testing.T) {
 		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusNotFound, rr.Body.String())
 	}
 }
+
+// ---------------------------------------------------------------------------
+// stubBacktestConfigRepo
+// ---------------------------------------------------------------------------
+
+type stubBacktestConfigRepo struct {
+	items map[uuid.UUID]*domain.BacktestConfig
+}
+
+func newStubBacktestConfigRepo() *stubBacktestConfigRepo {
+	return &stubBacktestConfigRepo{items: map[uuid.UUID]*domain.BacktestConfig{}}
+}
+
+func (s *stubBacktestConfigRepo) Create(_ context.Context, c *domain.BacktestConfig) error {
+	c.ID = uuid.New()
+	s.items[c.ID] = c
+	return nil
+}
+func (s *stubBacktestConfigRepo) Get(_ context.Context, id uuid.UUID) (*domain.BacktestConfig, error) {
+	c, ok := s.items[id]
+	if !ok {
+		return nil, fmt.Errorf("backtest config %v: %w", id, repository.ErrNotFound)
+	}
+	return c, nil
+}
+func (s *stubBacktestConfigRepo) List(_ context.Context, _ repository.BacktestConfigFilter, _, _ int) ([]domain.BacktestConfig, error) {
+	return nil, nil
+}
+func (s *stubBacktestConfigRepo) Count(_ context.Context, _ repository.BacktestConfigFilter) (int, error) {
+	return 0, nil
+}
+func (s *stubBacktestConfigRepo) Update(_ context.Context, c *domain.BacktestConfig) error {
+	if _, ok := s.items[c.ID]; !ok {
+		return fmt.Errorf("backtest config %v: %w", c.ID, repository.ErrNotFound)
+	}
+	s.items[c.ID] = c
+	return nil
+}
+func (s *stubBacktestConfigRepo) Delete(_ context.Context, id uuid.UUID) error {
+	delete(s.items, id)
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// BacktestConfig schedule_cron validation (#wave27)
+// ---------------------------------------------------------------------------
+
+func TestCreateBacktestConfigRejectsInvalidCron(t *testing.T) {
+	t.Parallel()
+
+	deps := testDeps()
+	// BacktestConfigs intentionally nil — handler returns before reaching Create.
+	srv := newTestServerWithDeps(t, deps)
+
+	body := map[string]any{
+		"strategy_id":   stratA.ID.String(),
+		"name":          "My Backtest",
+		"start_date":    "2024-01-01T00:00:00Z",
+		"end_date":      "2024-12-31T00:00:00Z",
+		"schedule_cron": "not-a-cron",
+		"simulation":    map[string]any{"initial_capital": 10000.0},
+	}
+	rr := doRequest(t, srv, http.MethodPost, "/api/v1/backtests/configs", body)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestCreateBacktestConfigAcceptsValidCron(t *testing.T) {
+	t.Parallel()
+
+	deps := testDeps()
+	deps.BacktestConfigs = newStubBacktestConfigRepo()
+	srv := newTestServerWithDeps(t, deps)
+
+	body := map[string]any{
+		"strategy_id":   stratA.ID.String(),
+		"name":          "My Backtest",
+		"start_date":    "2024-01-01T00:00:00Z",
+		"end_date":      "2024-12-31T00:00:00Z",
+		"schedule_cron": "0 9 * * 1-5",
+		"simulation":    map[string]any{"initial_capital": 10000.0},
+	}
+	rr := doRequest(t, srv, http.MethodPost, "/api/v1/backtests/configs", body)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// handleListMemories agent_role validation (#wave27)
+// ---------------------------------------------------------------------------
+
+func TestListMemoriesRejectsBadAgentRole(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+
+	rr := doRequest(t, srv, http.MethodGet, "/api/v1/memories?agent_role=invalid_role", nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// handleListEvents agent_role validation (#wave27)
+// ---------------------------------------------------------------------------
+
+func TestListEventsRejectsBadAgentRole(t *testing.T) {
+	t.Parallel()
+
+	deps := testDeps()
+	deps.Events = &stubEventRepo{}
+	srv := newTestServerWithDeps(t, deps)
+
+	rr := doRequest(t, srv, http.MethodGet, "/api/v1/events?agent_role=not_a_role", nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", rr.Code, rr.Body.String())
+	}
+}
