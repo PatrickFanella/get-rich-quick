@@ -72,6 +72,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 	jobRunRepo := pgrepo.NewJobRunRepo(db.Pool)
 	optionsScanRepo := pgrepo.NewOptionsScanRepo(db.Pool)
 	newsFeedRepo := pgrepo.NewNewsFeedRepo(db.Pool)
+	polymarketAccountRepo := pgrepo.NewPolymarketAccountRepo(db.Pool)
 
 	riskEngine := risk.NewRiskEngine(
 		risk.PositionLimits{
@@ -231,19 +232,21 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 				polygonClientForAuto = polygon.NewClient(cfg.DataProviders.Polygon.APIKey, logger)
 			}
 			orch := automation.NewJobOrchestrator(automation.OrchestratorDeps{
-				Universe:        deps.Universe,
-				Polygon:         polygonClientForAuto,
-				DataService:     dataService,
-				OptionsProvider: deps.OptionsProvider,
-				LLMProvider:     deps.LLMProvider,
-				EventsProvider:  deps.EventsProvider,
-				StrategyRepo:    strategyRepo,
-				RunRepo:         runRepo,
-				JobRunRepo:      jobRunRepo,
-				OptionsScanRepo: optionsScanRepo,
-				NewsFeedRepo:    newsFeedRepo,
-				StrategyTrigger: sched,
-				Logger:          logger,
+				Universe:              deps.Universe,
+				Polygon:               polygonClientForAuto,
+				DataService:           dataService,
+				OptionsProvider:       deps.OptionsProvider,
+				LLMProvider:           deps.LLMProvider,
+				EventsProvider:        deps.EventsProvider,
+				StrategyRepo:          strategyRepo,
+				RunRepo:               runRepo,
+				JobRunRepo:            jobRunRepo,
+				OptionsScanRepo:       optionsScanRepo,
+				NewsFeedRepo:          newsFeedRepo,
+				PolymarketAccountRepo: polymarketAccountRepo,
+				PolymarketCLOBURL:     cfg.Brokers.Polymarket.CLOBURL,
+				StrategyTrigger:       sched,
+				Logger:                logger,
 			})
 			orch.RegisterAll()
 			if err := orch.Start(); err != nil {
@@ -254,6 +257,16 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 			deps.Automation = orch
 		}
 	}
+
+	// Wire signal intelligence: EventStore, WatchIndex, SignalHub, TriggerHandler.
+	// Pass the scheduler as the trigger runner (it satisfies signal.StrategyTriggerer).
+	// If the scheduler is nil (scheduler feature disabled), buildSignalInfra still
+	// returns a live store and watch index for the API, but the hub won't start.
+	signalStore, signalWatchIndex, signalShutdown := buildSignalInfra(
+		ctx, cfg, strategyRepo, polymarketAccountRepo, deps.LLMProvider, sched, logger,
+	)
+	deps.SignalStore = signalStore
+	deps.WatchIndex = signalWatchIndex
 
 	// Wire universe to API deps if not already set (non-discovery path).
 	if deps.Universe == nil && strings.TrimSpace(cfg.DataProviders.Polygon.APIKey) != "" {
@@ -285,6 +298,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 	}
 
 	return server, schedLifecycle, func() {
+		signalShutdown()
 		closeRedis()
 		db.Close()
 	}, nil

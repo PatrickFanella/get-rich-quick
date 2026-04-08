@@ -233,13 +233,49 @@ func (p *Provider) GetNews(ctx context.Context, ticker string, from, to time.Tim
 	return articles, nil
 }
 
-// GetSocialSentiment is not supported by the Finnhub provider.
-func (p *Provider) GetSocialSentiment(_ context.Context, _ string, _, _ time.Time) ([]data.SocialSentiment, error) {
+// GetSocialSentiment returns aggregated social sentiment data from Finnhub's
+// Reddit + Twitter sentiment endpoints for the given ticker and date range.
+// Each returned entry covers one calendar day.
+func (p *Provider) GetSocialSentiment(ctx context.Context, ticker string, from, to time.Time) ([]data.SocialSentiment, error) {
 	if p == nil {
 		return nil, errors.New("finnhub: provider is nil")
 	}
 
-	return nil, fmt.Errorf("finnhub: GetSocialSentiment: %w", data.ErrNotImplemented)
+	days, err := p.client.GetSocialSentiment(ctx, ticker, from, to)
+	if err != nil {
+		return nil, err
+	}
+	if len(days) == 0 {
+		return nil, nil
+	}
+
+	out := make([]data.SocialSentiment, 0, len(days))
+	for _, d := range days {
+		t, err := time.Parse("2006-01-02", d.AtTime)
+		if err != nil {
+			continue
+		}
+		totalMentions := d.Reddit.Mention + d.Twitter.Mention
+		positiveMentions := d.Reddit.PositiveMention + d.Twitter.PositiveMention
+		negativeMentions := d.Reddit.NegativeMention + d.Twitter.NegativeMention
+
+		var score, bullish, bearish float64
+		if totalMentions > 0 {
+			bullish = float64(positiveMentions) / float64(totalMentions)
+			bearish = float64(negativeMentions) / float64(totalMentions)
+			score = bullish - bearish // range [-1, 1]
+		}
+
+		out = append(out, data.SocialSentiment{
+			Ticker:    ticker,
+			Score:     score,
+			Bullish:   bullish,
+			Bearish:   bearish,
+			PostCount: totalMentions,
+			MeasuredAt: t,
+		})
+	}
+	return out, nil
 }
 
 // ── Events response types ──────────────────────────────────────────────

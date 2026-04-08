@@ -183,6 +183,23 @@ func (r *StrategyRepo) UpdateThesis(ctx context.Context, strategyID uuid.UUID, t
 	return nil
 }
 
+// GetThesisRaw returns the serialised active thesis JSON for the given strategy.
+// Returns nil, nil when no thesis is stored.
+func (r *StrategyRepo) GetThesisRaw(ctx context.Context, strategyID uuid.UUID) (json.RawMessage, error) {
+	var raw []byte
+	err := r.pool.QueryRow(ctx,
+		`SELECT active_thesis FROM strategies WHERE id = $1`,
+		strategyID,
+	).Scan(&raw)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("postgres: get thesis %s: %w", strategyID, err)
+	}
+	return json.RawMessage(raw), nil
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

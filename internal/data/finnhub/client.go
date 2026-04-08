@@ -185,6 +185,45 @@ func (e *ErrorResponse) Error() string {
 	return fmt.Sprintf("finnhub: %s (status=%d)", message, e.statusCode)
 }
 
+// socialSentimentDay is one day's social sentiment data from Finnhub.
+type socialSentimentDay struct {
+	AtTime string `json:"atTime"`
+	Reddit struct {
+		Mention         int `json:"mention"`
+		PositiveMention int `json:"positiveMention"`
+		NegativeMention int `json:"negativeMention"`
+	} `json:"reddit"`
+	Twitter struct {
+		Mention         int `json:"mention"`
+		PositiveMention int `json:"positiveMention"`
+		NegativeMention int `json:"negativeMention"`
+	} `json:"twitter"`
+}
+
+type socialSentimentResponse struct {
+	Symbol string               `json:"symbol"`
+	Data   []socialSentimentDay `json:"data"`
+}
+
+// GetSocialSentiment returns daily social sentiment from Finnhub for the given
+// ticker and date range. Aggregates Reddit + Twitter mentions.
+func (c *Client) GetSocialSentiment(ctx context.Context, symbol string, from, to time.Time) ([]socialSentimentDay, error) {
+	params := url.Values{
+		"symbol": {symbol},
+		"from":   {from.Format("2006-01-02")},
+		"to":     {to.Format("2006-01-02")},
+	}
+	body, err := c.Get(ctx, "/stock/social-sentiment", params)
+	if err != nil {
+		return nil, fmt.Errorf("finnhub: GetSocialSentiment %s: %w", symbol, err)
+	}
+	var resp socialSentimentResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("finnhub: GetSocialSentiment %s: unmarshal: %w", symbol, err)
+	}
+	return resp.Data, nil
+}
+
 func parseErrorResponse(statusCode int, body []byte) *ErrorResponse {
 	errResp := &ErrorResponse{statusCode: statusCode}
 	if len(body) == 0 {

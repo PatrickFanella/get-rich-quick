@@ -177,6 +177,9 @@ type StrategyRepository interface {
 	// UpdateThesis persists the serialised active thesis for the given strategy.
 	// Passing nil clears the stored thesis.
 	UpdateThesis(ctx context.Context, strategyID uuid.UUID, thesis json.RawMessage) error
+	// GetThesisRaw returns the serialised active thesis JSON for the given strategy.
+	// Returns nil, nil when no thesis is stored.
+	GetThesisRaw(ctx context.Context, strategyID uuid.UUID) (json.RawMessage, error)
 }
 
 // BacktestConfigRepository provides CRUD operations for backtest configurations.
