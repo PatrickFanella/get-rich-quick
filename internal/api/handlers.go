@@ -111,10 +111,28 @@ func (s *Server) handleListStrategies(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
 	filter := repository.StrategyFilter{
-		Ticker:     q.Get("ticker"),
-		MarketType: domain.MarketType(q.Get("market_type")),
-		Status:     q.Get("status"),
+		Ticker: q.Get("ticker"),
 	}
+
+	if mt := q.Get("market_type"); mt != "" {
+		m := domain.MarketType(mt)
+		if !m.IsValid() {
+			respondError(w, http.StatusBadRequest, "invalid market_type", ErrCodeBadRequest)
+			return
+		}
+		filter.MarketType = m
+	}
+
+	if status := q.Get("status"); status != "" {
+		switch status {
+		case domain.StrategyStatusActive, domain.StrategyStatusPaused, domain.StrategyStatusInactive:
+		default:
+			respondError(w, http.StatusBadRequest, "invalid status", ErrCodeBadRequest)
+			return
+		}
+		filter.Status = status
+	}
+
 	if v := q.Get("is_paper"); v != "" {
 		b := v == "true"
 		filter.IsPaper = &b
@@ -278,8 +296,17 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 
 	filter := repository.PipelineRunFilter{
 		Ticker: q.Get("ticker"),
-		Status: domain.PipelineStatus(q.Get("status")),
 	}
+
+	if status := q.Get("status"); status != "" {
+		ps := domain.PipelineStatus(status)
+		if !ps.IsValid() {
+			respondError(w, http.StatusBadRequest, "invalid status", ErrCodeBadRequest)
+			return
+		}
+		filter.Status = ps
+	}
+
 	if v := q.Get("strategy_id"); v != "" {
 		if id, err := uuid.Parse(v); err == nil {
 			filter.StrategyID = &id
@@ -300,6 +327,14 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		filter.StartedBefore = &endDate
+	}
+	if tradeDateStr := q.Get("trade_date"); tradeDateStr != "" {
+		tradeDate, err := time.Parse(time.RFC3339, tradeDateStr)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, "invalid trade_date", ErrCodeBadRequest)
+			return
+		}
+		filter.TradeDate = &tradeDate
 	}
 
 	runs, err := s.runs.List(r.Context(), filter, limit, offset)

@@ -196,8 +196,8 @@ Response:
 - auth: required
 - filters:
   - `ticker`
-  - `market_type` (`stock`, `crypto`, `polymarket`)
-  - `status` (`active`, `paused`, `inactive`)
+  - `market_type` (`stock`, `crypto`, `polymarket`, `options`) — invalid value returns `400`
+  - `status` (`active`, `paused`, `inactive`) — invalid value returns `400`
   - `is_paper` (`true` / `false`)
   - `limit` / `offset`
 - response includes `total` (total matching rows, regardless of pagination)
@@ -260,8 +260,8 @@ Response:
 - filters:
   - `strategy_id` (UUID)
   - `ticker`
-  - `status` (`pending`, `running`, `completed`, `failed`, `cancelled`)
-  - `trade_date` (RFC3339 date)
+  - `status` (`running`, `completed`, `failed`, `cancelled`) — invalid value returns `400`
+  - `trade_date` (RFC3339 timestamp) — filters to runs for that specific trade date
   - `start_date` / `end_date` (RFC3339 timestamp, filter on `started_at`)
   - `limit` / `offset`
 - response includes `total` (total matching rows, regardless of pagination)

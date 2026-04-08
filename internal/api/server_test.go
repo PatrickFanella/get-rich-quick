@@ -690,6 +690,44 @@ func TestListStrategiesStatusFilter(t *testing.T) {
 	}
 }
 
+func TestListStrategiesRejectsBadEnums(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t)
+
+	cases := []struct {
+		param string
+		value string
+	}{
+		{"market_type", "futures"},
+		{"status", "broken"},
+	}
+	for _, tc := range cases {
+		rr := doRequest(t, srv, http.MethodGet, "/api/v1/strategies?"+tc.param+"="+tc.value, nil)
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("param %s=%s: status = %d, want 400", tc.param, tc.value, rr.Code)
+		}
+	}
+}
+
+func TestListStrategiesAcceptsValidEnums(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t)
+
+	cases := []string{
+		"/api/v1/strategies?market_type=stock",
+		"/api/v1/strategies?market_type=crypto",
+		"/api/v1/strategies?status=active",
+		"/api/v1/strategies?status=paused",
+		"/api/v1/strategies?status=inactive",
+	}
+	for _, url := range cases {
+		rr := doRequest(t, srv, http.MethodGet, url, nil)
+		if rr.Code != http.StatusOK {
+			t.Errorf("%s: status = %d, want 200", url, rr.Code)
+		}
+	}
+}
+
 func TestCreateStrategyValidation(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t)
@@ -923,6 +961,48 @@ func TestListRuns(t *testing.T) {
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+}
+
+func TestListRunsRejectsBadStatus(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t)
+
+	rr := doRequest(t, srv, http.MethodGet, "/api/v1/runs?status=bogus", nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rr.Code)
+	}
+}
+
+func TestListRunsAcceptsValidStatus(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t)
+
+	for _, s := range []string{"running", "completed", "failed", "cancelled"} {
+		rr := doRequest(t, srv, http.MethodGet, "/api/v1/runs?status="+s, nil)
+		if rr.Code != http.StatusOK {
+			t.Errorf("status=%s: got %d, want 200", s, rr.Code)
+		}
+	}
+}
+
+func TestListRunsAcceptsTradeDate(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t)
+
+	rr := doRequest(t, srv, http.MethodGet, "/api/v1/runs?trade_date=2026-01-15T00:00:00Z", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+}
+
+func TestListRunsRejectsBadTradeDate(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t)
+
+	rr := doRequest(t, srv, http.MethodGet, "/api/v1/runs?trade_date=not-a-date", nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rr.Code)
 	}
 }
 
