@@ -529,11 +529,35 @@ func (s *Server) handleListOrders(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
 	filter := repository.OrderFilter{
-		Ticker:    q.Get("ticker"),
-		Status:    domain.OrderStatus(q.Get("status")),
-		Side:      domain.OrderSide(q.Get("side")),
-		Broker:    q.Get("broker"),
-		OrderType: domain.OrderType(q.Get("order_type")),
+		Ticker: q.Get("ticker"),
+		Broker: q.Get("broker"),
+	}
+
+	if status := q.Get("status"); status != "" {
+		s := domain.OrderStatus(status)
+		if !s.IsValid() {
+			respondError(w, http.StatusBadRequest, "invalid status", ErrCodeBadRequest)
+			return
+		}
+		filter.Status = s
+	}
+
+	if side := q.Get("side"); side != "" {
+		s := domain.OrderSide(side)
+		if !s.IsValid() {
+			respondError(w, http.StatusBadRequest, "invalid side", ErrCodeBadRequest)
+			return
+		}
+		filter.Side = s
+	}
+
+	if orderType := q.Get("order_type"); orderType != "" {
+		ot := domain.OrderType(orderType)
+		if !ot.IsValid() {
+			respondError(w, http.StatusBadRequest, "invalid order_type", ErrCodeBadRequest)
+			return
+		}
+		filter.OrderType = ot
 	}
 
 	orders, err := s.orders.List(r.Context(), filter, limit, offset)

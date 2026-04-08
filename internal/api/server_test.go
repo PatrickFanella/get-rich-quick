@@ -1072,6 +1072,62 @@ func TestListOrders(t *testing.T) {
 	}
 }
 
+func TestListOrdersRejectsBadEnums(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t)
+
+	cases := []struct {
+		param string
+		value string
+	}{
+		{"status", "notastatus"},
+		{"side", "sideways"},
+		{"order_type", "weird"},
+	}
+	for _, tc := range cases {
+		rr := doRequest(t, srv, http.MethodGet, "/api/v1/orders?"+tc.param+"="+tc.value, nil)
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("param %s=%s: status = %d, want 400", tc.param, tc.value, rr.Code)
+		}
+	}
+}
+
+func TestListOrdersAcceptsValidFilters(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t)
+
+	// Valid enum values should return 200, not 400.
+	rr := doRequest(t, srv, http.MethodGet, "/api/v1/orders?ticker=AAPL&status=filled&side=buy&broker=alpaca&order_type=market", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Open Positions
+// ---------------------------------------------------------------------------
+
+func TestGetOpenPositions(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t)
+
+	rr := doRequest(t, srv, http.MethodGet, "/api/v1/portfolio/positions/open", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+}
+
+func TestGetOpenPositionsAcceptsFilters(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t)
+
+	// ticker and side params should be accepted without error.
+	rr := doRequest(t, srv, http.MethodGet, "/api/v1/portfolio/positions/open?ticker=TSLA&side=long", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Trades
 // ---------------------------------------------------------------------------

@@ -313,7 +313,8 @@ Response:
 #### `GET /api/v1/orders`
 
 - auth: required
-- filters: `ticker`, `status`, `side`, `broker`, `order_type`, `limit` / `offset`
+- filters: `ticker`, `broker`, `limit` / `offset`
+- enum filters: `status` (`submitted`, `partial`, `filled`, `cancelled`, `rejected`), `side` (`buy`, `sell`), `order_type` (`market`, `limit`, `stop`, `stop_limit`, `trailing_stop`) — invalid values return `400 Bad Request`
 - response includes `total`
 
 #### `GET /api/v1/orders/{id}`
