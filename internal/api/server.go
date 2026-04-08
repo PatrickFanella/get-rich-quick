@@ -355,6 +355,8 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 		v1.Route("/risk", func(rr chi.Router) {
 			rr.Get("/status", s.handleRiskStatus)
 			rr.Post("/killswitch", s.handleKillSwitchToggle)
+			rr.Post("/market/{type}/stop", s.handleMarketKillSwitch)
+			rr.Post("/market/{type}/resume", s.handleMarketKillSwitch)
 		})
 
 		// Settings

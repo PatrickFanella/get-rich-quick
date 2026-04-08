@@ -107,6 +107,7 @@ type Order struct {
 	PipelineRunID  *uuid.UUID  `json:"pipeline_run_id,omitempty"`
 	ExternalID     string      `json:"external_id,omitempty"`
 	Ticker         string      `json:"ticker"`
+	MarketType     MarketType  `json:"market_type,omitempty"`
 	Side           OrderSide   `json:"side"`
 	OrderType      OrderType   `json:"order_type"`
 	Quantity       float64     `json:"quantity"`

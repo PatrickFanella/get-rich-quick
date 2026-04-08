@@ -34,9 +34,10 @@ func DefaultPositionLimits() PositionLimits {
 
 // engineState holds the mutable risk engine state protected by a mutex.
 type engineState struct {
-	mu sync.RWMutex
-	cb CircuitBreakerStatus
-	ks KillSwitchStatus
+	mu  sync.RWMutex
+	cb  CircuitBreakerStatus
+	ks  KillSwitchStatus
+	mks map[domain.MarketType]KillSwitchStatus // per-market kill switches
 }
 
 // RiskEngineImpl is the concrete implementation of RiskEngine.
@@ -85,8 +86,9 @@ func NewRiskEngine(limits PositionLimits, cbConfig CircuitBreakerConfig, positio
 		fileExistsFunc:     defaultFileExists,
 		getEnvFunc:         os.Getenv,
 		state: engineState{
-			cb: CircuitBreakerStatus{State: CircuitBreakerPhaseOpen},
-			ks: KillSwitchStatus{Active: false},
+			cb:  CircuitBreakerStatus{State: CircuitBreakerPhaseOpen},
+			ks:  KillSwitchStatus{Active: false},
+			mks: make(map[domain.MarketType]KillSwitchStatus),
 		},
 	}
 }
@@ -237,6 +239,20 @@ func (e *RiskEngineImpl) CheckPreTrade(ctx context.Context, order *domain.Order,
 		return false, fmt.Sprintf("kill switch is active: %s", reason), nil
 	}
 
+	// Per-market kill switch check.
+	if order != nil && order.MarketType != "" {
+		e.state.mu.RLock()
+		mks, hasMKS := e.state.mks[order.MarketType]
+		e.state.mu.RUnlock()
+		if hasMKS && mks.Active {
+			reason := mks.Reason
+			if reason == "" {
+				reason = "market kill switch active"
+			}
+			return false, fmt.Sprintf("%s market kill switch is active: %s", order.MarketType, reason), nil
+		}
+	}
+
 	if cb.State == CircuitBreakerPhaseTripped {
 		return false, fmt.Sprintf("circuit breaker tripped: %s", cb.Reason), nil
 	}
@@ -366,12 +382,20 @@ func (e *RiskEngineImpl) GetStatus(ctx context.Context) (EngineStatus, error) {
 		status = domain.RiskStatusWarning
 	}
 
+	e.state.mu.RLock()
+	mksSnapshot := make(map[domain.MarketType]KillSwitchStatus, len(e.state.mks))
+	for mt, mks := range e.state.mks {
+		mksSnapshot[mt] = mks
+	}
+	e.state.mu.RUnlock()
+
 	es := EngineStatus{
-		RiskStatus:     status,
-		CircuitBreaker: cb,
-		KillSwitch:     ks,
-		PositionLimits: limits,
-		UpdatedAt:      e.currentTime(),
+		RiskStatus:         status,
+		CircuitBreaker:     cb,
+		KillSwitch:         ks,
+		MarketKillSwitches: mksSnapshot,
+		PositionLimits:     limits,
+		UpdatedAt:          e.currentTime(),
 	}
 
 	if cooldownReset {
@@ -450,6 +474,45 @@ func (e *RiskEngineImpl) DeactivateKillSwitch(ctx context.Context) error {
 	e.state.ks = KillSwitchStatus{Active: false}
 	e.logger.InfoContext(ctx, "kill switch deactivated",
 		slog.String("mechanism", KillSwitchMechanismAPI.String()),
+	)
+	return nil
+}
+
+// IsMarketKillSwitchActive returns whether the kill switch is active for the
+// given market type.
+func (e *RiskEngineImpl) IsMarketKillSwitchActive(_ context.Context, marketType domain.MarketType) (bool, error) {
+	e.state.mu.RLock()
+	mks, ok := e.state.mks[marketType]
+	e.state.mu.RUnlock()
+	return ok && mks.Active, nil
+}
+
+// ActivateMarketKillSwitch activates the kill switch for a specific market type,
+// halting all new orders for that market while leaving other markets unaffected.
+func (e *RiskEngineImpl) ActivateMarketKillSwitch(ctx context.Context, marketType domain.MarketType, reason string) error {
+	now := e.currentTime()
+	e.state.mu.Lock()
+	e.state.mks[marketType] = KillSwitchStatus{
+		Active:      true,
+		Reason:      reason,
+		Mechanisms:  []KillSwitchMechanism{KillSwitchMechanismAPI},
+		ActivatedAt: &now,
+	}
+	e.state.mu.Unlock()
+	e.logger.WarnContext(ctx, "market kill switch activated",
+		slog.String("market_type", string(marketType)),
+		slog.String("reason", reason),
+	)
+	return nil
+}
+
+// DeactivateMarketKillSwitch clears the kill switch for the given market type.
+func (e *RiskEngineImpl) DeactivateMarketKillSwitch(ctx context.Context, marketType domain.MarketType) error {
+	e.state.mu.Lock()
+	delete(e.state.mks, marketType)
+	e.state.mu.Unlock()
+	e.logger.InfoContext(ctx, "market kill switch deactivated",
+		slog.String("market_type", string(marketType)),
 	)
 	return nil
 }

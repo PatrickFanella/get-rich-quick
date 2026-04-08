@@ -718,6 +718,42 @@ func (s *Server) handleKillSwitchToggle(w http.ResponseWriter, r *http.Request) 
 	respondJSON(w, http.StatusOK, map[string]bool{"active": body.Active})
 }
 
+func (s *Server) handleMarketKillSwitch(w http.ResponseWriter, r *http.Request) {
+	marketType := domain.MarketType(chi.URLParam(r, "type"))
+	if marketType == "" {
+		respondError(w, http.StatusBadRequest, "market type is required", ErrCodeBadRequest)
+		return
+	}
+
+	switch r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:] {
+	case "stop":
+		var body struct {
+			Reason string `json:"reason"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			respondError(w, http.StatusBadRequest, "invalid request body", ErrCodeBadRequest)
+			return
+		}
+		if body.Reason == "" {
+			respondError(w, http.StatusBadRequest, "reason is required", ErrCodeValidation)
+			return
+		}
+		if err := s.risk.ActivateMarketKillSwitch(r.Context(), marketType, body.Reason); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to activate market kill switch", ErrCodeInternal)
+			return
+		}
+		respondJSON(w, http.StatusOK, map[string]any{"market_type": marketType, "active": true})
+	case "resume":
+		if err := s.risk.DeactivateMarketKillSwitch(r.Context(), marketType); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to deactivate market kill switch", ErrCodeInternal)
+			return
+		}
+		respondJSON(w, http.StatusOK, map[string]any{"market_type": marketType, "active": false})
+	default:
+		respondError(w, http.StatusNotFound, "unknown action", ErrCodeNotFound)
+	}
+}
+
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	settings, err := s.settings.Get(r.Context())
 	if err != nil {

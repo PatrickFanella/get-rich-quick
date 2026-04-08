@@ -21,5 +21,9 @@ type RiskEngine interface {
 	IsKillSwitchActive(ctx context.Context) (bool, error)
 	ActivateKillSwitch(ctx context.Context, reason string) error
 	DeactivateKillSwitch(ctx context.Context) error
+	// Per-market kill switches allow independent emergency stops per market type.
+	IsMarketKillSwitchActive(ctx context.Context, marketType domain.MarketType) (bool, error)
+	ActivateMarketKillSwitch(ctx context.Context, marketType domain.MarketType, reason string) error
+	DeactivateMarketKillSwitch(ctx context.Context, marketType domain.MarketType) error
 	UpdateMetrics(ctx context.Context, dailyPnL, totalDrawdown float64, consecutiveLosses int) error
 }
