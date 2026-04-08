@@ -189,6 +189,8 @@ type BacktestConfigRepository interface {
 	Create(ctx context.Context, config *domain.BacktestConfig) error
 	Get(ctx context.Context, id uuid.UUID) (*domain.BacktestConfig, error)
 	List(ctx context.Context, filter BacktestConfigFilter, limit, offset int) ([]domain.BacktestConfig, error)
+	// Count returns the total number of backtest configs matching the filter.
+	Count(ctx context.Context, filter BacktestConfigFilter) (int, error)
 	Update(ctx context.Context, config *domain.BacktestConfig) error
 	Delete(ctx context.Context, id uuid.UUID) error
 }
@@ -198,6 +200,8 @@ type BacktestRunRepository interface {
 	Create(ctx context.Context, run *domain.BacktestRun) error
 	Get(ctx context.Context, id uuid.UUID) (*domain.BacktestRun, error)
 	List(ctx context.Context, filter BacktestRunFilter, limit, offset int) ([]domain.BacktestRun, error)
+	// Count returns the total number of backtest runs matching the filter.
+	Count(ctx context.Context, filter BacktestRunFilter) (int, error)
 }
 
 // PipelineRunRepository provides access to pipeline runs.
@@ -295,6 +299,8 @@ type HistoricalOHLCVRepository interface {
 type AuditLogRepository interface {
 	Create(ctx context.Context, entry *domain.AuditLogEntry) error
 	Query(ctx context.Context, filter AuditLogFilter, limit, offset int) ([]domain.AuditLogEntry, error)
+	// Count returns the total number of audit log entries matching the filter.
+	Count(ctx context.Context, filter AuditLogFilter) (int, error)
 }
 
 // APIKeyRepository provides storage for hashed API keys used for programmatic access.

@@ -229,6 +229,48 @@ func buildBacktestConfigListQuery(filter repository.BacktestConfigFilter, limit,
 	return base, args
 }
 
+// Count returns the total number of backtest configs matching the filter.
+func (r *BacktestConfigRepo) Count(ctx context.Context, filter repository.BacktestConfigFilter) (int, error) {
+	query, args := buildBacktestConfigCountQuery(filter)
+	var total int
+	if err := r.pool.QueryRow(ctx, query, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("postgres: count backtest configs: %w", err)
+	}
+	return total, nil
+}
+
+// buildBacktestConfigCountQuery constructs a SELECT COUNT(*) for backtest configs
+// using the same filter conditions as buildBacktestConfigListQuery.
+func buildBacktestConfigCountQuery(filter repository.BacktestConfigFilter) (string, []any) {
+	var (
+		conditions []string
+		args       []any
+		argIdx     int
+	)
+
+	nextArg := func(v any) string {
+		argIdx++
+		args = append(args, v)
+		return fmt.Sprintf("$%d", argIdx)
+	}
+
+	if filter.StrategyID != nil {
+		conditions = append(conditions, "strategy_id = "+nextArg(*filter.StrategyID))
+	}
+	if filter.CreatedAfter != nil {
+		conditions = append(conditions, "created_at >= "+nextArg(*filter.CreatedAfter))
+	}
+	if filter.CreatedBefore != nil {
+		conditions = append(conditions, "created_at <= "+nextArg(*filter.CreatedBefore))
+	}
+
+	base := `SELECT COUNT(*) FROM backtest_configs`
+	if len(conditions) > 0 {
+		base += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	return base, args
+}
+
 func marshalBacktestSimulation(sim domain.BacktestSimulationParameters) ([]byte, error) {
 	if err := validateOptionalJSON("slippage model", sim.SlippageModel); err != nil {
 		return nil, err

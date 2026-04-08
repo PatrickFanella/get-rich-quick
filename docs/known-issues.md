@@ -89,12 +89,13 @@ are unchanged and always re-evaluated at runtime.
 timeout settings: `(analysts × analysis_timeout) + (2 × rounds × debate_timeout) + overhead`.
 Falls back to 30 minutes when any constituent is unconfigured.
 
-### ~~Pagination `total` field never populated~~ ✓ Partially fixed
+### ~~Pagination `total` field never populated~~ ✓ Mostly fixed
 
-`GET /api/v1/strategies` and `GET /api/v1/runs` now return a `total` field in the list
-envelope. Both endpoints call a `SELECT COUNT(*)` with the same filter conditions used
-for the page query. Count errors are logged but do not fail the list response (total
-defaults to `0`, which `omitempty` preserves). Other list endpoints still omit `total`.
+`GET /api/v1/strategies`, `/runs`, `/backtests/configs`, `/backtests/runs`, and
+`/audit-log` now return a `total` field in the list envelope. Each calls a
+`SELECT COUNT(*)` with the same filter conditions used for the page query. Count errors
+are logged but do not fail the list response (total defaults to `0`). Remaining endpoints
+without `total`: orders, positions, trades, memories, conversations, events, api-keys.
 
 ### ~~Operator actions were not audited~~ ✓ Fixed
 

@@ -420,8 +420,11 @@ Response:
 - filters:
   - `event_type` — e.g. `kill_switch.activated`, `strategy.manual_run`, `api_key.created`
   - `entity_type` — e.g. `system`, `strategy`, `api_key`, `user`, `market`
+  - `actor` — username who performed the action
+  - `entity_id` — UUID of the specific entity affected
   - `after` / `before` — ISO 8601 timestamp bounds on `created_at`
   - `limit` / `offset`
+- response includes `total` (total matching entries)
 
 Audited event types:
 
@@ -448,6 +451,131 @@ Example entry:
   "created_at": "2026-04-08T14:23:00Z"
 }
 ```
+
+### Backtests
+
+Backtests run the rules-engine pipeline over historical OHLCV bars. They require a strategy with a `rules_engine` key in its config.
+
+#### `GET /api/v1/backtests/configs`
+
+- auth: required
+- filters: `strategy_id` (UUID), `limit` / `offset`
+- response includes `total`
+
+#### `POST /api/v1/backtests/configs`
+
+- auth: required
+- body: `domain.BacktestConfig`
+- required fields: `strategy_id`, `start_date`, `end_date`, `simulation.initial_capital`
+
+#### `GET /api/v1/backtests/configs/{id}`
+
+- auth: required
+- returns one backtest config
+
+#### `PUT /api/v1/backtests/configs/{id}`
+
+- auth: required
+- full update semantics
+
+#### `DELETE /api/v1/backtests/configs/{id}`
+
+- auth: required
+- returns `204 No Content`
+
+#### `POST /api/v1/backtests/configs/{id}/run`
+
+- auth: required
+- runs the backtest synchronously and persists the result
+- **requires** the target strategy to have a `rules_engine` key in its config JSON
+- fetches ~400 days of warmup bars before `start_date` for indicator initialization (SMA-200 etc.)
+- if the strategy status is `inactive` and the backtest yields a positive Sharpe ratio with at least one trade, the strategy is automatically promoted to `active`
+- body: none
+- returns a `BacktestRun` record with `metrics`, `trade_log`, and `equity_curve` as JSON blobs
+
+#### `GET /api/v1/backtests/runs`
+
+- auth: required
+- filters: `backtest_config_id` (UUID), `limit` / `offset`
+- response includes `total`
+
+#### `GET /api/v1/backtests/runs/{id}`
+
+- auth: required
+- returns one backtest run record
+
+### Automation
+
+The automation subsystem runs named background jobs on a schedule. Requires `ENABLE_SCHEDULER=true`.
+
+#### `GET /api/v1/automation/status`
+
+- auth: required
+- returns a map of job name → status for all registered jobs
+- returns `503 Service Unavailable` when automation is not configured
+
+#### `POST /api/v1/automation/jobs/{name}/run`
+
+- auth: required
+- triggers the named job immediately, independent of its schedule
+- `{name}` must match a registered job (e.g. `ticker_discovery`, `stocktwits_trending`)
+- returns `400 Bad Request` with an error message if the name is unknown
+
+#### `POST /api/v1/automation/jobs/{name}/enable`
+
+- auth: required
+- body: `{"enabled": true}` or `{"enabled": false}`
+- enables or disables the named job's scheduled execution
+- returns `400 Bad Request` if the name is unknown
+
+### News
+
+Requires `newsFeedRepo` to be wired at startup (depends on `FINNHUB_API_KEY` or a news provider).
+
+#### `GET /api/v1/news`
+
+- auth: required
+- filters:
+  - `ticker` — when present, returns news scoped to that ticker; otherwise returns recent cross-market news
+  - `limit` (default `50`)
+- returns `503 Service Unavailable` when the news feed is not configured
+
+### Signals
+
+Real-time signal and trigger events from the signal intelligence subsystem. All endpoints return empty results (not errors) when the signal hub is not running.
+
+#### `GET /api/v1/signals/evaluated`
+
+- auth: required
+- filters: `min_urgency` (integer, 0–10), `limit` (default 50), `offset`
+- returns `StoredSignal` records from the in-memory signal store
+- response shape: `{"data": [...], "total": N}`
+
+#### `GET /api/v1/signals/triggers`
+
+- auth: required
+- filters: `limit` (default 50), `offset`
+- returns trigger log entries from the in-memory store
+- response shape: `{"data": [...], "total": N}`
+
+#### `GET /api/v1/signals/watchlist`
+
+- auth: required
+- returns all active watch terms (ticker symbols, keywords, strategy-scoped terms)
+- response shape: `{"data": [...]}`
+
+#### `POST /api/v1/signals/watchlist`
+
+- auth: required
+- body: `{"term": "AAPL", "strategy_id": "<uuid>"}` (`strategy_id` optional)
+- adds a manual watch term to the signal index
+- returns `201 Created` with `{"term": "..."}`
+
+#### `DELETE /api/v1/signals/watchlist/{term}`
+
+- auth: required
+- removes a manual watch term
+- returns `204 No Content`
 
 ## WebSocket reference
 

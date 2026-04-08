@@ -80,6 +80,57 @@ func (r *AuditLogRepo) Query(ctx context.Context, filter repository.AuditLogFilt
 	return entries, nil
 }
 
+// Count returns the total number of audit log entries matching the filter.
+func (r *AuditLogRepo) Count(ctx context.Context, filter repository.AuditLogFilter) (int, error) {
+	query, args := buildAuditLogCountQuery(filter)
+	var total int
+	if err := r.pool.QueryRow(ctx, query, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("postgres: count audit log: %w", err)
+	}
+	return total, nil
+}
+
+// buildAuditLogCountQuery constructs a SELECT COUNT(*) for the audit log
+// using the same filter conditions as buildAuditLogQuery.
+func buildAuditLogCountQuery(filter repository.AuditLogFilter) (string, []any) {
+	var (
+		conditions []string
+		args       []any
+		argIdx     int
+	)
+
+	nextArg := func(v any) string {
+		argIdx++
+		args = append(args, v)
+		return fmt.Sprintf("$%d", argIdx)
+	}
+
+	if filter.EventType != "" {
+		conditions = append(conditions, "event_type = "+nextArg(filter.EventType))
+	}
+	if filter.EntityType != "" {
+		conditions = append(conditions, "entity_type = "+nextArg(filter.EntityType))
+	}
+	if filter.EntityID != nil {
+		conditions = append(conditions, "entity_id = "+nextArg(filter.EntityID))
+	}
+	if filter.Actor != "" {
+		conditions = append(conditions, "actor = "+nextArg(filter.Actor))
+	}
+	if filter.CreatedAfter != nil {
+		conditions = append(conditions, "created_at >= "+nextArg(*filter.CreatedAfter))
+	}
+	if filter.CreatedBefore != nil {
+		conditions = append(conditions, "created_at <= "+nextArg(*filter.CreatedBefore))
+	}
+
+	query := `SELECT COUNT(*) FROM audit_log`
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	return query, args
+}
+
 // buildAuditLogQuery constructs the SELECT query and arguments for Query.
 func buildAuditLogQuery(filter repository.AuditLogFilter, limit, offset int) (string, []any) {
 	var (

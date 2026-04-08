@@ -2146,6 +2146,10 @@ func (s *stubAuditLogRepo) Query(_ context.Context, _ repository.AuditLogFilter,
 	return s.entries, nil
 }
 
+func (s *stubAuditLogRepo) Count(_ context.Context, _ repository.AuditLogFilter) (int, error) {
+	return len(s.entries), nil
+}
+
 type stubEventRepo struct {
 	events []domain.AgentEvent
 }

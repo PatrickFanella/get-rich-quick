@@ -381,6 +381,10 @@ func (f fakeBacktestConfigRepo) List(_ context.Context, filter repository.Backte
 	return configs[offset:end], nil
 }
 
+func (f fakeBacktestConfigRepo) Count(_ context.Context, _ repository.BacktestConfigFilter) (int, error) {
+	return len(f.byID), nil
+}
+
 func (f fakeBacktestConfigRepo) Update(context.Context, *domain.BacktestConfig) error {
 	return fmt.Errorf("not implemented")
 }
@@ -439,4 +443,8 @@ func (f fakeBacktestRunRepo) List(_ context.Context, filter repository.BacktestR
 		end = len(runs)
 	}
 	return runs[offset:end], nil
+}
+
+func (f fakeBacktestRunRepo) Count(_ context.Context, _ repository.BacktestRunFilter) (int, error) {
+	return len(f.byID), nil
 }

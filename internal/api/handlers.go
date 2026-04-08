@@ -1270,6 +1270,15 @@ func (s *Server) handleListAuditLog(w http.ResponseWriter, r *http.Request) {
 	filter := repository.AuditLogFilter{
 		EventType:  q.Get("event_type"),
 		EntityType: q.Get("entity_type"),
+		Actor:      q.Get("actor"),
+	}
+	if v := q.Get("entity_id"); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, "invalid entity_id: must be a UUID", ErrCodeBadRequest)
+			return
+		}
+		filter.EntityID = &id
 	}
 	if v := q.Get("after"); v != "" {
 		t, err := time.Parse(time.RFC3339Nano, v)
@@ -1293,7 +1302,11 @@ func (s *Server) handleListAuditLog(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to query audit log", ErrCodeInternal)
 		return
 	}
-	respondList(w, entries, limit, offset)
+	total, err := s.auditLog.Count(r.Context(), filter)
+	if err != nil {
+		s.logger.Warn("count audit log", slog.String("error", err.Error()))
+	}
+	respondListWithTotal(w, entries, total, limit, offset)
 }
 
 // handleGetCurrentUser returns the authenticated user's profile.

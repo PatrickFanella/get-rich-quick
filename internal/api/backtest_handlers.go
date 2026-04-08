@@ -36,7 +36,11 @@ func (s *Server) handleListBacktestConfigs(w http.ResponseWriter, r *http.Reques
 		respondError(w, http.StatusInternalServerError, "failed to list backtest configs", ErrCodeInternal)
 		return
 	}
-	respondList(w, configs, limit, offset)
+	total, err := s.backtestConfigs.Count(r.Context(), filter)
+	if err != nil {
+		s.logger.Warn("count backtest configs", "error", err)
+	}
+	respondListWithTotal(w, configs, total, limit, offset)
 }
 
 func (s *Server) handleCreateBacktestConfig(w http.ResponseWriter, r *http.Request) {
@@ -325,7 +329,11 @@ func (s *Server) handleListBacktestRuns(w http.ResponseWriter, r *http.Request) 
 		respondError(w, http.StatusInternalServerError, "failed to list backtest runs", ErrCodeInternal)
 		return
 	}
-	respondList(w, runs, limit, offset)
+	total, err := s.backtestRuns.Count(r.Context(), filter)
+	if err != nil {
+		s.logger.Warn("count backtest runs", "error", err)
+	}
+	respondListWithTotal(w, runs, total, limit, offset)
 }
 
 func (s *Server) handleGetBacktestRun(w http.ResponseWriter, r *http.Request) {

@@ -142,6 +142,54 @@ func scanBacktestRun(sc scanner) (*domain.BacktestRun, error) {
 }
 
 // buildBacktestRunListQuery constructs the SELECT query and arguments for List.
+// Count returns the total number of backtest runs matching the filter.
+func (r *BacktestRunRepo) Count(ctx context.Context, filter repository.BacktestRunFilter) (int, error) {
+	query, args := buildBacktestRunCountQuery(filter)
+	var total int
+	if err := r.pool.QueryRow(ctx, query, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("postgres: count backtest runs: %w", err)
+	}
+	return total, nil
+}
+
+// buildBacktestRunCountQuery constructs a SELECT COUNT(*) for backtest runs
+// using the same filter conditions as buildBacktestRunListQuery.
+func buildBacktestRunCountQuery(filter repository.BacktestRunFilter) (string, []any) {
+	var (
+		conditions []string
+		args       []any
+		argIdx     int
+	)
+
+	nextArg := func(v any) string {
+		argIdx++
+		args = append(args, v)
+		return fmt.Sprintf("$%d", argIdx)
+	}
+
+	if filter.BacktestConfigID != nil {
+		conditions = append(conditions, "backtest_config_id = "+nextArg(*filter.BacktestConfigID))
+	}
+	if filter.PromptVersion != "" {
+		conditions = append(conditions, "prompt_version = "+nextArg(filter.PromptVersion))
+	}
+	if filter.PromptVersionHash != "" {
+		conditions = append(conditions, "prompt_version_hash = "+nextArg(filter.PromptVersionHash))
+	}
+	if filter.RunAfter != nil {
+		conditions = append(conditions, "run_timestamp >= "+nextArg(*filter.RunAfter))
+	}
+	if filter.RunBefore != nil {
+		conditions = append(conditions, "run_timestamp <= "+nextArg(*filter.RunBefore))
+	}
+
+	base := `SELECT COUNT(*) FROM backtest_runs`
+	if len(conditions) > 0 {
+		base += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	return base, args
+}
+
 func buildBacktestRunListQuery(filter repository.BacktestRunFilter, limit, offset int) (string, []any) {
 	var (
 		conditions []string
