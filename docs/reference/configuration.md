@@ -45,7 +45,7 @@ All durable server configuration currently starts in the environment.
 - `LLM_TIMEOUT`
 - `STALE_RUN_TTL` - duration string for stale-run reconciliation (default `30m`)
 - `SIGNAL_FALLBACK_MODE` - controls signal evaluation fallback behavior: `drop` (default, urgency=1 dropped by hub) or `legacy` (urgency=3 + all strategies); set via runtime env
-- `LLM_DEBATE_TIMEOUT` - per-round debate LLM call timeout in seconds (default `120`); overridable per-strategy via `pipeline_config.debate_timeout_seconds`
+- `LLM_DEBATE_TIMEOUT` - per-round debate LLM call timeout as a duration string (e.g. `120s`); when unset, falls back to `LLM_TIMEOUT`; overridable per-strategy via `pipeline_config.debate_timeout_seconds`
 - `LLM_CACHE_ENABLED` - enables in-memory LLM response cache (default `true`)
 - provider-specific keys and base URLs
 
@@ -68,10 +68,10 @@ All durable server configuration currently starts in the environment.
 | --- | --- |
 | `ALPACA_API_KEY` | Required for stock live/paper trading |
 | `ALPACA_API_SECRET` | — |
-| `ALPACA_PAPER_MODE` | `true` = paper account (default false) |
+| `ALPACA_PAPER_MODE` | `true` = paper account (default true) |
 | `BINANCE_API_KEY` | Required for crypto live/paper trading |
 | `BINANCE_API_SECRET` | — |
-| `BINANCE_PAPER_MODE` | `true` = paper account (default false) |
+| `BINANCE_PAPER_MODE` | `true` = paper account (default true) |
 | `POLYMARKET_KEY_ID` | Required for live Polymarket prediction-market trading |
 | `POLYMARKET_SECRET_KEY` | Base64-encoded Ed25519 secret key for retail API signing |
 | `POLYMARKET_API_BASE_URL` | Override authenticated retail API base URL (default: `https://api.polymarket.us`) |
@@ -136,8 +136,8 @@ All durable server configuration currently starts in the environment.
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `ENABLE_SCHEDULER` | `false` | Enable the cron scheduler for strategy and backtest runs |
-| `ENABLE_REDIS_CACHE` | `false` | Use Redis for market-data and LLM response caching |
-| `ENABLE_AGENT_MEMORY` | `false` | Enable agent memory storage and retrieval |
+| `ENABLE_REDIS_CACHE` | `true` | Use Redis for market-data and LLM response caching |
+| `ENABLE_AGENT_MEMORY` | `true` | Enable agent memory storage and retrieval |
 | `ENABLE_LIVE_TRADING` | `false` | Allow live broker order submission (paper mode otherwise) |
 
 ### Ticker discovery
