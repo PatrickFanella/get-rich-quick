@@ -148,6 +148,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 			pipeline,
 			riskEngine,
 			logger,
+			scheduler.WithMetrics(appMetrics),
 			scheduler.WithStrategyExecution(func(ctx context.Context, strategy domain.Strategy) error {
 				_, err := strategyRunner.RunStrategy(ctx, strategy)
 				return err
@@ -241,7 +242,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 				nil,
 				riskEngine,
 				logger,
-				schedOpts...,
+				append([]scheduler.Option{scheduler.WithMetrics(appMetrics)}, schedOpts...)...,
 			)
 		}
 
@@ -268,6 +269,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 				StrategyTrigger:       sched,
 				Logger:                logger,
 			})
+			orch.WithJobMetrics(appMetrics)
 			orch.RegisterAll()
 			if err := orch.Start(); err != nil {
 				logger.Warn("automation: failed to start job orchestrator", slog.Any("error", err))
@@ -309,6 +311,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 	var sigEvaluator *signal.Evaluator
 	if deps.LLMProvider != nil {
 		sigEvaluator = signal.NewEvaluator(deps.LLMProvider, cfg.LLM.QuickThinkModel, logger).
+			WithMetrics(appMetrics).
 			WithFallbackMode(os.Getenv("SIGNAL_FALLBACK_MODE"))
 	}
 
