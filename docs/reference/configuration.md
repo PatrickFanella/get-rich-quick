@@ -49,6 +49,18 @@ All durable server configuration currently starts in the environment.
 - `LLM_CACHE_ENABLED` - enables in-memory LLM response cache (default `true`)
 - provider-specific keys and base URLs
 
+### Recommended Model Configurations
+
+Three common profiles based on latency vs quality trade-offs:
+
+| Profile | `LLM_DEFAULT_PROVIDER` | `LLM_QUICK_THINK_MODEL` | `LLM_DEEP_THINK_MODEL` | `LLM_DEBATE_TIMEOUT` |
+|---------|------------------------|-------------------------|------------------------|----------------------|
+| **Low-latency** | `openai` | `gpt-5-mini` | `gpt-5-mini` | `60s` |
+| **Balanced** (default) | `openai` | `gpt-5-mini` | `gpt-5.2` | `120s` |
+| **High-quality** | `openai` | `gpt-5.2` | `gpt-5.2` | `300s` |
+
+Use **Low-latency** for frequent runs or tight budgets. Use **High-quality** for end-of-day analysis where accuracy outweighs speed.
+
 ### Data providers
 
 | Variable | Notes |

@@ -11,14 +11,16 @@ import (
 
 // JobRun represents a single execution of an automation job.
 type JobRun struct {
-	ID          uuid.UUID  `json:"id"`
-	JobName     string     `json:"job_name"`
-	Status      string     `json:"status"`
-	StartedAt   time.Time  `json:"started_at"`
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
-	DurationNs  int64      `json:"duration_ns,omitempty"`
-	Error       string     `json:"error,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
+	ID                  uuid.UUID  `json:"id"`
+	JobName             string     `json:"job_name"`
+	Status              string     `json:"status"`
+	StartedAt           time.Time  `json:"started_at"`
+	CompletedAt         *time.Time `json:"completed_at,omitempty"`
+	DurationNs          int64      `json:"duration_ns,omitempty"`
+	Error               string     `json:"error,omitempty"`
+	LastErrorAt         *time.Time `json:"last_error_at,omitempty"`
+	ConsecutiveFailures int        `json:"consecutive_failures"`
+	CreatedAt           time.Time  `json:"created_at"`
 }
 
 // JobRunSummary holds aggregate stats for a single job name.
@@ -47,10 +49,10 @@ func NewJobRunRepo(pool *pgxpool.Pool) *JobRunRepo {
 func (r *JobRunRepo) Create(ctx context.Context, run *JobRun) error {
 	run.ID = uuid.New()
 	row := r.pool.QueryRow(ctx,
-		`INSERT INTO automation_job_runs (id, job_name, status, started_at, completed_at, duration_ns, error)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`INSERT INTO automation_job_runs (id, job_name, status, started_at, completed_at, duration_ns, error, last_error_at, consecutive_failures)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 RETURNING created_at`,
-		run.ID, run.JobName, run.Status, run.StartedAt, run.CompletedAt, run.DurationNs, nullString(run.Error),
+		run.ID, run.JobName, run.Status, run.StartedAt, run.CompletedAt, run.DurationNs, nullString(run.Error), run.LastErrorAt, run.ConsecutiveFailures,
 	)
 	return row.Scan(&run.CreatedAt)
 }

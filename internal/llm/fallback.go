@@ -82,7 +82,11 @@ func (f *FallbackProvider) Complete(ctx context.Context, request CompletionReque
 		f.logger.Warn("llm: primary provider timed out, falling back to secondary",
 			slog.Any("error", err),
 		)
-		return f.secondary.Complete(secondaryCtx, request)
+		resp, err := f.secondary.Complete(secondaryCtx, request)
+		if err == nil && resp != nil {
+			resp.UsedFallback = true
+		}
+		return resp, err
 	}
 	if f.metrics != nil {
 		f.metrics.RecordLLMFallback("provider_error")
@@ -92,7 +96,11 @@ func (f *FallbackProvider) Complete(ctx context.Context, request CompletionReque
 		slog.Any("error", err),
 	)
 
-	return f.secondary.Complete(secondaryCtx, request)
+	resp, err = f.secondary.Complete(secondaryCtx, request)
+	if err == nil && resp != nil {
+		resp.UsedFallback = true
+	}
+	return resp, err
 }
 
 func newFallbackContext(parent context.Context) (context.Context, context.CancelFunc) {
