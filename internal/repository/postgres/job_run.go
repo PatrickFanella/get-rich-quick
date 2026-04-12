@@ -153,29 +153,3 @@ func (r *JobRunRepo) Summaries(ctx context.Context) ([]JobRunSummary, error) {
 
 	return summaries, nil
 }
-
-func (r *JobRunRepo) countConsecutiveFailures(ctx context.Context, jobName string) int {
-	rows, err := r.pool.Query(ctx,
-		`SELECT status FROM automation_job_runs
-		 WHERE job_name = $1
-		 ORDER BY started_at DESC`,
-		jobName,
-	)
-	if err != nil {
-		return 0
-	}
-	defer rows.Close()
-
-	count := 0
-	for rows.Next() {
-		var status string
-		if err := rows.Scan(&status); err != nil {
-			return count
-		}
-		if status != "error" {
-			break
-		}
-		count++
-	}
-	return count
-}

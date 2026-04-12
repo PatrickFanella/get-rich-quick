@@ -11,4 +11,4 @@ Code (lines 100-107):
 
 Bars are truncated to the last 60 entries before rendering the OHLCV prompt table.
 This prevents unbounded token growth for strategies with long price history.
-The truncation happens in the Summaries hydration prompt builder, in the OHLCV section.
+The truncation happens in the market analyst prompt table, in the OHLCV section.
