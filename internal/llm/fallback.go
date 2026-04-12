@@ -85,6 +85,7 @@ func (f *FallbackProvider) Complete(ctx context.Context, request CompletionReque
 		resp, err := f.secondary.Complete(secondaryCtx, request)
 		if err == nil && resp != nil {
 			resp.UsedFallback = true
+			resp.TimedOut = true
 		}
 		return resp, err
 	}

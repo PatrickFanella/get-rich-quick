@@ -65,4 +65,5 @@ type CompletionResponse struct {
 	LatencyMS    int             `json:"latency_ms,omitempty"`
 	CostUSD      float64         `json:"cost_usd,omitempty"`
 	UsedFallback bool            `json:"used_fallback,omitempty"`
+	TimedOut     bool            `json:"timed_out,omitempty"`
 }

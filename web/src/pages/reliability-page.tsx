@@ -1,5 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
-import { Loader2, ShieldCheck } from 'lucide-react'
+import { AlertTriangle, Loader2, ShieldCheck } from 'lucide-react'
+import { useMemo } from 'react'
+import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 
 import { PageHeader } from '@/components/layout/page-header'
 import { Badge } from '@/components/ui/badge'
@@ -20,12 +22,44 @@ function formatRelativeTime(iso?: string): string {
   return `${days}d ago`
 }
 
+function formatDuration(ms: number): string {
+  if (ms < 60_000) return `${Math.floor(ms / 1000)}s`
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m`
+  return `${Math.floor(ms / 3_600_000)}h`
+}
+
 function jobStatusBadge(job: AutomationJobHealth) {
   if (!job.enabled) return <Badge variant="secondary">Disabled</Badge>
   if (job.consecutive_failures >= 3) return <Badge variant="destructive">Failing</Badge>
   if (job.consecutive_failures > 0) return <Badge variant="warning">Degraded</Badge>
   return <Badge variant="success">Healthy</Badge>
 }
+
+function buildFailureRateSeries(
+  runs: { status: string; started_at: string }[],
+  bins = 10,
+): { bin: string; rate: number; failed: number; total: number }[] {
+  if (!runs.length) return []
+  const sorted = [...runs].sort(
+    (a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime(),
+  )
+  const perBin = Math.ceil(sorted.length / bins)
+  const result = []
+  for (let i = 0; i < bins; i++) {
+    const chunk = sorted.slice(i * perBin, (i + 1) * perBin)
+    if (!chunk.length) break
+    const failed = chunk.filter((r) => r.status === 'failed').length
+    result.unshift({
+      bin: `${i + 1}`,
+      rate: chunk.length ? Math.round((failed / chunk.length) * 100) : 0,
+      failed,
+      total: chunk.length,
+    })
+  }
+  return result
+}
+
+const STALE_THRESHOLD_MS = 60 * 60 * 1000
 
 export function ReliabilityPage() {
   const healthQuery = useQuery({
@@ -34,8 +68,45 @@ export function ReliabilityPage() {
     refetchInterval: 30_000,
   })
 
+  const runningRunsQuery = useQuery({
+    queryKey: ['runs', { status: 'running', limit: 50 }],
+    queryFn: () => apiClient.listRuns({ status: 'running', limit: 50 } as Parameters<typeof apiClient.listRuns>[0]),
+    refetchInterval: 30_000,
+  })
+
+  const recentRunsQuery = useQuery({
+    queryKey: ['runs', { limit: 50 }],
+    queryFn: () => apiClient.listRuns({ limit: 50 } as Parameters<typeof apiClient.listRuns>[0]),
+    refetchInterval: 60_000,
+  })
+
   const data = healthQuery.data
   const jobs = data?.jobs ?? []
+
+  const runningRuns = useMemo(() => runningRunsQuery.data?.data ?? [], [runningRunsQuery.data])
+  const recentRuns = useMemo(() => recentRunsQuery.data?.data ?? [], [recentRunsQuery.data])
+
+  const staleRuns = useMemo(
+    () =>
+      runningRuns.filter(
+        (r) => Date.now() - new Date(r.started_at).getTime() > STALE_THRESHOLD_MS,
+      ),
+    [runningRuns],
+  )
+
+  const oldestRunningMs = useMemo(() => {
+    if (!runningRuns.length) return null
+    const oldest = Math.min(...runningRuns.map((r) => new Date(r.started_at).getTime()))
+    return Date.now() - oldest
+  }, [runningRuns])
+
+  const failureRateSeries = useMemo(() => buildFailureRateSeries(recentRuns), [recentRuns])
+
+  const overallFailureRate = useMemo(() => {
+    if (!recentRuns.length) return null
+    const failed = recentRuns.filter((r) => r.status === 'failed').length
+    return Math.round((failed / recentRuns.length) * 100)
+  }, [recentRuns])
 
   return (
     <div className="space-y-4" data-testid="reliability-page">
@@ -67,6 +138,103 @@ export function ReliabilityPage() {
           </CardContent>
         </Card>
       )}
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Card data-testid="stale-run-card">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              Active Runs
+              {staleRuns.length > 0 && (
+                <AlertTriangle className="size-4 text-amber-500" />
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {runningRunsQuery.isLoading ? (
+              <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                Loading...
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-bold tabular-nums">
+                    {runningRuns.length}
+                  </span>
+                  <span className="text-sm text-muted-foreground">running</span>
+                </div>
+                {oldestRunningMs != null && (
+                  <p className="text-xs text-muted-foreground">
+                    Oldest: {formatDuration(oldestRunningMs)}
+                  </p>
+                )}
+                {staleRuns.length > 0 ? (
+                  <p className="text-xs font-medium text-amber-500">
+                    {staleRuns.length} stale run{staleRuns.length !== 1 ? 's' : ''} (&gt;1h)
+                  </p>
+                ) : runningRuns.length > 0 ? (
+                  <p className="text-xs text-muted-foreground">No stale runs</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No active runs</p>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card data-testid="failure-rate-card">
+          <CardHeader>
+            <CardTitle>Pipeline Failure Rate</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {recentRunsQuery.isLoading ? (
+              <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                Loading...
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-bold tabular-nums">
+                    {overallFailureRate ?? '--'}
+                    {overallFailureRate != null && '%'}
+                  </span>
+                  <span className="text-sm text-muted-foreground">last {recentRuns.length} runs</span>
+                </div>
+                {failureRateSeries.length > 1 ? (
+                  <ResponsiveContainer width="100%" height={48}>
+                    <BarChart data={failureRateSeries} barSize={8}>
+                      <Tooltip
+                        content={({ active, payload }) => {
+                          if (!active || !payload?.length) return null
+                          const d = payload[0].payload as { failed: number; total: number; rate: number }
+                          return (
+                            <div className="rounded border border-border bg-background px-2 py-1 text-xs shadow">
+                              {d.failed}/{d.total} failed ({d.rate}%)
+                            </div>
+                          )
+                        }}
+                      />
+                      <Bar dataKey="rate" radius={[2, 2, 0, 0]}>
+                        {failureRateSeries.map((entry, index) => (
+                          <Cell
+                            key={index}
+                            fill={entry.rate > 50 ? 'hsl(var(--destructive))' : entry.rate > 0 ? 'hsl(var(--warning))' : 'hsl(var(--success))'}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    {recentRuns.length === 0 ? 'No run history yet' : 'Insufficient data for chart'}
+                  </p>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       <Card>
         <CardHeader>

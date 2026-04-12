@@ -107,3 +107,12 @@
 - `JobRun` struct: added `LastErrorAt *time.Time` and `ConsecutiveFailures int` fields (were only on `JobRunSummary` before)
 - `Create()` INSERT now includes `last_error_at` ($8) and `consecutive_failures` ($9)
 - `ListByJob` SELECT not updated — it does not scan these new fields; add if needed
+
+## [2026-04-12] F4 approval gap verification
+
+- T12 now lives entirely in `web/src/pages/reliability-page.tsx` with no new deps: stale-run card uses `apiClient.listRuns({ status: 'running', limit: 50 })`, failure-rate chart uses existing `recharts`, automation health table stayed intact.
+- T13 success-path indicator uses existing WS `error` event as indicator-only envelope: `PipelineCompleted` emits fallback/timeout flags, `prod_strategy_runner.go` forwards `api.EventError` with empty `error` string when flags are set.
+- T17 persistence path writes `last_error_at` + `consecutive_failures` from orchestrator memory into `pgrepo.JobRun` before insert; hydration already reads same fields back from latest run row.
+- Verification: `go build ./...` passed; targeted Go suites passed (`./internal/llm/... ./internal/agent/... ./internal/automation/... ./internal/repository/postgres/... ./cmd/tradingagent/...`).
+- Frontend scope verification: `npm test -- --run src/pages/strategy-detail-page.test.tsx` passed.
+- Pre-existing frontend failures remain outside scope: full `npm test -- --run` fails in unrelated risk/portfolio/realtime/strategy-config tests; `npm run build` fails in unrelated backtest-equity-chart, watchlist-table, order-detail-page, pipeline-run-page, strategies-page type errors.

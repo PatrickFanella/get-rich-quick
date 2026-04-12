@@ -74,6 +74,7 @@ type PipelineState struct {
 	// UsedFallback is set to true when any LLM call during the run used the
 	// fallback provider instead of the primary.
 	UsedFallback bool `json:"used_fallback,omitempty"`
+	TimedOut     bool `json:"timed_out,omitempty"`
 	// Errors holds internal errors encountered during pipeline execution.
 	// It is intentionally excluded from JSON output via `json:"-"`.
 	Errors []error `json:"-"`
@@ -142,6 +143,9 @@ func (s *PipelineState) RecordDecision(role AgentRole, phase Phase, roundNumber 
 	}
 	if llmResponse != nil && llmResponse.Response != nil && llmResponse.Response.UsedFallback {
 		s.UsedFallback = true
+	}
+	if llmResponse != nil && llmResponse.Response != nil && llmResponse.Response.TimedOut {
+		s.TimedOut = true
 	}
 }
 

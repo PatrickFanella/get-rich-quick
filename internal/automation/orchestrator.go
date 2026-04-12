@@ -433,13 +433,25 @@ func (o *JobOrchestrator) persistRun(jobName string, start time.Time, elapsed ti
 		errMsg = jobErr.Error()
 	}
 
+	job := o.jobs[jobName]
+	var lastErrorAt *time.Time
+	var consecutiveFailures int
+	if job != nil {
+		job.mu.Lock()
+		lastErrorAt = job.LastErrorAt
+		consecutiveFailures = job.ConsecutiveFailures
+		job.mu.Unlock()
+	}
+
 	run := &pgrepo.JobRun{
-		JobName:     jobName,
-		Status:      status,
-		StartedAt:   start.UTC(),
-		CompletedAt: &completed,
-		DurationNs:  elapsed.Nanoseconds(),
-		Error:       errMsg,
+		JobName:             jobName,
+		Status:              status,
+		StartedAt:           start.UTC(),
+		CompletedAt:         &completed,
+		DurationNs:          elapsed.Nanoseconds(),
+		Error:               errMsg,
+		LastErrorAt:         lastErrorAt,
+		ConsecutiveFailures: consecutiveFailures,
 	}
 
 	if err := o.deps.JobRunRepo.Create(context.Background(), run); err != nil {

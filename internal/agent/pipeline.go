@@ -634,6 +634,7 @@ func (p *Pipeline) Execute(ctx context.Context, strategyID uuid.UUID, ticker str
 		StrategyID:    strategyID,
 		Ticker:        ticker,
 		UsedFallback:  state.UsedFallback,
+		TimedOut:      state.TimedOut,
 		OccurredAt:    p.currentTime().UTC(),
 	})
 

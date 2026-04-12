@@ -854,6 +854,17 @@ func pipelineEventToWSMessage(e agent.PipelineEvent) api.WSMessage {
 			Data:       map[string]any{"error": e.Error, "timed_out": e.TimedOut, "used_fallback": e.UsedFallback},
 			Timestamp:  e.OccurredAt,
 		}
+	case agent.PipelineCompleted:
+		if !e.UsedFallback && !e.TimedOut {
+			return api.WSMessage{}
+		}
+		return api.WSMessage{
+			Type:       api.EventError,
+			StrategyID: e.StrategyID,
+			RunID:      e.PipelineRunID,
+			Data:       map[string]any{"error": "", "timed_out": e.TimedOut, "used_fallback": e.UsedFallback},
+			Timestamp:  e.OccurredAt,
+		}
 	default:
 		// LLMCacheStatsReported, PipelineCompleted — no WS mapping needed.
 		return api.WSMessage{}
