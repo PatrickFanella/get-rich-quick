@@ -44,7 +44,7 @@ export function StrategyDetailPage() {
     onMessage: (msg) => {
       if (!('type' in msg) || !('strategy_id' in msg)) return
       const wsMsg = msg as { type: string; strategy_id?: string; data?: PipelineErrorData }
-      if (wsMsg.type === 'error' && wsMsg.strategy_id === id && wsMsg.data) {
+      if ((wsMsg.type === 'error' || wsMsg.type === 'pipeline_health') && wsMsg.strategy_id === id && wsMsg.data) {
         setLastPipelineError(wsMsg.data)
       }
     },

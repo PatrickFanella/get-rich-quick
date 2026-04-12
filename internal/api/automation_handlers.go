@@ -22,10 +22,11 @@ type AutomationJobHealth struct {
 
 // AutomationHealthResponse is the response body for GET /api/v1/automation/health.
 type AutomationHealthResponse struct {
-	Jobs        []AutomationJobHealth `json:"jobs"`
-	Healthy     bool                  `json:"healthy"`
-	TotalJobs   int                   `json:"total_jobs"`
-	FailingJobs int                   `json:"failing_jobs"`
+	Jobs         []AutomationJobHealth `json:"jobs"`
+	Healthy      bool                  `json:"healthy"`
+	TotalJobs    int                   `json:"total_jobs"`
+	FailingJobs  int                   `json:"failing_jobs"`
+	DegradedJobs int                   `json:"degraded_jobs"`
 }
 
 // handleGetAutomationStatus returns status for all registered jobs.
@@ -50,13 +51,14 @@ func (s *Server) handleGetAutomationHealth(w http.ResponseWriter, r *http.Reques
 	jobs := make([]AutomationJobHealth, 0, len(statuses))
 	healthy := true
 	failingJobs := 0
+	degradedJobs := 0
 
 	for _, st := range statuses {
 		if st.ConsecutiveFailures >= 3 {
 			healthy = false
-		}
-		if st.ConsecutiveFailures >= 1 {
 			failingJobs++
+		} else if st.ConsecutiveFailures >= 1 {
+			degradedJobs++
 		}
 		jobs = append(jobs, AutomationJobHealth{
 			Name:                st.Name,
@@ -71,10 +73,11 @@ func (s *Server) handleGetAutomationHealth(w http.ResponseWriter, r *http.Reques
 	}
 
 	respondJSON(w, http.StatusOK, AutomationHealthResponse{
-		Jobs:        jobs,
-		Healthy:     healthy,
-		TotalJobs:   len(jobs),
-		FailingJobs: failingJobs,
+		Jobs:         jobs,
+		Healthy:      healthy,
+		TotalJobs:    len(jobs),
+		FailingJobs:  failingJobs,
+		DegradedJobs: degradedJobs,
 	})
 }
 

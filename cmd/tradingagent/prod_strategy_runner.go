@@ -859,14 +859,14 @@ func pipelineEventToWSMessage(e agent.PipelineEvent) api.WSMessage {
 			return api.WSMessage{}
 		}
 		return api.WSMessage{
-			Type:       api.EventError,
+			Type:       api.EventPipelineHealth,
 			StrategyID: e.StrategyID,
 			RunID:      e.PipelineRunID,
-			Data:       map[string]any{"error": "", "timed_out": e.TimedOut, "used_fallback": e.UsedFallback},
+			Data:       map[string]any{"timed_out": e.TimedOut, "used_fallback": e.UsedFallback},
 			Timestamp:  e.OccurredAt,
 		}
 	default:
-		// LLMCacheStatsReported, PipelineCompleted — no WS mapping needed.
+		// LLMCacheStatsReported — no WS mapping needed.
 		return api.WSMessage{}
 	}
 }

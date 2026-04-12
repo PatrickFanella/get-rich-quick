@@ -105,11 +105,12 @@ func (f *FallbackProvider) Complete(ctx context.Context, request CompletionReque
 }
 
 func newFallbackContext(parent context.Context) (context.Context, context.CancelFunc) {
+	base := context.WithoutCancel(parent)
 	if deadline, ok := parent.Deadline(); ok {
 		if remaining := time.Until(deadline); remaining > 0 {
-			return context.WithTimeout(context.Background(), remaining)
+			return context.WithTimeout(base, remaining)
 		}
 	}
 
-	return context.WithTimeout(context.Background(), defaultFallbackTimeout)
+	return context.WithTimeout(base, defaultFallbackTimeout)
 }

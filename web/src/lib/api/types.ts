@@ -61,6 +61,7 @@ export type WebSocketEventType =
   | 'position_update'
   | 'circuit_breaker'
   | 'error'
+  | 'pipeline_health'
 
 export interface ErrorResponse {
   error: string
@@ -380,7 +381,7 @@ export interface WebSocketMessage<TData = unknown> {
 }
 
 export interface PipelineErrorData {
-  error: string
+  error?: string
   timed_out?: boolean
   used_fallback?: boolean
 }
@@ -811,4 +812,5 @@ export interface AutomationHealthResponse {
   healthy: boolean
   total_jobs: number
   failing_jobs: number
+  degraded_jobs: number
 }

@@ -133,6 +133,11 @@ export function ReliabilityPage() {
                     · {data.failing_jobs} failing
                   </span>
                 )}
+                {data.degraded_jobs > 0 && (
+                  <span className="ml-2 text-amber-500">
+                    · {data.degraded_jobs} degraded
+                  </span>
+                )}
               </span>
             </div>
           </CardContent>

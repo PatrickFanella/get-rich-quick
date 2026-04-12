@@ -113,7 +113,7 @@ func TestAutomationHealthUnhealthy(t *testing.T) {
 	}
 }
 
-// TestAutomationHealthFailingJobsCount verifies failing_jobs count is correct.
+// TestAutomationHealthFailingJobsCount verifies failing_jobs and degraded_jobs counts are correct.
 func TestAutomationHealthFailingJobsCount(t *testing.T) {
 	t.Parallel()
 
@@ -122,7 +122,7 @@ func TestAutomationHealthFailingJobsCount(t *testing.T) {
 	registerJob(o, "job-2")
 	registerJob(o, "job-3")
 
-	// job-1 and job-3 each have >=1 consecutive failure.
+	// job-1 and job-3 each have >= 1 but < 3 consecutive failures (degraded, not failing).
 	o.SetConsecutiveFailures("job-1", 1)
 	o.SetConsecutiveFailures("job-3", 2)
 
@@ -136,8 +136,12 @@ func TestAutomationHealthFailingJobsCount(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 
-	if resp.FailingJobs != 2 {
-		t.Errorf("expected failing_jobs=2, got %d", resp.FailingJobs)
+	// No job has >= 3 consecutive failures, so failing_jobs=0 and healthy=true.
+	if resp.FailingJobs != 0 {
+		t.Errorf("expected failing_jobs=0 (none have >=3 consecutive failures), got %d", resp.FailingJobs)
+	}
+	if resp.DegradedJobs != 2 {
+		t.Errorf("expected degraded_jobs=2 (job-1 and job-3 have 1-2 consecutive failures), got %d", resp.DegradedJobs)
 	}
 	// Neither has >=3 consecutive failures, so healthy=true.
 	if !resp.Healthy {
