@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { getWebSocketUrl } from '@/lib/config'
-import { getAccessToken } from '@/lib/auth'
 import type { UUID, WebSocketServerMessage, WebSocketSubscriptionCommand } from '@/lib/api/types'
 
 export type WebSocketConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
@@ -38,23 +37,6 @@ export function useWebSocketClient({
   const [lastMessage, setLastMessage] = useState<WebSocketServerMessage | null>(null)
   const endpoint = useMemo(() => url ?? getWebSocketUrl(), [url])
 
-  const resolveEndpoint = useCallback(() => {
-    const token = getAccessToken()
-    if (!token) {
-      return endpoint
-    }
-
-    try {
-      const parsed = new URL(endpoint)
-      if (!parsed.searchParams.has('token') && !parsed.searchParams.has('api_key')) {
-        parsed.searchParams.set('token', token)
-      }
-      return parsed.toString()
-    } catch {
-      return endpoint
-    }
-  }, [endpoint])
-
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current !== null) {
       window.clearTimeout(reconnectTimerRef.current)
@@ -83,7 +65,7 @@ export function useWebSocketClient({
     shouldReconnectRef.current = enabled && reconnect
     setStatus('connecting')
 
-    const socket = new WebSocket(resolveEndpoint())
+    const socket = new WebSocket(endpoint)
     socketRef.current = socket
 
     socket.onopen = () => {
@@ -122,7 +104,7 @@ export function useWebSocketClient({
         }, reconnectDelayMs)
       }
     }
-  }, [clearReconnectTimer, enabled, onError, onMessage, reconnect, reconnectDelayMs, resolveEndpoint])
+  }, [clearReconnectTimer, enabled, endpoint, onError, onMessage, reconnect, reconnectDelayMs])
 
   const sendCommand = useCallback((command: WebSocketSubscriptionCommand | { action: 'subscribe_all' | 'unsubscribe_all' }) => {
     const socket = socketRef.current

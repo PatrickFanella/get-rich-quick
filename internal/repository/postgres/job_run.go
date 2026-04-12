@@ -128,23 +128,26 @@ func (r *JobRunRepo) Summaries(ctx context.Context) ([]JobRunSummary, error) {
 		return nil, err
 	}
 
-	// Fill in last_result and last_error from the most recent run per job.
+	// Fill in last_result, last_error, last_error_at, and consecutive_failures
+	// from persisted columns on the most recent run per job.
 	for i, s := range summaries {
 		var status string
 		var errStr *string
-		var startedAt time.Time
+		var lastErrAt *time.Time
+		var consecutiveFailures int
 		err := r.pool.QueryRow(ctx,
-			`SELECT status, error, started_at FROM automation_job_runs
+			`SELECT status, error, last_error_at, consecutive_failures
+			 FROM automation_job_runs
 			 WHERE job_name = $1 ORDER BY started_at DESC LIMIT 1`,
 			s.JobName,
-		).Scan(&status, &errStr, &startedAt)
+		).Scan(&status, &errStr, &lastErrAt, &consecutiveFailures)
 		if err == nil {
 			summaries[i].LastResult = status
 			if errStr != nil {
 				summaries[i].LastError = *errStr
-				summaries[i].LastErrorAt = &startedAt
 			}
-			summaries[i].ConsecutiveFailures = r.countConsecutiveFailures(ctx, s.JobName)
+			summaries[i].LastErrorAt = lastErrAt
+			summaries[i].ConsecutiveFailures = consecutiveFailures
 		}
 	}
 
