@@ -18,7 +18,7 @@
     "clsx": "^2.1.1",
     "lucide-react": "^0.551.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0",
+    "react-dom": "^19.2.5",
     "react-router-dom": "^7.13.2",
     "recharts": "^3.8.1",
     "tailwind-merge": "^3.3.1",
