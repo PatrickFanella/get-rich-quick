@@ -22,7 +22,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/crypto v0.46.0
 	golang.org/x/sync v0.20.0
-	google.golang.org/genai v1.51.0
+	google.golang.org/genai v1.53.0
 )
 
 require (
