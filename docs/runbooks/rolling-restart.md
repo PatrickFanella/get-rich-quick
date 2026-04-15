@@ -21,24 +21,37 @@ Use this runbook for config changes, routine deploys, or process-level recovery 
    tradingagent --api-url "$TRADINGAGENT_API_URL" --api-key "$TRADINGAGENT_API_KEY" risk status
    ```
 
-3. For the Docker Compose stack in this repository, rebuild and replace only the app container so PostgreSQL and Redis remain up:
+3. If the deploy includes pending schema changes, apply migrations before restarting app processes. The runtime fails fast on schema mismatch and requires a fresh restart after migrations.
+
+   ```bash
+   task migrate:up
+   ```
+
+4. For the Docker Compose stack in this repository, rebuild and replace only the app container so PostgreSQL and Redis remain up:
 
    ```bash
    docker compose up -d --build --no-deps app
    ```
 
-4. If you are operating a multi-instance deployment outside local Compose, drain one instance from the load balancer, wait for in-flight traffic to finish, restart that instance, verify health, then continue to the next instance.
-5. Follow logs until the new process reports that the API server is listening:
+5. If you are operating a multi-instance deployment outside local Compose, drain one instance from the load balancer, wait for in-flight traffic to finish, restart that instance, verify health, then continue to the next instance.
+6. Follow logs until the new process reports that the API server is listening:
 
    ```bash
    docker compose logs --tail=100 -f app
    ```
 
-6. Repeat health and risk checks before you route normal traffic back to the restarted instance.
+7. Verify the live schema version after the restart when schema changes were part of the rollout:
+
+   ```bash
+   docker compose exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-tradingagent}" -At -c 'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1'
+   ```
+
+8. Repeat health and risk checks before you route normal traffic back to the restarted instance.
 
 ## Verification
 
 - `curl -sS "${TRADINGAGENT_API_URL:-http://127.0.0.1:8080}/healthz"` returns `{"status":"all-ok"}`.
+- `SELECT version FROM schema_migrations` returns the expected post-migration version when schema changes were part of the rollout.
 - `risk status` responds successfully and shows the expected kill switch and circuit breaker state.
 - Logs contain a clean shutdown/startup sequence and no repeated crash loop.
 

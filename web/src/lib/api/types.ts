@@ -340,6 +340,9 @@ export interface Settings {
   system: {
     environment: string
     version: string
+    current_schema_version: number
+    required_schema_version: number
+    schema_status: string
     uptime_seconds: number
     connected_brokers: Array<{
       name: string

@@ -111,9 +111,11 @@ Notes:
 | Universe | `GET /universe`, `GET /universe/watchlist`, `POST /universe/refresh`, `POST /universe/scan` |
 | Options | `GET /options/chain/{underlying}` |
 | Calendar | `GET /calendar/earnings`, `GET /calendar/economic`, `GET /calendar/ipo`, `GET /calendar/filings`, `POST /calendar/filings/analyze` |
-| Automation | `GET /automation/status`, `POST /automation/jobs/{name}/run`, `POST /automation/jobs/{name}/enable` |
+| Automation | `GET /automation/status`, `GET /automation/health`, `POST /automation/jobs/{name}/run`, `POST /automation/jobs/{name}/enable` |
 | News | `GET /news` |
 | Signals | `GET /signals/evaluated`, `GET /signals/triggers`, `GET/POST /signals/watchlist`, `DELETE /signals/watchlist/{term}` |
+
+Backend root `/` is not documented here because the current Compose and production stack do not serve the frontend SPA from the API process. Public ops endpoints remain `GET /healthz`, `GET /health`, and `GET /metrics`.
 
 ## Endpoint reference
 

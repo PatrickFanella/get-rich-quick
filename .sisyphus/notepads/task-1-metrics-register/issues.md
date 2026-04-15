@@ -1,1 +1,0 @@
-- `go test ./internal/metrics/... -v` wanted a `go.mod` update for indirect test deps.

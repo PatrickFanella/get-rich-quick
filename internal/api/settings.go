@@ -66,10 +66,13 @@ type LLMProviderResponse struct {
 
 // SystemInfo provides non-editable system metadata for the settings page.
 type SystemInfo struct {
-	Environment      string             `json:"environment"`
-	Version          string             `json:"version"`
-	UptimeSeconds    int64              `json:"uptime_seconds"`
-	ConnectedBrokers []BrokerConnection `json:"connected_brokers"`
+	Environment           string             `json:"environment"`
+	Version               string             `json:"version"`
+	CurrentSchemaVersion  int                `json:"current_schema_version"`
+	RequiredSchemaVersion int                `json:"required_schema_version"`
+	SchemaStatus          string             `json:"schema_status"`
+	UptimeSeconds         int64              `json:"uptime_seconds"`
+	ConnectedBrokers      []BrokerConnection `json:"connected_brokers"`
 }
 
 // BrokerConnection summarizes broker connectivity/configuration.
@@ -112,12 +115,15 @@ type LLMProviderUpdateRequest struct {
 
 // SettingsBootstrap contains the initial values used to seed the settings service.
 type SettingsBootstrap struct {
-	LLM              llmSettingsState
-	Risk             domain.RiskSettings
-	Environment      string
-	Version          string
-	ConnectedBrokers []BrokerConnection
-	StartedAt        time.Time
+	LLM                   llmSettingsState
+	Risk                  domain.RiskSettings
+	Environment           string
+	Version               string
+	CurrentSchemaVersion  int
+	RequiredSchemaVersion int
+	SchemaStatus          string
+	ConnectedBrokers      []BrokerConnection
+	StartedAt             time.Time
 }
 
 type llmSettingsState struct {
@@ -171,9 +177,12 @@ func NewMemorySettingsService(bootstrap SettingsBootstrap) *MemorySettingsServic
 		llm:  bootstrap.LLM,
 		risk: bootstrap.Risk,
 		system: SystemInfo{
-			Environment:      strings.TrimSpace(bootstrap.Environment),
-			Version:          version,
-			ConnectedBrokers: append([]BrokerConnection(nil), bootstrap.ConnectedBrokers...),
+			Environment:           strings.TrimSpace(bootstrap.Environment),
+			Version:               version,
+			CurrentSchemaVersion:  bootstrap.CurrentSchemaVersion,
+			RequiredSchemaVersion: bootstrap.RequiredSchemaVersion,
+			SchemaStatus:          normalizeSchemaStatus(bootstrap.SchemaStatus),
+			ConnectedBrokers:      append([]BrokerConnection(nil), bootstrap.ConnectedBrokers...),
 		},
 		started: startedAt,
 	}
@@ -238,7 +247,7 @@ func applyPersistedProvider(target *providerState, p domain.ProviderPersisted) {
 }
 
 // NewMemorySettingsServiceFromConfig seeds the settings API from application config.
-func NewMemorySettingsServiceFromConfig(cfg config.Config) *MemorySettingsService {
+func NewMemorySettingsServiceFromConfig(cfg config.Config, currentSchemaVersion, requiredSchemaVersion int, schemaStatus string) *MemorySettingsService {
 	return NewMemorySettingsService(SettingsBootstrap{
 		LLM: llmSettingsState{
 			DefaultProvider: cfg.LLM.DefaultProvider,
@@ -284,8 +293,11 @@ func NewMemorySettingsServiceFromConfig(cfg config.Config) *MemorySettingsServic
 			CircuitBreakerThresholdPct: cfg.Risk.CircuitBreakerThreshold * 100,
 			CircuitBreakerCooldownMin:  int(cfg.Risk.CircuitBreakerCooldown / time.Minute),
 		},
-		Environment: cfg.Environment,
-		Version:     detectBuildVersion(),
+		Environment:           cfg.Environment,
+		Version:               detectBuildVersion(),
+		CurrentSchemaVersion:  currentSchemaVersion,
+		RequiredSchemaVersion: requiredSchemaVersion,
+		SchemaStatus:          schemaStatus,
 		ConnectedBrokers: []BrokerConnection{
 			{
 				Name:       "alpaca",
@@ -327,10 +339,13 @@ func (s *MemorySettingsService) getLocked() SettingsResponse {
 		},
 		Risk: s.risk,
 		System: SystemInfo{
-			Environment:      s.system.Environment,
-			Version:          s.system.Version,
-			UptimeSeconds:    int64(time.Since(s.started).Seconds()),
-			ConnectedBrokers: append([]BrokerConnection(nil), s.system.ConnectedBrokers...),
+			Environment:           s.system.Environment,
+			Version:               s.system.Version,
+			CurrentSchemaVersion:  s.system.CurrentSchemaVersion,
+			RequiredSchemaVersion: s.system.RequiredSchemaVersion,
+			SchemaStatus:          s.system.SchemaStatus,
+			UptimeSeconds:         int64(time.Since(s.started).Seconds()),
+			ConnectedBrokers:      append([]BrokerConnection(nil), s.system.ConnectedBrokers...),
 		},
 	}
 }
@@ -496,4 +511,13 @@ func detectBuildVersion() string {
 		}
 	}
 	return "development"
+}
+
+func normalizeSchemaStatus(status string) string {
+	switch strings.TrimSpace(strings.ToLower(status)) {
+	case "", "match", "ok":
+		return "ok"
+	default:
+		return strings.TrimSpace(status)
+	}
 }

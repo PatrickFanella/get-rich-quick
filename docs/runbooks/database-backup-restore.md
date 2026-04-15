@@ -56,23 +56,30 @@ Use this runbook before risky schema work, before restoring production-like data
      --no-owner < "$BACKUP_FILE"
    ```
 
-7. Re-apply migrations so the schema matches the current application build. When running `migrate` from the operator workstation, use a host-resolvable connection string instead of the container hostname in `.env`, and substitute the real database credentials for your environment:
+7. Re-apply migrations so the schema matches the current application build before you start or restart the app. The runtime fails fast on schema mismatch and needs a fresh restart after migrations. When running `migrate` from the operator workstation, use a host-resolvable connection string instead of the container hostname in `.env`, and substitute the real database credentials for your environment:
 
    ```bash
    export LOCAL_DATABASE_URL="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-tradingagent}?sslmode=disable"
    migrate -path migrations -database "$LOCAL_DATABASE_URL" up
    ```
 
-8. Start the app again if you stopped it:
+8. Start or restart the app after migrations complete:
 
    ```bash
    docker compose up -d app
+   ```
+
+9. Verify the schema version before returning traffic:
+
+   ```bash
+   docker compose exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-tradingagent}" -At -c 'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1'
    ```
 
 ## Verification
 
 - `pg_restore -l "$BACKUP_FILE"` succeeds for the backup you intend to use.
 - `docker compose exec postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-tradingagent}" -c '\dt'` lists the expected tables after restore.
+- `SELECT version FROM schema_migrations` returns the expected current application schema version after `migrate ... up`.
 - `curl -sS "${TRADINGAGENT_API_URL:-http://127.0.0.1:8080}/healthz"` returns `{"status":"all-ok"}` after the app is back up.
 - An authenticated read-only API call such as `GET /api/v1/strategies` succeeds.
 

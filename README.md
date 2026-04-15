@@ -68,13 +68,22 @@ cd get-rich-quick
 # 2. Copy the example environment file and configure an LLM provider
 cp .env.example .env
 
-# 3. Start all services (app + PostgreSQL + Redis)
-docker compose up --build
+# 3. Start the backend Compose stack (app + PostgreSQL + Redis)
+docker compose up -d --build
+
+# 4. Apply database migrations explicitly
+task migrate:up
+
+# 5. Restart the app if it started before migrations or reported a schema mismatch
+docker compose restart app
 ```
 
 
 For cloud LLMs, set one provider key in `.env` (for example `OPENAI_API_KEY`). For local Ollama, install Ollama, run `ollama pull llama3.2`, then set `LLM_DEFAULT_PROVIDER=ollama` and keep `OLLAMA_MODEL=llama3.2`. See the [Development Setup Guide](docs/development-setup.md) for the full prerequisites list and Docker-vs-native Ollama notes.
-The application will be available at [http://localhost:8080](http://localhost:8080). See the [Development Setup Guide](docs/development-setup.md) for native (non-Docker) setup and advanced configuration.
+
+The Compose stack in this repo serves the backend only. `http://localhost:8080` is the API and ops surface, not the frontend SPA root. Run the Vite frontend separately from `web/` when you need the browser UI.
+
+If the app logs a schema version mismatch on startup, that failure is intentional and happens before the rest of the runtime boots. Apply migrations, then restart the process or container; migrations applied after process start require a fresh restart.
 
 ## Development Setup (Docker Compose)
 
@@ -99,8 +108,11 @@ task dev
 docker compose logs -f        # all services
 task dev:logs                  # shortcut
 
-# Run database migrations
+# Run database migrations explicitly
 task migrate:up
+
+# Restart app after migrations if startup failed on schema mismatch
+docker compose restart app
 
 # Open a PostgreSQL shell (default Compose user is postgres)
 docker compose exec postgres psql -U postgres -d tradingagent
@@ -151,7 +163,7 @@ To verify the production image and `docker-compose.prod.yml` end-to-end, run:
 ./scripts/verify-prod-build.sh
 ```
 
-The script builds the production image, starts `docker-compose.prod.yml`, applies migrations, verifies `GET /healthz` returns `{"status":"all-ok"}`, and checks an authenticated `GET /api/v1/strategies` request against the running stack.
+The script builds the production image, starts `docker-compose.prod.yml`, waits for PostgreSQL, applies migrations, asserts the expected schema version, verifies `GET /healthz` returns `{"status":"all-ok"}`, and checks an authenticated `GET /api/v1/strategies` request against the running stack.
 
 ### Build, Test & Lint
 
@@ -206,9 +218,9 @@ See [`.env.example`](.env.example) for the full list of variables including all 
 
 ## API Overview
 
-The REST API is served under `/api/v1`. Public HTTP endpoints are `GET /healthz`, `GET /health`, `GET /metrics`, `POST /api/v1/auth/login`, and `POST /api/v1/auth/refresh`. The WebSocket endpoint is `GET /ws`; it is not behind auth middleware in the current server.
+The REST API is served under `/api/v1`. Public HTTP endpoints are `GET /healthz`, `GET /health`, `GET /metrics`, `POST /api/v1/auth/login`, and `POST /api/v1/auth/refresh`. The WebSocket endpoint is `GET /ws`; it is not behind auth middleware in the current server. Backend root `/` is not the frontend SPA in the current Compose or production stack.
 
-All other `/api/v1/*` routes require either `Authorization: Bearer <jwt>` or `X-API-Key: <api_key>`. Implemented route groups include strategies, runs, portfolio, orders, trades, memories, risk, settings, events, conversations, and audit log.
+All other `/api/v1/*` routes require either `Authorization: Bearer <jwt>` or `X-API-Key: <api_key>`. Implemented route groups include strategies, runs, portfolio, orders, trades, memories, risk, settings, events, conversations, audit log, and automation health/status.
 
 For the canonical route list, request/response examples, and WebSocket command format, see [`docs/reference/api.md`](docs/reference/api.md).
 

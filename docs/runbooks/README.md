@@ -39,6 +39,7 @@ These runbooks are for operators and contributors handling a running system, an 
 
 These runbooks assume the current implementation reality:
 
-- settings edits are not durable across restart
+- non-secret settings persist through the backend settings store, but secrets entered through the UI do not survive restart
 - WebSocket access is not yet treated as a hardened public surface
 - some runtime/frontend areas still need cleanup because of unresolved merge conflicts elsewhere in the repo
+- rollout order for schema-affecting changes is migrate first, then restart app processes, then verify schema and health

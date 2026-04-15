@@ -7,7 +7,7 @@ import { PageHeader } from '@/components/layout/page-header'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { apiClient } from '@/lib/api/client'
-import type { AutomationJobHealth } from '@/lib/api/types'
+import type { AutomationJobHealth, Settings } from '@/lib/api/types'
 
 function formatRelativeTime(iso?: string): string {
   if (!iso) return '--'
@@ -61,11 +61,75 @@ function buildFailureRateSeries(
 
 const STALE_THRESHOLD_MS = 60 * 60 * 1000
 
+function schemaStatusBadgeVariant(status?: string): 'success' | 'warning' | 'destructive' | 'outline' {
+  switch (status?.trim().toLowerCase()) {
+    case 'ok':
+      return 'success'
+    case 'ahead':
+      return 'warning'
+    case 'behind':
+      return 'destructive'
+    default:
+      return 'outline'
+  }
+}
+
+function formatSchemaStatus(status?: string): string {
+  const normalized = status?.trim().toLowerCase()
+  if (!normalized) return 'Unknown'
+  return normalized
+}
+
+function schemaVersionValue(value?: number): string {
+  return value == null ? '--' : String(value)
+}
+
+function SchemaStatusCard({ system }: { system?: Settings['system'] }) {
+  const status = formatSchemaStatus(system?.schema_status)
+
+  return (
+    <Card data-testid="schema-status-card">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          Schema Status
+          <Badge variant={schemaStatusBadgeVariant(system?.schema_status)}>{status}</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">
+              Current schema
+            </p>
+            <p className="font-mono text-lg font-semibold tabular-nums">
+              {schemaVersionValue(system?.current_schema_version)}
+            </p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">
+              Required schema
+            </p>
+            <p className="font-mono text-lg font-semibold tabular-nums">
+              {schemaVersionValue(system?.required_schema_version)}
+            </p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function ReliabilityPage() {
   const healthQuery = useQuery({
     queryKey: ['automation-health'],
     queryFn: () => apiClient.getAutomationHealth(),
     refetchInterval: 30_000,
+  })
+
+  const settingsQuery = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => apiClient.getSettings(),
+    refetchInterval: 60_000,
   })
 
   const runningRunsQuery = useQuery({
@@ -144,7 +208,9 @@ export function ReliabilityPage() {
         </Card>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <SchemaStatusCard system={settingsQuery.data?.system} />
+
         <Card data-testid="stale-run-card">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

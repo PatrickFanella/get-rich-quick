@@ -10,6 +10,8 @@ tags: [frontend, web-ui, reference]
 
 The frontend lives in `web/` and is mounted through the route map in `web/src/App.tsx`.
 
+It is a separate app from the backend. In the current Compose and production stack, backend root `/` is not the SPA; run or deploy the frontend separately.
+
 ## Route map
 
 | Route | Purpose |
@@ -133,7 +135,7 @@ Capabilities:
 
 Critical caveat:
 
-- settings edits are not durable across restart
+- non-secret settings persist through the backend settings store, but secrets entered in the UI are not durable across restart
 
 ### Risk
 
@@ -165,3 +167,5 @@ The frontend depends on:
 - current API route shapes and pagination semantics
 
 If UI behavior feels inconsistent, verify the backing route in [API](api.md) before assuming the frontend is correct.
+
+Do not treat `http://backend-host/` as the frontend entrypoint in the current stack. Use the separately served Vite/frontend deployment instead.

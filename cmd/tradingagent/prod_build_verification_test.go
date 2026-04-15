@@ -20,6 +20,8 @@ func TestProductionBuildVerificationScriptContainsExpectedSteps(t *testing.T) {
 		`compose build`,
 		`compose up -d`,
 		`wait_for_postgres`,
+		`SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1`,
+		`schema version mismatch after migrations`,
 		`wait_for_app_health`,
 		`find "${ROOT_DIR}/migrations" -maxdepth 1 -type f -name '*.up.sql' -printf '%f\n' | sort`,
 		`compose exec -T postgres`,
@@ -40,6 +42,16 @@ func TestProductionBuildVerificationScriptContainsExpectedSteps(t *testing.T) {
 		if strings.Contains(script, unwanted) {
 			t.Fatalf("verify-prod-build.sh unexpectedly contains %q", unwanted)
 		}
+	}
+
+	migrationsIdx := strings.Index(script, `for migration in "${migration_files[@]}"; do`)
+	schemaAssertIdx := strings.Index(script, `SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1`)
+	healthWaitIdx := strings.LastIndex(script, "\nwait_for_app_health\n")
+	if migrationsIdx == -1 || schemaAssertIdx == -1 || healthWaitIdx == -1 {
+		t.Fatal("verify-prod-build.sh missing migration/schema/health ordering anchors")
+	}
+	if !(migrationsIdx < schemaAssertIdx && schemaAssertIdx < healthWaitIdx) {
+		t.Fatalf("verify-prod-build.sh expected migrations -> schema assertion -> health wait ordering, got migration=%d schema=%d health=%d", migrationsIdx, schemaAssertIdx, healthWaitIdx)
 	}
 }
 

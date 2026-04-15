@@ -68,6 +68,9 @@ const mockSettings: Settings = {
   system: {
     environment: 'development',
     version: '0.1.0',
+    current_schema_version: 28,
+    required_schema_version: 28,
+    schema_status: 'ok',
     uptime_seconds: 3600,
     connected_brokers: [],
   },

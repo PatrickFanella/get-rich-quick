@@ -1,2 +1,0 @@
-- Kept private registry + `reg.MustRegister(...)` unchanged.
-- Used behavior-level tests on exported helpers, not internal registry state.

@@ -1,2 +1,0 @@
-- Kept scheduler metrics optional and nil-safe.
-- Emission wired in at cron entry points, not inside lower-level job logic.

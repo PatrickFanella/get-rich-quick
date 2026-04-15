@@ -19,6 +19,14 @@ All durable server configuration currently starts in the environment.
 - `.env` is auto-loaded only when `APP_ENV=development`
 - validation runs after loading
 - the API settings surface is separate and persists via the `app_settings` table when a database-backed persister is available
+- startup also checks the live database schema version; a mismatch fails process startup before subsystem wiring continues
+
+## Schema mismatch behavior
+
+- runtime compares the current database schema version with the required application schema version during startup
+- a mismatch is fail-fast: the process exits before Redis health, repositories, scheduler, automation, and HTTP server wiring continue
+- remediation is explicit: run migrations, then restart the process
+- migrations applied after process start require a fresh restart; the already-running process does not recover in place
 
 ## Major configuration groups
 
@@ -221,5 +229,6 @@ OLLAMA_MODEL=llama3.2
 ## Operational cautions
 
 - A configured key in `.env` does not guarantee the runtime currently instantiates that integration.
-- The UI can make settings feel persistent even though they are not.
+- Non-secret settings can persist through `app_settings`, but secrets entered through the UI remain in-memory only.
 - Secrets entered through the UI are not a substitute for durable secret management.
+- If startup fails on schema mismatch, treat it as a deploy contract problem: migrate first, then restart.

@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -114,6 +115,9 @@ func GenerateStrategy(ctx context.Context, cfg GeneratorConfig, candidate Screen
 		}
 
 		parsed, parseErr := rules.Parse(json.RawMessage(resp.Content))
+		if parsed == nil && parseErr == nil {
+			parseErr = errors.New("rules: empty JSON response")
+		}
 		if parseErr == nil && parsed != nil {
 			logger.Info("discovery/generator: strategy generated",
 				slog.String("ticker", candidate.Ticker),
@@ -129,13 +133,14 @@ func GenerateStrategy(ctx context.Context, cfg GeneratorConfig, candidate Screen
 			slog.Int("attempt", attempt+1),
 			slog.Any("error", parseErr),
 		)
+		parseErrText := parseErr.Error()
 
 		// Append correction prompt for the next attempt.
 		messages = append(messages,
 			llm.Message{Role: "assistant", Content: resp.Content},
 			llm.Message{Role: "user", Content: fmt.Sprintf(
 				"The JSON you produced failed validation with this error:\n%s\n\nPlease fix the issue and return corrected JSON only.",
-				parseErr.Error(),
+				parseErrText,
 			)},
 		)
 	}

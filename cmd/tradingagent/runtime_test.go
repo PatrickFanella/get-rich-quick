@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/agent"
+	"github.com/PatrickFanella/get-rich-quick/internal/api"
 	"github.com/PatrickFanella/get-rich-quick/internal/config"
 	"github.com/PatrickFanella/get-rich-quick/internal/data"
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
@@ -20,9 +22,231 @@ import (
 	"github.com/PatrickFanella/get-rich-quick/internal/metrics"
 	"github.com/PatrickFanella/get-rich-quick/internal/notification"
 	"github.com/PatrickFanella/get-rich-quick/internal/repository"
+	pgrepo "github.com/PatrickFanella/get-rich-quick/internal/repository/postgres"
 	"github.com/PatrickFanella/get-rich-quick/internal/risk"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func TestNewAPIServerSchemaBehindFailsFast(t *testing.T) {
+	t.Parallel()
+
+	origNewDB := runtimeNewDB
+	origCurrentSchemaVersion := runtimeCurrentSchemaVersion
+	origAfterSchemaGate := runtimeAfterSchemaGate
+	origCloseDB := runtimeCloseDB
+	defer func() {
+		runtimeNewDB = origNewDB
+		runtimeCurrentSchemaVersion = origCurrentSchemaVersion
+		runtimeAfterSchemaGate = origAfterSchemaGate
+		runtimeCloseDB = origCloseDB
+	}()
+
+	var closed atomic.Bool
+	var proceeded atomic.Bool
+	runtimeNewDB = func(context.Context, string) (*pgrepo.DB, error) {
+		return &pgrepo.DB{}, nil
+	}
+	runtimeCurrentSchemaVersion = func(context.Context, *pgxpool.Pool) (int, error) {
+		return pgrepo.RequiredSchemaVersion - 1, nil
+	}
+	runtimeAfterSchemaGate = func() { proceeded.Store(true) }
+	runtimeCloseDB = func(*pgrepo.DB) { closed.Store(true) }
+
+	_, _, _, err := newAPIServer(context.Background(), config.Config{}, slogDiscardLogger())
+	if err == nil {
+		t.Fatal("newAPIServer() error = nil, want schema mismatch")
+	}
+	var mismatchErr *runtimeSchemaVersionError
+	if !errors.As(err, &mismatchErr) {
+		t.Fatalf("newAPIServer() error = %T, want *runtimeSchemaVersionError", err)
+	}
+	if mismatchErr.State != "behind" {
+		t.Fatalf("mismatchErr.State = %q, want behind", mismatchErr.State)
+	}
+	if mismatchErr.Current != pgrepo.RequiredSchemaVersion-1 {
+		t.Fatalf("mismatchErr.Current = %d, want %d", mismatchErr.Current, pgrepo.RequiredSchemaVersion-1)
+	}
+	if mismatchErr.Required != pgrepo.RequiredSchemaVersion {
+		t.Fatalf("mismatchErr.Required = %d, want %d", mismatchErr.Required, pgrepo.RequiredSchemaVersion)
+	}
+	for _, want := range []string{"current version 27", "required version 28", "run migrations, then restart the process", "fresh process restart"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q missing %q", err.Error(), want)
+		}
+	}
+	if proceeded.Load() {
+		t.Fatal("runtime proceeded past schema gate on behind schema")
+	}
+	if !closed.Load() {
+		t.Fatal("runtime did not close db on schema mismatch")
+	}
+}
+
+func TestNewAPIServerSchemaAheadFailsFast(t *testing.T) {
+	t.Parallel()
+
+	origNewDB := runtimeNewDB
+	origCurrentSchemaVersion := runtimeCurrentSchemaVersion
+	origAfterSchemaGate := runtimeAfterSchemaGate
+	origCloseDB := runtimeCloseDB
+	defer func() {
+		runtimeNewDB = origNewDB
+		runtimeCurrentSchemaVersion = origCurrentSchemaVersion
+		runtimeAfterSchemaGate = origAfterSchemaGate
+		runtimeCloseDB = origCloseDB
+	}()
+
+	var closed atomic.Bool
+	var proceeded atomic.Bool
+	runtimeNewDB = func(context.Context, string) (*pgrepo.DB, error) {
+		return &pgrepo.DB{}, nil
+	}
+	runtimeCurrentSchemaVersion = func(context.Context, *pgxpool.Pool) (int, error) {
+		return pgrepo.RequiredSchemaVersion + 1, nil
+	}
+	runtimeAfterSchemaGate = func() { proceeded.Store(true) }
+	runtimeCloseDB = func(*pgrepo.DB) { closed.Store(true) }
+
+	_, _, _, err := newAPIServer(context.Background(), config.Config{}, slogDiscardLogger())
+	if err == nil {
+		t.Fatal("newAPIServer() error = nil, want schema mismatch")
+	}
+	var mismatchErr *runtimeSchemaVersionError
+	if !errors.As(err, &mismatchErr) {
+		t.Fatalf("newAPIServer() error = %T, want *runtimeSchemaVersionError", err)
+	}
+	if mismatchErr.State != "ahead" {
+		t.Fatalf("mismatchErr.State = %q, want ahead", mismatchErr.State)
+	}
+	if mismatchErr.Current != pgrepo.RequiredSchemaVersion+1 {
+		t.Fatalf("mismatchErr.Current = %d, want %d", mismatchErr.Current, pgrepo.RequiredSchemaVersion+1)
+	}
+	if mismatchErr.Required != pgrepo.RequiredSchemaVersion {
+		t.Fatalf("mismatchErr.Required = %d, want %d", mismatchErr.Required, pgrepo.RequiredSchemaVersion)
+	}
+	for _, want := range []string{"current version 29", "required version 28", "run migrations, then restart the process", "fresh process restart"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q missing %q", err.Error(), want)
+		}
+	}
+	if proceeded.Load() {
+		t.Fatal("runtime proceeded past schema gate on ahead schema")
+	}
+	if !closed.Load() {
+		t.Fatal("runtime did not close db on schema mismatch")
+	}
+}
+
+func TestNewAPIServerSchemaMatchSucceeds(t *testing.T) {
+	t.Parallel()
+
+	origNewDB := runtimeNewDB
+	origCurrentSchemaVersion := runtimeCurrentSchemaVersion
+	origAfterSchemaGate := runtimeAfterSchemaGate
+	origCloseDB := runtimeCloseDB
+	origNewServer := runtimeNewServer
+	defer func() {
+		runtimeNewDB = origNewDB
+		runtimeCurrentSchemaVersion = origCurrentSchemaVersion
+		runtimeAfterSchemaGate = origAfterSchemaGate
+		runtimeCloseDB = origCloseDB
+		runtimeNewServer = origNewServer
+	}()
+
+	pool, err := pgxpool.New(context.Background(), "postgres://postgres:postgres@127.0.0.1:1/postgres?sslmode=disable&connect_timeout=1")
+	if err != nil {
+		t.Fatalf("pgxpool.New() error = %v", err)
+	}
+	defer pool.Close()
+
+	var proceeded atomic.Bool
+	var closed atomic.Bool
+	var serverBuilt atomic.Bool
+	runtimeNewDB = func(context.Context, string) (*pgrepo.DB, error) {
+		return &pgrepo.DB{Pool: pool}, nil
+	}
+	runtimeCurrentSchemaVersion = func(context.Context, *pgxpool.Pool) (int, error) {
+		return pgrepo.RequiredSchemaVersion, nil
+	}
+	runtimeAfterSchemaGate = func() { proceeded.Store(true) }
+	runtimeCloseDB = func(*pgrepo.DB) { closed.Store(true) }
+	runtimeNewServer = func(api.ServerConfig, api.Deps, *slog.Logger) (*api.Server, error) {
+		serverBuilt.Store(true)
+		return &api.Server{}, nil
+	}
+
+	server, sched, cleanup, err := newAPIServer(context.Background(), config.Config{}, slogDiscardLogger())
+	if err != nil {
+		t.Fatalf("newAPIServer() error = %v", err)
+	}
+	if server == nil {
+		t.Fatal("newAPIServer() server = nil, want non-nil")
+	}
+	if sched != nil {
+		t.Fatalf("newAPIServer() scheduler = %v, want nil when scheduler disabled", sched)
+	}
+	if cleanup == nil {
+		t.Fatal("newAPIServer() cleanup = nil, want non-nil")
+	}
+	if !proceeded.Load() {
+		t.Fatal("runtime did not proceed past schema gate on matching schema")
+	}
+	if !serverBuilt.Load() {
+		t.Fatal("runtime did not continue to server construction on matching schema")
+	}
+	if closed.Load() {
+		t.Fatal("runtime closed db before cleanup on matching schema")
+	}
+
+	cleanup()
+	if !closed.Load() {
+		t.Fatal("runtime cleanup did not close db on matching schema")
+	}
+}
+
+func TestNewAPIServerSchemaDBUnreachableFailsBeforeSchemaGate(t *testing.T) {
+	t.Parallel()
+
+	origNewDB := runtimeNewDB
+	origCurrentSchemaVersion := runtimeCurrentSchemaVersion
+	origAfterSchemaGate := runtimeAfterSchemaGate
+	origCloseDB := runtimeCloseDB
+	defer func() {
+		runtimeNewDB = origNewDB
+		runtimeCurrentSchemaVersion = origCurrentSchemaVersion
+		runtimeAfterSchemaGate = origAfterSchemaGate
+		runtimeCloseDB = origCloseDB
+	}()
+
+	startupErr := errors.New("postgres: ping database: dial tcp 127.0.0.1:5432: connect: connection refused")
+	var schemaVersionChecked atomic.Bool
+	var proceeded atomic.Bool
+	var closed atomic.Bool
+	runtimeNewDB = func(context.Context, string) (*pgrepo.DB, error) {
+		return nil, startupErr
+	}
+	runtimeCurrentSchemaVersion = func(context.Context, *pgxpool.Pool) (int, error) {
+		schemaVersionChecked.Store(true)
+		return pgrepo.RequiredSchemaVersion, nil
+	}
+	runtimeAfterSchemaGate = func() { proceeded.Store(true) }
+	runtimeCloseDB = func(*pgrepo.DB) { closed.Store(true) }
+
+	_, _, _, err := newAPIServer(context.Background(), config.Config{}, slogDiscardLogger())
+	if !errors.Is(err, startupErr) {
+		t.Fatalf("newAPIServer() error = %v, want %v", err, startupErr)
+	}
+	if schemaVersionChecked.Load() {
+		t.Fatal("runtime checked schema version after DB startup failure")
+	}
+	if proceeded.Load() {
+		t.Fatal("runtime proceeded past schema gate after DB startup failure")
+	}
+	if closed.Load() {
+		t.Fatal("runtime closed db on DB startup failure before a db handle existed")
+	}
+}
 
 func TestNewNotificationManager_DiscordAlertDispatch(t *testing.T) {
 	t.Parallel()

@@ -48,11 +48,64 @@ import (
 	"github.com/PatrickFanella/get-rich-quick/internal/universe"
 )
 
+var (
+	runtimeNewDB                = pgrepo.NewDB
+	runtimeCurrentSchemaVersion = pgrepo.CurrentSchemaVersion
+	runtimeNewServer            = api.NewServer
+	runtimeAfterSchemaGate      = func() {}
+	runtimeCloseDB              = func(db *pgrepo.DB) {
+		if db != nil {
+			db.Close()
+		}
+	}
+)
+
+type runtimeSchemaVersionError struct {
+	State    string
+	Current  int
+	Required int
+}
+
+func (e *runtimeSchemaVersionError) Error() string {
+	return fmt.Sprintf(
+		"database schema version mismatch (%s): current version %d, required version %d; run migrations, then restart the process. Migrations applied after process start require a fresh process restart",
+		e.State,
+		e.Current,
+		e.Required,
+	)
+}
+
+func ensureRuntimeSchemaCompatible(ctx context.Context, db *pgrepo.DB) (int, int, string, error) {
+	current, err := runtimeCurrentSchemaVersion(ctx, db.Pool)
+	if err != nil {
+		return 0, 0, "", err
+	}
+	required := pgrepo.RequiredSchemaVersion
+	status := string(pgrepo.CompareSchemaVersion(current, required))
+
+	switch state := status; state {
+	case "behind", "ahead":
+		return current, required, status, &runtimeSchemaVersionError{
+			State:    state,
+			Current:  current,
+			Required: required,
+		}
+	default:
+		return current, required, status, nil
+	}
+}
+
 func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (*api.Server, cli.SchedulerLifecycle, func(), error) {
-	db, err := pgrepo.NewDB(ctx, cfg.Database.URL)
+	db, err := runtimeNewDB(ctx, cfg.Database.URL)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	currentSchemaVersion, requiredSchemaVersion, schemaStatus, err := ensureRuntimeSchemaCompatible(ctx, db)
+	if err != nil {
+		runtimeCloseDB(db)
+		return nil, nil, nil, err
+	}
+	runtimeAfterSchemaGate()
 
 	redisHealth, closeRedis := newRedisHealthCheck(cfg)
 
@@ -102,7 +155,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 		MinDaysToResolution:        cfg.Risk.Polymarket.MinDaysToResolution,
 	}).WithStatePersister(ctx, pgrepo.NewRiskStatePersister(db.Pool))
 
-	settingsSvc := api.NewMemorySettingsServiceFromConfig(cfg).
+	settingsSvc := api.NewMemorySettingsServiceFromConfig(cfg, currentSchemaVersion, requiredSchemaVersion, schemaStatus).
 		WithPersister(ctx, pgrepo.NewSettingsPersister(db.Pool), logger)
 
 	deps := api.Deps{
@@ -358,10 +411,10 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 	apiCfg.JWTSecret = cfg.Server.JWTSecret
 	apiCfg.RefreshTokenTTL = 24 * time.Hour
 
-	server, err := api.NewServer(apiCfg, deps, logger)
+	server, err := runtimeNewServer(apiCfg, deps, logger)
 	if err != nil {
 		closeRedis()
-		db.Close()
+		runtimeCloseDB(db)
 		return nil, nil, nil, err
 	}
 
@@ -401,7 +454,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 		staleRunReconcilerCancel()
 		signalShutdown()
 		closeRedis()
-		db.Close()
+		runtimeCloseDB(db)
 	}, nil
 }
 

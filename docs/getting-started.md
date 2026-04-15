@@ -7,6 +7,8 @@ It uses:
 - a **native** Go backend build/start
 - the Vite frontend in `web/`
 
+The frontend is a separate app. In the current Compose and production stack, backend root `/` is not the SPA.
+
 One current constraint matters:
 - Manual strategy runs are wired only when the backend starts with `APP_ENV=smoke`. Outside smoke, `POST /api/v1/strategies/{id}/run` returns `501 manual strategy runs are not configured`.
 
@@ -65,6 +67,8 @@ docker compose up -d postgres redis
 ```bash
 task migrate:up
 ```
+
+If the backend was already running and logged a schema version mismatch, stop it after this step and start it again. The runtime fails fast on schema mismatch before subsystem startup, and migrations applied after process start require a fresh restart.
 
 ## 5. Build and start the backend
 
@@ -133,7 +137,7 @@ npm run dev
 
 Open <http://localhost:5173/login>.
 
-`VITE_API_BASE_URL` defaults to `http://localhost:8080`, so no extra frontend env var is needed for this local flow.
+`VITE_API_BASE_URL` defaults to `http://localhost:8080`, so no extra frontend env var is needed for this local flow. This frontend runs separately from the backend process; do not expect `http://localhost:8080/` to serve the UI.
 
 Log in with the `demo` account from the previous step.
 
@@ -218,6 +222,7 @@ task migrate:up
 ```
 
 - Native host commands must use `localhost:5432`. `postgres:5432` only works from inside Compose containers.
+- If the backend failed with a schema mismatch before you ran migrations, restart it after `task migrate:up`. The running process does not recover in place.
 
 ### Ollama is not running
 

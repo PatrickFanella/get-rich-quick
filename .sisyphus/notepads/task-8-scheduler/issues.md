@@ -1,1 +1,0 @@
-- `runTickerDiscovery` test is fragile if discovery deps change; tick emission is still covered by call-order assertion.

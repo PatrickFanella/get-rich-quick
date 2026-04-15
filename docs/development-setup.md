@@ -52,7 +52,8 @@ Important behavior:
 - `.env` is auto-loaded only when `APP_ENV=development`.
 - `JWT_SECRET` is required for the API server to start.
 - most provider integrations are opt-in by key presence
-- settings edited through the UI are stored in an in-memory service and do not rewrite `.env` or persist to the database
+- non-secret settings edited through the API/UI persist to the `app_settings` table when the DB-backed persister is wired; secrets are not written back to `.env` or stored in the database
+- startup fails fast on database schema mismatch before the rest of the runtime boots; fix by running migrations, then restarting the process
 
 Start from:
 
@@ -75,6 +76,8 @@ The default contributor path is:
 ```bash
 docker compose up --build
 ```
+
+That Compose stack is backend-only in current local and production wiring. Run the frontend separately from `web/`.
 
 Or with Task:
 
@@ -99,7 +102,7 @@ If you want the API server outside Docker:
 1. Start PostgreSQL and Redis yourself, or run only those services via Compose.
 2. Set `DATABASE_URL`, `REDIS_URL`, and `JWT_SECRET`.
 3. Run migrations.
-4. start the server:
+4. Start the server:
 
 ```bash
 go run ./cmd/tradingagent serve
@@ -122,9 +125,13 @@ npm run dev
 
 The frontend default API base URL is `http://localhost:8080`.
 
+The frontend is a separate Vite app. Backend root `/` is not the SPA in the current Compose or production stack.
+
 ## Database migrations
 
 The project uses SQL migrations under `migrations/`.
+
+Run them explicitly before expecting a new build to boot cleanly against an updated database. If the server already started and failed with a schema mismatch, apply migrations and then restart it; the mismatch is fail-fast and does not self-heal inside the running process.
 
 Common commands:
 
@@ -284,7 +291,7 @@ The big ones today:
 - unresolved merge conflicts exist in several runtime, risk, API-test, and frontend files
 - some documented integrations are partially wired rather than fully productionized
 - WebSocket auth is not enforced by the current handler
-- settings updates do not persist across server restarts
+- secret values entered through the settings UI do not persist across restarts; non-secret settings persist through `app_settings`
 
 ## Suggested contributor reading order
 

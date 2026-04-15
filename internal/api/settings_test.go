@@ -54,8 +54,11 @@ func TestGetSettings(t *testing.T) {
 			CircuitBreakerThresholdPct: 5,
 			CircuitBreakerCooldownMin:  15,
 		},
-		Environment: "test",
-		Version:     "v1.2.3",
+		Environment:           "test",
+		Version:               "v1.2.3",
+		CurrentSchemaVersion:  28,
+		RequiredSchemaVersion: 28,
+		SchemaStatus:          "match",
 		ConnectedBrokers: []BrokerConnection{
 			{Name: "alpaca", PaperMode: true, Configured: true},
 			{Name: "binance", PaperMode: false, Configured: false},
@@ -83,6 +86,15 @@ func TestGetSettings(t *testing.T) {
 	}
 	if body.System.Version != "v1.2.3" {
 		t.Fatalf("version = %q, want %q", body.System.Version, "v1.2.3")
+	}
+	if body.System.CurrentSchemaVersion != 28 {
+		t.Fatalf("current_schema_version = %d, want 28", body.System.CurrentSchemaVersion)
+	}
+	if body.System.RequiredSchemaVersion != 28 {
+		t.Fatalf("required_schema_version = %d, want 28", body.System.RequiredSchemaVersion)
+	}
+	if body.System.SchemaStatus != "ok" {
+		t.Fatalf("schema_status = %q, want %q", body.System.SchemaStatus, "ok")
 	}
 	if len(body.System.ConnectedBrokers) != 2 {
 		t.Fatalf("connected brokers = %d, want 2", len(body.System.ConnectedBrokers))
@@ -127,6 +139,9 @@ func TestUpdateSettings(t *testing.T) {
 			CircuitBreakerThresholdPct: 5,
 			CircuitBreakerCooldownMin:  15,
 		},
+		CurrentSchemaVersion:  28,
+		RequiredSchemaVersion: 28,
+		SchemaStatus:          "ok",
 	})
 
 	srv := newTestServerWithDeps(t, deps)
