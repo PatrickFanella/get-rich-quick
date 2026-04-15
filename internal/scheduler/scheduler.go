@@ -25,7 +25,7 @@ import (
 const (
 	defaultStrategyPageSize       = 100
 	defaultBacktestConfigPageSize = 100
-	defaultJobTimeout             = 10 * time.Minute
+	defaultJobTimeout             = 45 * time.Minute
 )
 
 var ErrAlreadyStarted = errors.New("scheduler: already started")
@@ -58,6 +58,16 @@ type Option func(*Scheduler)
 func WithStrategyExecution(execute strategyExecutor) Option {
 	return func(s *Scheduler) {
 		s.strategyExecution = execute
+	}
+}
+
+// WithJobTimeout sets the maximum duration for a single scheduled job
+// (strategy or backtest run). If not set, defaults to 45 minutes.
+func WithJobTimeout(d time.Duration) Option {
+	return func(s *Scheduler) {
+		if d > 0 {
+			s.jobTimeout = d
+		}
 	}
 }
 

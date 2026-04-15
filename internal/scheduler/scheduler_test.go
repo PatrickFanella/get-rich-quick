@@ -1025,3 +1025,44 @@ func TestRunStrategy_SkipNextRunResetsAndSkips(t *testing.T) {
 		t.Fatalf("update call strategy ID = %s, want %s", repo.updateCalls[0].ID, strategyID)
 	}
 }
+
+func TestWithJobTimeoutOption(t *testing.T) {
+	t.Run("sets custom timeout", func(t *testing.T) {
+		s := NewScheduler(
+			&mockStrategyRepo{},
+			&mockPipeline{},
+			&mockRiskEngine{},
+			slog.New(slog.NewTextHandler(io.Discard, nil)),
+			WithJobTimeout(30*time.Minute),
+		)
+		if s.jobTimeout != 30*time.Minute {
+			t.Fatalf("jobTimeout = %v, want %v", s.jobTimeout, 30*time.Minute)
+		}
+	})
+
+	t.Run("ignores zero value", func(t *testing.T) {
+		s := NewScheduler(
+			&mockStrategyRepo{},
+			&mockPipeline{},
+			&mockRiskEngine{},
+			slog.New(slog.NewTextHandler(io.Discard, nil)),
+			WithJobTimeout(0),
+		)
+		if s.jobTimeout != defaultJobTimeout {
+			t.Fatalf("jobTimeout = %v, want default %v", s.jobTimeout, defaultJobTimeout)
+		}
+	})
+
+	t.Run("ignores negative value", func(t *testing.T) {
+		s := NewScheduler(
+			&mockStrategyRepo{},
+			&mockPipeline{},
+			&mockRiskEngine{},
+			slog.New(slog.NewTextHandler(io.Discard, nil)),
+			WithJobTimeout(-5*time.Minute),
+		)
+		if s.jobTimeout != defaultJobTimeout {
+			t.Fatalf("jobTimeout = %v, want default %v", s.jobTimeout, defaultJobTimeout)
+		}
+	})
+}

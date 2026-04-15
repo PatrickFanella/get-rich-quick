@@ -229,6 +229,7 @@ type HighLatencyAlertRuleConfig struct {
 // FeatureFlags contains boolean feature toggles.
 type FeatureFlags struct {
 	EnableScheduler       bool
+	SchedulerJobTimeout   time.Duration
 	EnableRedisCache      bool
 	EnableAgentMemory     bool
 	EnableLiveTrading     bool
@@ -398,6 +399,11 @@ func loadFromEnvironment() (Config, error) {
 	}
 
 	enableScheduler, err := getEnvBool("ENABLE_SCHEDULER", false)
+	if err != nil {
+		return Config{}, err
+	}
+
+	schedulerJobTimeout, err := getEnvDuration("SCHEDULER_JOB_TIMEOUT", 0)
 	if err != nil {
 		return Config{}, err
 	}
@@ -594,6 +600,7 @@ func loadFromEnvironment() (Config, error) {
 		},
 		Features: FeatureFlags{
 			EnableScheduler:       enableScheduler,
+			SchedulerJobTimeout:   schedulerJobTimeout,
 			EnableRedisCache:      enableRedisCache,
 			EnableAgentMemory:     enableAgentMemory,
 			EnableLiveTrading:     enableLiveTrading,

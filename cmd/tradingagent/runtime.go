@@ -201,6 +201,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 			pipeline,
 			riskEngine,
 			logger,
+			scheduler.WithJobTimeout(cfg.Features.SchedulerJobTimeout),
 			scheduler.WithMetrics(appMetrics),
 			scheduler.WithStrategyExecution(func(ctx context.Context, strategy domain.Strategy) error {
 				_, err := strategyRunner.RunStrategy(ctx, strategy)
@@ -295,7 +296,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 				nil,
 				riskEngine,
 				logger,
-				append([]scheduler.Option{scheduler.WithMetrics(appMetrics)}, schedOpts...)...,
+				append([]scheduler.Option{scheduler.WithJobTimeout(cfg.Features.SchedulerJobTimeout), scheduler.WithMetrics(appMetrics)}, schedOpts...)...,
 			)
 		}
 
