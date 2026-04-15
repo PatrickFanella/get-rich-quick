@@ -178,9 +178,6 @@ func (r *realStrategyRunner) RunStrategy(ctx context.Context, strategy domain.St
 	run.Signal = signal
 
 	state := agent.PipelineStateFromView(result.State)
-	if err := r.dispatchNotifications(ctx, strategy, run, state); err != nil {
-		return nil, err
-	}
 
 	orderManager, err := r.newOrderManager(strategy, prepared.Config)
 	if err != nil {
@@ -224,6 +221,10 @@ func (r *realStrategyRunner) RunStrategy(ctx context.Context, strategy domain.St
 		run.ID,
 	); err != nil {
 		return nil, err
+	}
+
+	if err := r.dispatchNotifications(ctx, strategy, run, state); err != nil {
+		r.logger.WarnContext(ctx, "notification dispatch failed (non-fatal)", "error", err, "run_id", run.ID)
 	}
 
 	orders, err := r.orderRepo.GetByRun(ctx, run.ID, repository.OrderFilter{}, 10, 0)

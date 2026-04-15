@@ -23,10 +23,10 @@ func TestLoadStaleRunTTL(t *testing.T) {
 		value string
 		want  time.Duration
 	}{
-		{name: "default when unset", value: "", want: 30 * time.Minute},
+		{name: "default when unset", value: "", want: 50 * time.Minute},
 		{name: "custom duration", value: "45m", want: 45 * time.Minute},
-		{name: "invalid falls back", value: "oops", want: 30 * time.Minute},
-		{name: "non-positive falls back", value: "0s", want: 30 * time.Minute},
+		{name: "invalid falls back", value: "oops", want: 50 * time.Minute},
+		{name: "non-positive falls back", value: "0s", want: 50 * time.Minute},
 	}
 
 	for _, tc := range tests {

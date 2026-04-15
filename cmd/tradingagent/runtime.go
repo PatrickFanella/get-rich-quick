@@ -460,7 +460,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 }
 
 func loadStaleRunTTL(logger *slog.Logger) time.Duration {
-	const fallback = 30 * time.Minute
+	const fallback = 50 * time.Minute
 	raw := strings.TrimSpace(os.Getenv("STALE_RUN_TTL"))
 	if raw == "" {
 		return fallback
@@ -648,6 +648,7 @@ type smokeStrategyRunner struct {
 	positionRepo        repository.PositionRepository
 	orderManager        *execution.OrderManager
 	notificationManager *notification.Manager
+	logger              *slog.Logger
 }
 
 func newSmokeStrategyRunner(
@@ -694,6 +695,7 @@ func newSmokeStrategyRunner(
 		positionRepo:        positionRepo,
 		orderManager:        orderManager,
 		notificationManager: notificationManager,
+		logger:              logger,
 	}
 }
 
@@ -721,9 +723,6 @@ func (r *smokeStrategyRunner) RunStrategy(ctx context.Context, strategy domain.S
 	run.Signal = signal
 
 	state := agent.PipelineStateFromView(result.State)
-	if err := r.dispatchNotifications(ctx, strategy, run, state); err != nil {
-		return nil, err
-	}
 
 	if err := r.orderManager.ProcessSignal(
 		ctx,
@@ -749,6 +748,10 @@ func (r *smokeStrategyRunner) RunStrategy(ctx context.Context, strategy domain.S
 		run.ID,
 	); err != nil {
 		return nil, err
+	}
+
+	if err := r.dispatchNotifications(ctx, strategy, run, state); err != nil {
+		r.logger.WarnContext(ctx, "notification dispatch failed (non-fatal)", "error", err, "run_id", run.ID)
 	}
 
 	orders, err := r.orderRepo.GetByRun(ctx, run.ID, repository.OrderFilter{}, 10, 0)
