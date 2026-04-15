@@ -1,24 +1,25 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { getWebSocketUrl } from '@/lib/config'
-import type { UUID, WebSocketServerMessage, WebSocketSubscriptionCommand } from '@/lib/api/types'
+import { getWebSocketUrl } from '@/lib/config';
+import { getAccessToken } from '@/lib/auth';
+import type { UUID, WebSocketServerMessage, WebSocketSubscriptionCommand } from '@/lib/api/types';
 
-export type WebSocketConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
+export type WebSocketConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error';
 
 interface UseWebSocketClientOptions {
-  enabled?: boolean
-  reconnect?: boolean
-  reconnectDelayMs?: number
-  url?: string
-  onMessage?: (message: WebSocketServerMessage) => void
-  onError?: (event: Event) => void
+  enabled?: boolean;
+  reconnect?: boolean;
+  reconnectDelayMs?: number;
+  url?: string;
+  onMessage?: (message: WebSocketServerMessage) => void;
+  onError?: (event: Event) => void;
 }
 
 function parseServerMessage(payload: string): WebSocketServerMessage | null {
   try {
-    return JSON.parse(payload) as WebSocketServerMessage
+    return JSON.parse(payload) as WebSocketServerMessage;
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -30,119 +31,133 @@ export function useWebSocketClient({
   onMessage,
   onError,
 }: UseWebSocketClientOptions = {}) {
-  const socketRef = useRef<WebSocket | null>(null)
-  const reconnectTimerRef = useRef<number | null>(null)
-  const shouldReconnectRef = useRef(enabled && reconnect)
-  const [status, setStatus] = useState<WebSocketConnectionStatus>('idle')
-  const [lastMessage, setLastMessage] = useState<WebSocketServerMessage | null>(null)
-  const endpoint = useMemo(() => url ?? getWebSocketUrl(), [url])
+  const socketRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const shouldReconnectRef = useRef(enabled && reconnect);
+  const [status, setStatus] = useState<WebSocketConnectionStatus>('idle');
+  const [lastMessage, setLastMessage] = useState<WebSocketServerMessage | null>(null);
+  const endpoint = useMemo(() => url ?? getWebSocketUrl(), [url]);
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current !== null) {
-      window.clearTimeout(reconnectTimerRef.current)
-      reconnectTimerRef.current = null
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
     }
-  }, [])
+  }, []);
 
   const disconnect = useCallback(() => {
-    shouldReconnectRef.current = false
-    clearReconnectTimer()
-    const socket = socketRef.current
-    socketRef.current = null
+    shouldReconnectRef.current = false;
+    clearReconnectTimer();
+    const socket = socketRef.current;
+    socketRef.current = null;
     if (socket && socket.readyState < WebSocket.CLOSING) {
-      socket.close()
+      socket.close();
     }
-    setStatus('closed')
-  }, [clearReconnectTimer])
+    setStatus('closed');
+  }, [clearReconnectTimer]);
 
   const connect = useCallback(() => {
-    const currentSocket = socketRef.current
+    const currentSocket = socketRef.current;
     if (currentSocket && currentSocket.readyState <= WebSocket.OPEN) {
-      return
+      return;
     }
 
-    clearReconnectTimer()
-    shouldReconnectRef.current = enabled && reconnect
-    setStatus('connecting')
+    clearReconnectTimer();
+    shouldReconnectRef.current = enabled && reconnect;
+    setStatus('connecting');
 
-    const socket = new WebSocket(endpoint)
-    socketRef.current = socket
+    // Append the JWT so the backend can authenticate the upgrade request.
+    let target = endpoint;
+    const token = getAccessToken();
+    if (token) {
+      const sep = endpoint.includes('?') ? '&' : '?';
+      target = `${endpoint}${sep}token=${encodeURIComponent(token)}`;
+    }
+
+    const socket = new WebSocket(target);
+    socketRef.current = socket;
 
     socket.onopen = () => {
-      setStatus('open')
-    }
+      setStatus('open');
+    };
 
     socket.onmessage = (event) => {
-      const parsed = parseServerMessage(String(event.data))
+      const parsed = parseServerMessage(String(event.data));
       if (!parsed) {
-        return
+        return;
       }
-      setLastMessage(parsed)
-      onMessage?.(parsed)
-    }
+      setLastMessage(parsed);
+      onMessage?.(parsed);
+    };
 
     socket.onerror = (event) => {
-      setStatus('error')
-      onError?.(event)
-    }
+      setStatus('error');
+      onError?.(event);
+    };
 
     socket.onclose = () => {
-      const isCurrentSocket = socketRef.current === socket
-      const wasReplacedByNewerConnection = !isCurrentSocket && socketRef.current !== null
-      const shouldNotReconnect = !shouldReconnectRef.current
+      const isCurrentSocket = socketRef.current === socket;
+      const wasReplacedByNewerConnection = !isCurrentSocket && socketRef.current !== null;
+      const shouldNotReconnect = !shouldReconnectRef.current;
 
       if (isCurrentSocket) {
-        socketRef.current = null
+        socketRef.current = null;
       }
-      setStatus('closed')
+      setStatus('closed');
       if (wasReplacedByNewerConnection || shouldNotReconnect) {
-        return
+        return;
       }
       if (shouldReconnectRef.current) {
         reconnectTimerRef.current = window.setTimeout(() => {
-          connect()
-        }, reconnectDelayMs)
+          connect();
+        }, reconnectDelayMs);
       }
-    }
-  }, [clearReconnectTimer, enabled, endpoint, onError, onMessage, reconnect, reconnectDelayMs])
+    };
+  }, [clearReconnectTimer, enabled, endpoint, onError, onMessage, reconnect, reconnectDelayMs]);
 
-  const sendCommand = useCallback((command: WebSocketSubscriptionCommand | { action: 'subscribe_all' | 'unsubscribe_all' }) => {
-    const socket = socketRef.current
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-      return false
-    }
+  const sendCommand = useCallback(
+    (command: WebSocketSubscriptionCommand | { action: 'subscribe_all' | 'unsubscribe_all' }) => {
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return false;
+      }
 
-    socket.send(JSON.stringify(command))
-    return true
-  }, [])
+      socket.send(JSON.stringify(command));
+      return true;
+    },
+    [],
+  );
 
   const subscribe = useCallback(
     (subscription: Omit<WebSocketSubscriptionCommand, 'action'> = {}) =>
       sendCommand({ action: 'subscribe', ...subscription }),
     [sendCommand],
-  )
+  );
 
   const unsubscribe = useCallback(
     (subscription: Omit<WebSocketSubscriptionCommand, 'action'> = {}) =>
       sendCommand({ action: 'unsubscribe', ...subscription }),
     [sendCommand],
-  )
+  );
 
-  const subscribeAll = useCallback(() => sendCommand({ action: 'subscribe_all' }), [sendCommand])
-  const unsubscribeAll = useCallback(() => sendCommand({ action: 'unsubscribe_all' }), [sendCommand])
+  const subscribeAll = useCallback(() => sendCommand({ action: 'subscribe_all' }), [sendCommand]);
+  const unsubscribeAll = useCallback(
+    () => sendCommand({ action: 'unsubscribe_all' }),
+    [sendCommand],
+  );
 
   useEffect(() => {
-    shouldReconnectRef.current = enabled && reconnect
+    shouldReconnectRef.current = enabled && reconnect;
     if (!enabled) {
-      disconnect()
-      return undefined
+      disconnect();
+      return undefined;
     }
 
-    connect()
+    connect();
     return () => {
-      disconnect()
-    }
-  }, [connect, disconnect, enabled, reconnect])
+      disconnect();
+    };
+  }, [connect, disconnect, enabled, reconnect]);
 
   return {
     status,
@@ -154,12 +169,12 @@ export function useWebSocketClient({
     unsubscribe,
     subscribeAll,
     unsubscribeAll,
-  }
+  };
 }
 
 export function createStrategySubscription(strategyIds: UUID[] = [], runIds: UUID[] = []) {
   return {
     strategy_ids: strategyIds,
     run_ids: runIds,
-  }
+  };
 }

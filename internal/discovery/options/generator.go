@@ -110,6 +110,12 @@ func GenerateOptionsStrategy(ctx context.Context, cfg discovery.GeneratorConfig,
 			return nil, fmt.Errorf("options/generator: LLM call failed: %w", err)
 		}
 
+		logger.Debug("options/generator: LLM response",
+			slog.String("ticker", candidate.Ticker),
+			slog.Int("attempt", attempt+1),
+			slog.String("content", resp.Content),
+		)
+
 		parsed, parseErr := rules.ParseOptions(json.RawMessage(resp.Content))
 		if parseErr == nil && parsed != nil {
 			logger.Info("options/generator: strategy generated",

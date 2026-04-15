@@ -246,7 +246,7 @@ export function PipelineRunPage() {
         eyebrow="Run detail"
         title={`${run.ticker} pipeline run`}
         description="Replay the agent pipeline, inspect decisions by phase, and verify the final trading signal."
-        meta={(
+        meta={
           <>
             <Badge
               variant={
@@ -265,8 +265,8 @@ export function PipelineRunPage() {
               {new Date(run.started_at).toLocaleString()}
             </span>
           </>
-        )}
-        actions={(
+        }
+        actions={
           <>
             <Link
               to="/runs"
@@ -293,7 +293,7 @@ export function PipelineRunPage() {
               </Button>
             )}
           </>
-        )}
+        }
       />
 
       <PhaseProgress phases={phases} />
@@ -318,12 +318,14 @@ export function PipelineRunPage() {
               Phase Timings
             </h3>
             <ul className="space-y-1 text-sm">
-              {Object.entries(run.phase_timings as Record<string, unknown>).map(([phase, duration]) => (
-                <li key={phase} className="flex items-center justify-between">
-                  <span className="font-medium">{phase}</span>
-                  <span className="font-mono text-muted-foreground">{String(duration)}</span>
-                </li>
-              ))}
+              {Object.entries(run.phase_timings as Record<string, unknown>).map(
+                ([phase, duration]) => (
+                  <li key={phase} className="flex items-center justify-between">
+                    <span className="font-medium">{phase}</span>
+                    <span className="font-mono text-muted-foreground">{String(duration)}</span>
+                  </li>
+                ),
+              )}
             </ul>
           </CardContent>
         </Card>
@@ -372,9 +374,7 @@ export function PipelineRunPage() {
         />
       </div>
 
-      {selectedDecision && (
-        <DecisionInspector decision={selectedDecision} onClose={() => setSelectedDecision(null)} />
-      )}
+      <DecisionInspector decision={selectedDecision} onClose={() => setSelectedDecision(null)} />
     </div>
   );
 }

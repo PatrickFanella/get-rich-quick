@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSecurityHeadersMiddleware(t *testing.T) {
@@ -116,5 +117,40 @@ func TestMaxRequestBodyOnAPIEndpoint(t *testing.T) {
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("oversized body: status = %d, want %d\nbody: %s", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+}
+
+func TestRateLimiterSkipsWebSocketUpgrade(t *testing.T) {
+	t.Parallel()
+
+	rl := NewRateLimiter(1, time.Minute)
+	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := rl.Middleware(ok)
+
+	// First normal request uses the single allowed slot.
+	req1 := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr1 := httptest.NewRecorder()
+	handler.ServeHTTP(rr1, req1)
+	if rr1.Code != http.StatusOK {
+		t.Fatalf("first request: status = %d, want 200", rr1.Code)
+	}
+
+	// Second normal request should be rate-limited.
+	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr2 := httptest.NewRecorder()
+	handler.ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusTooManyRequests {
+		t.Fatalf("second request: status = %d, want 429", rr2.Code)
+	}
+
+	// WebSocket upgrade request should bypass the limiter.
+	req3 := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	req3.Header.Set("Upgrade", "websocket")
+	rr3 := httptest.NewRecorder()
+	handler.ServeHTTP(rr3, req3)
+	if rr3.Code != http.StatusOK {
+		t.Fatalf("websocket upgrade: status = %d, want 200", rr3.Code)
 	}
 }

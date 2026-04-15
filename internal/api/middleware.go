@@ -156,8 +156,14 @@ func (rl *RateLimiter) Allow(key string) bool {
 
 // Middleware returns an http.Handler middleware that rejects requests exceeding
 // the rate limit with 429 Too Many Requests.
+// WebSocket upgrade requests are excluded because they are long-lived
+// connections and reconnect storms would otherwise exhaust the limit.
 func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+			next.ServeHTTP(w, r)
+			return
+		}
 		key := clientIP(r, rl.trustedProxies)
 		if !rl.Allow(key) {
 			respondError(w, http.StatusTooManyRequests, "rate limit exceeded", ErrCodeRateLimited)

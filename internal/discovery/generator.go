@@ -114,6 +114,12 @@ func GenerateStrategy(ctx context.Context, cfg GeneratorConfig, candidate Screen
 			return nil, fmt.Errorf("discovery/generator: LLM call failed: %w", err)
 		}
 
+		logger.Debug("discovery/generator: LLM response",
+			slog.String("ticker", candidate.Ticker),
+			slog.Int("attempt", attempt+1),
+			slog.String("content", resp.Content),
+		)
+
 		parsed, parseErr := rules.Parse(json.RawMessage(resp.Content))
 		if parsed == nil && parseErr == nil {
 			parseErr = errors.New("rules: empty JSON response")
