@@ -83,13 +83,13 @@ func (b *Budget) Stats() BudgetStats {
 	b.maybeReset()
 
 	return BudgetStats{
-		Requests:            b.requests,
-		MaxRequestsPerDay:   b.maxRequestsPerDay,
-		PromptTokens:        b.promptTokens,
-		CompletionTokens:    b.completionTokens,
-		TotalTokens:         b.promptTokens + b.completionTokens,
-		MaxTokensPerDay:     b.maxTokensPerDay,
-		ResetAt:             b.resetAt,
+		Requests:          b.requests,
+		MaxRequestsPerDay: b.maxRequestsPerDay,
+		PromptTokens:      b.promptTokens,
+		CompletionTokens:  b.completionTokens,
+		TotalTokens:       b.promptTokens + b.completionTokens,
+		MaxTokensPerDay:   b.maxTokensPerDay,
+		ResetAt:           b.resetAt,
 	}
 }
 
@@ -106,7 +106,7 @@ type BudgetStats struct {
 
 // maybeReset auto-resets counters when past the reset time. Must hold mu.
 func (b *Budget) maybeReset() {
-	if time.Now().UTC().After(b.resetAt) {
+	if !time.Now().UTC().Before(b.resetAt) {
 		b.requests = 0
 		b.promptTokens = 0
 		b.completionTokens = 0
@@ -133,15 +133,52 @@ func NewBudgetGuardProvider(inner Provider, budget *Budget) *BudgetGuardProvider
 
 // Complete checks budget before delegating. Records usage after success.
 func (b *BudgetGuardProvider) Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
-	if !b.budget.Allow() {
+	if !b.budget.reserveRequest() {
 		return nil, ErrBudgetExhausted
 	}
 
 	resp, err := b.inner.Complete(ctx, req)
 	if err != nil {
+		b.budget.releaseRequest()
 		return nil, err
 	}
 
-	b.budget.Record(resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+	b.budget.recordTokens(resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
 	return resp, nil
+}
+
+func (b *Budget) reserveRequest() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.maybeReset()
+
+	if b.maxRequestsPerDay > 0 && b.requests >= b.maxRequestsPerDay {
+		return false
+	}
+	if b.maxTokensPerDay > 0 && (b.promptTokens+b.completionTokens) >= b.maxTokensPerDay {
+		return false
+	}
+
+	b.requests++
+	return true
+}
+
+func (b *Budget) releaseRequest() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.maybeReset()
+	if b.requests > 0 {
+		b.requests--
+	}
+}
+
+func (b *Budget) recordTokens(promptTokens, completionTokens int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.maybeReset()
+	b.promptTokens += promptTokens
+	b.completionTokens += completionTokens
 }

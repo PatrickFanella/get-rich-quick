@@ -51,7 +51,12 @@ func WithRetryBaseDelay(d time.Duration) ChainOption {
 
 // WithThrottle sets the max concurrent calls. Values < 1 are clamped to 1.
 func WithThrottle(n int) ChainOption {
-	return func(c *chainConfig) { c.throttle = n }
+	return func(c *chainConfig) {
+		if n < 1 {
+			n = 1
+		}
+		c.throttle = n
+	}
 }
 
 // WithCache enables response caching using the given cache store.
@@ -84,7 +89,7 @@ func WithChainCacheMetrics(m CacheMetrics) ChainOption {
 //
 // Chain order (outermost → innermost):
 //
-//	budget guard → throttle → retry → fallback → cache → raw provider
+//	budget guard → timeout → throttle → retry → fallback → cache → raw provider
 //
 // Each layer is optional; only layers whose options are provided are added.
 // The resulting Provider delegates to the composed chain.
@@ -106,7 +111,7 @@ func NewProviderChain(primary Provider, logger *slog.Logger, opts ...ChainOption
 
 	// Layer 1 (innermost): cache
 	if cfg.cache != nil {
-		cp, err := NewCacheProvider(p, cfg.cache, "v1")
+		cp, err := NewCacheProvider(p, cfg.cache, "")
 		if err == nil {
 			if cfg.metrics.cache != nil {
 				cp = cp.WithCacheMetrics(cfg.metrics.cache)

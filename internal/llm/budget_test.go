@@ -3,6 +3,8 @@ package llm_test
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/llm"
@@ -159,6 +161,49 @@ func TestBudgetGuardProvider_RecordsUsage(t *testing.T) {
 	if !errors.Is(err, llm.ErrBudgetExhausted) {
 		t.Errorf("call 3 error = %v, want ErrBudgetExhausted", err)
 	}
+}
+
+func TestBudgetGuardProvider_ConcurrentRequestLimit(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int32
+	started := make(chan struct{})
+	release := make(chan struct{})
+
+	inner := llm.ProviderFunc(func(_ context.Context, _ llm.CompletionRequest) (*llm.CompletionResponse, error) {
+		calls.Add(1)
+		close(started)
+		<-release
+		return &llm.CompletionResponse{Content: "ok"}, nil
+	})
+
+	budget := llm.NewBudget(1, 0)
+	guard := llm.NewBudgetGuardProvider(inner, budget)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	var err1, err2 error
+	go func() {
+		defer wg.Done()
+		_, err1 = guard.Complete(context.Background(), llm.CompletionRequest{})
+	}()
+	<-started
+	go func() {
+		defer wg.Done()
+		_, err2 = guard.Complete(context.Background(), llm.CompletionRequest{})
+	}()
+
+	close(release)
+	wg.Wait()
+
+	if calls.Load() != 1 {
+		t.Fatalf("inner calls = %d, want 1", calls.Load())
+	}
+	if (errors.Is(err1, llm.ErrBudgetExhausted) && err2 == nil) || (errors.Is(err2, llm.ErrBudgetExhausted) && err1 == nil) {
+		return
+	}
+	t.Fatalf("expected one success and one ErrBudgetExhausted, got err1=%v err2=%v", err1, err2)
 }
 
 func TestErrBudgetExhausted_IsNotRetryable(t *testing.T) {

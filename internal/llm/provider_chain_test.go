@@ -3,6 +3,7 @@ package llm_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -72,6 +73,46 @@ func TestProviderChain_WithThrottle(t *testing.T) {
 	}
 	if got.Content != "throttled" {
 		t.Errorf("content = %q, want %q", got.Content, "throttled")
+	}
+}
+
+func TestProviderChain_WithThrottleClamp(t *testing.T) {
+	t.Parallel()
+
+	var inFlight atomic.Int32
+	var maxInFlight atomic.Int32
+	block := make(chan struct{})
+
+	p := llm.ProviderFunc(func(_ context.Context, _ llm.CompletionRequest) (*llm.CompletionResponse, error) {
+		cur := inFlight.Add(1)
+		for {
+			prev := maxInFlight.Load()
+			if cur <= prev || maxInFlight.CompareAndSwap(prev, cur) {
+				break
+			}
+		}
+		<-block
+		inFlight.Add(-1)
+		return &llm.CompletionResponse{Content: "ok"}, nil
+	})
+
+	chain := llm.NewProviderChain(p, discardLogger(), llm.WithThrottle(0))
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	for range 2 {
+		go func() {
+			defer wg.Done()
+			_, _ = chain.Complete(context.Background(), llm.CompletionRequest{})
+		}()
+	}
+
+	time.Sleep(25 * time.Millisecond)
+	close(block)
+	wg.Wait()
+
+	if maxInFlight.Load() != 1 {
+		t.Errorf("max in-flight = %d, want 1 (throttle should clamp to 1)", maxInFlight.Load())
 	}
 }
 
@@ -220,8 +261,14 @@ func TestProviderChain_BudgetExhaustedNotRetried(t *testing.T) {
 func TestProviderChain_WithCallTimeout(t *testing.T) {
 	t.Parallel()
 
-	// Provider that blocks until context is done.
-	slow := &trackingProvider{err: context.DeadlineExceeded}
+	var sawDeadline atomic.Bool
+	slow := llm.ProviderFunc(func(ctx context.Context, _ llm.CompletionRequest) (*llm.CompletionResponse, error) {
+		if _, ok := ctx.Deadline(); ok {
+			sawDeadline.Store(true)
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
 
 	chain := llm.NewProviderChain(slow, discardLogger(),
 		llm.WithCallTimeout(50*time.Millisecond),
@@ -230,6 +277,9 @@ func TestProviderChain_WithCallTimeout(t *testing.T) {
 	_, err := chain.Complete(context.Background(), llm.CompletionRequest{})
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("error = %v, want DeadlineExceeded", err)
+	}
+	if !sawDeadline.Load() {
+		t.Error("expected provider context to include a deadline")
 	}
 }
 
