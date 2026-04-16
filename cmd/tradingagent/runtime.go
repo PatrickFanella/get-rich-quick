@@ -576,10 +576,18 @@ func chainOpts(cfg config.LLMConfig, appMetrics *metrics.Metrics, logger *slog.L
 }
 
 func buildLLMBudget(cfg config.LLMConfig) *llm.Budget {
-	if cfg.BudgetRequestsPerDay <= 0 && cfg.BudgetTokensPerDay <= 0 {
+	requests := cfg.BudgetRequestsPerDay
+	tokens := cfg.BudgetTokensPerDay
+	if requests < 0 {
+		requests = 0
+	}
+	if tokens < 0 {
+		tokens = 0
+	}
+	if requests == 0 && tokens == 0 {
 		return nil
 	}
-	return llm.NewBudget(cfg.BudgetRequestsPerDay, cfg.BudgetTokensPerDay)
+	return llm.NewBudget(requests, tokens)
 }
 
 // newLLMProviderFromConfig builds an llm.Provider from application config.
