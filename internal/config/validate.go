@@ -116,6 +116,12 @@ func Validate(cfg Config) error {
 	if cfg.LLM.ThrottleConcurrency < 1 {
 		errs = append(errs, "LLM_THROTTLE_CONCURRENCY must be >= 1")
 	}
+	if cfg.LLM.BudgetRequestsPerDay < 0 {
+		errs = append(errs, "LLM_BUDGET_REQUESTS_DAY must be >= 0")
+	}
+	if cfg.LLM.BudgetTokensPerDay < 0 {
+		errs = append(errs, "LLM_BUDGET_TOKENS_DAY must be >= 0")
+	}
 
 	// Database URL must be parseable.
 	if cfg.Database.URL != "" {
@@ -175,6 +181,8 @@ func validateSelectedProvider(llmCfg LLMConfig) string {
 		}
 	case "ollama":
 		// Ollama doesn't require an API key.
+	default:
+		return fmt.Sprintf("LLM_DEFAULT_PROVIDER %q is not a known provider", llmCfg.DefaultProvider)
 	}
 	return ""
 }

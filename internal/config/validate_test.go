@@ -273,6 +273,19 @@ func TestValidateDefaultProviderOllamaNoKey(t *testing.T) {
 	}
 }
 
+func TestValidateDefaultProviderUnknown(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.DefaultProvider = "deepseek"
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "LLM_DEFAULT_PROVIDER") || !strings.Contains(err.Error(), "not a known provider") {
+		t.Fatalf("Validate() error = %q, want unknown default provider message", err)
+	}
+}
+
 func TestLoadFloat64Field_ValidValue(t *testing.T) {
 	clearConfigEnv(t)
 
@@ -578,6 +591,32 @@ func TestValidateThrottleConcurrencyZero(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "LLM_THROTTLE_CONCURRENCY must be >= 1") {
 		t.Fatalf("Validate() error = %q, want throttle message", err)
+	}
+}
+
+func TestValidateBudgetRequestsDayNegative(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.BudgetRequestsPerDay = -1
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "LLM_BUDGET_REQUESTS_DAY must be >= 0") {
+		t.Fatalf("Validate() error = %q, want budget requests message", err)
+	}
+}
+
+func TestValidateBudgetTokensDayNegative(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.BudgetTokensPerDay = -1
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "LLM_BUDGET_TOKENS_DAY must be >= 0") {
+		t.Fatalf("Validate() error = %q, want budget tokens message", err)
 	}
 }
 

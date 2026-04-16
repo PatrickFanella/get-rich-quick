@@ -71,6 +71,7 @@ type realStrategyRunner struct {
 	metrics             *metrics.Metrics
 	notificationManager *notification.Manager
 	runRegistry         *agent.RunContextRegistry
+	llmBudget           *llm.Budget
 	logger              *slog.Logger
 	localPaperMu        sync.Mutex
 	localPaperBroker    *paper.PaperBroker
@@ -93,6 +94,7 @@ func newRealStrategyRunner(
 	appMetrics *metrics.Metrics,
 	notificationManager *notification.Manager,
 	runRegistry *agent.RunContextRegistry,
+	llmBudget *llm.Budget,
 	logger *slog.Logger,
 ) *realStrategyRunner {
 	if logger == nil {
@@ -115,6 +117,7 @@ func newRealStrategyRunner(
 		metrics:             appMetrics,
 		notificationManager: notificationManager,
 		runRegistry:         runRegistry,
+		llmBudget:           llmBudget,
 		logger:              logger,
 		localPaperBroker:    paper.NewPaperBroker(localPaperBuyingPower, 0, 0),
 	}
@@ -276,7 +279,7 @@ func (r *realStrategyRunner) prepareStrategyRun(ctx context.Context, strategy do
 	if err != nil {
 		return nil, agent.PreparedRun{}, nil, nil, fmt.Errorf("build llm provider for strategy %s: %w", strategy.Name, err)
 	}
-	provider = wrapProviderChain(provider, r.cfg.LLM, r.metrics, r.logger)
+	provider = wrapProviderChain(provider, r.cfg.LLM, r.metrics, r.logger, r.llmBudget)
 
 	definition, err := buildRunnerDefinition(provider, resolved.LLMConfig.Provider, resolved, r.cfg.LLM.Timeout, r.metrics, r.logger)
 	if err != nil {

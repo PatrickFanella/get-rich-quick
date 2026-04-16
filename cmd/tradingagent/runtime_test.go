@@ -850,20 +850,10 @@ func TestBuildProviderChain_PrimaryOnly(t *testing.T) {
 	// Cache enabled by default (env unset).
 	t.Setenv("LLM_CACHE_ENABLED", "true")
 
-	provider := buildProviderChain(cfg, metrics.New(), slogDiscardLogger())
+	provider := buildProviderChain(cfg, metrics.New(), slogDiscardLogger(), buildLLMBudget(cfg))
 	if provider == nil {
 		t.Fatal("buildProviderChain() = nil, want non-nil provider")
 	}
-
-	// Smoke: chain should proxy a completion through.
-	resp, err := provider.Complete(context.Background(), llm.CompletionRequest{
-		Model:    "gpt-5-mini",
-		Messages: []llm.Message{{Role: "user", Content: "ping"}},
-	})
-	// Will fail on actual HTTP call (no real API), but should NOT panic.
-	// We only verify the chain assembled without error.
-	_ = resp
-	_ = err
 }
 
 func TestBuildProviderChain_WithFallback(t *testing.T) {
@@ -888,7 +878,7 @@ func TestBuildProviderChain_WithFallback(t *testing.T) {
 
 	t.Setenv("LLM_CACHE_ENABLED", "false")
 
-	provider := buildProviderChain(cfg, metrics.New(), slogDiscardLogger())
+	provider := buildProviderChain(cfg, metrics.New(), slogDiscardLogger(), buildLLMBudget(cfg))
 	if provider == nil {
 		t.Fatal("buildProviderChain() = nil, want non-nil provider with fallback")
 	}
@@ -898,7 +888,7 @@ func TestBuildProviderChain_NilWhenNoProvider(t *testing.T) {
 	t.Parallel()
 
 	cfg := config.LLMConfig{} // no provider configured
-	provider := buildProviderChain(cfg, metrics.New(), slogDiscardLogger())
+	provider := buildProviderChain(cfg, metrics.New(), slogDiscardLogger(), buildLLMBudget(cfg))
 	if provider != nil {
 		t.Fatalf("buildProviderChain() = %v, want nil when no provider configured", provider)
 	}
@@ -955,7 +945,7 @@ func TestBuildProviderChain_InvalidFallbackSkipped(t *testing.T) {
 	t.Setenv("LLM_CACHE_ENABLED", "false")
 
 	// Should not panic; invalid fallback is logged and skipped.
-	provider := buildProviderChain(cfg, metrics.New(), slogDiscardLogger())
+	provider := buildProviderChain(cfg, metrics.New(), slogDiscardLogger(), buildLLMBudget(cfg))
 	if provider == nil {
 		t.Fatal("buildProviderChain() = nil, want non-nil provider (fallback skipped)")
 	}

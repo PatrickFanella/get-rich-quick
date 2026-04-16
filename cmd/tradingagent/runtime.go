@@ -112,6 +112,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 	redisHealth, closeRedis := newRedisHealthCheck(cfg)
 
 	appMetrics := metrics.New()
+	sharedLLMBudget := buildLLMBudget(cfg.LLM)
 
 	strategyRepo := pgrepo.NewStrategyRepo(db.Pool)
 	runRepo := pgrepo.NewPipelineRunRepo(db.Pool)
@@ -179,7 +180,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 		Events:           eventRepo,
 		MetricsHandler:   appMetrics.Handler(),
 		Snapshots:        snapshotRepo,
-		LLMProvider:      buildProviderChain(cfg.LLM, appMetrics, logger),
+		LLMProvider:      buildProviderChain(cfg.LLM, appMetrics, logger, sharedLLMBudget),
 		BacktestConfigs:  pgrepo.NewBacktestConfigRepo(db.Pool),
 		BacktestRuns:     pgrepo.NewBacktestRunRepo(db.Pool),
 		NewsFeedRepo:     newsFeedRepo,
@@ -276,6 +277,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 			appMetrics,
 			notificationManager,
 			runRegistry,
+			sharedLLMBudget,
 			logger,
 		)
 		deps.Runner = strategyRunner
@@ -500,27 +502,27 @@ func llmCacheEnabled() bool {
 //
 // With default config (no fallback, no budget) this degrades gracefully to
 // the same throttle+cache behaviour as before the resilience refactor.
-func buildProviderChain(cfg config.LLMConfig, appMetrics *metrics.Metrics, logger *slog.Logger) llm.Provider {
+func buildProviderChain(cfg config.LLMConfig, appMetrics *metrics.Metrics, logger *slog.Logger, budget *llm.Budget) llm.Provider {
 	primary := newLLMProviderFromConfig(cfg, logger)
 	if primary == nil {
 		return nil
 	}
-	return wrapProviderChain(primary, cfg, appMetrics, logger)
+	return wrapProviderChain(primary, cfg, appMetrics, logger, budget)
 }
 
 // wrapProviderChain wraps an existing provider with the full resilience chain
 // derived from config. Used for both the global provider and per-strategy
 // provider overrides.
-func wrapProviderChain(primary llm.Provider, cfg config.LLMConfig, appMetrics *metrics.Metrics, logger *slog.Logger) llm.Provider {
+func wrapProviderChain(primary llm.Provider, cfg config.LLMConfig, appMetrics *metrics.Metrics, logger *slog.Logger, budget *llm.Budget) llm.Provider {
 	if primary == nil {
 		return nil
 	}
-	opts := chainOpts(cfg, appMetrics, logger)
+	opts := chainOpts(cfg, appMetrics, logger, budget)
 	return llm.NewProviderChain(primary, logger, opts...)
 }
 
 // chainOpts builds the ChainOption slice from LLMConfig.
-func chainOpts(cfg config.LLMConfig, appMetrics *metrics.Metrics, logger *slog.Logger) []llm.ChainOption {
+func chainOpts(cfg config.LLMConfig, appMetrics *metrics.Metrics, logger *slog.Logger, budget *llm.Budget) []llm.ChainOption {
 	var opts []llm.ChainOption
 
 	// Throttle concurrency (default 4).
@@ -561,8 +563,7 @@ func chainOpts(cfg config.LLMConfig, appMetrics *metrics.Metrics, logger *slog.L
 	}
 
 	// Budget guard.
-	if cfg.BudgetRequestsPerDay > 0 || cfg.BudgetTokensPerDay > 0 {
-		budget := llm.NewBudget(cfg.BudgetRequestsPerDay, cfg.BudgetTokensPerDay)
+	if budget != nil {
 		opts = append(opts, llm.WithBudget(budget))
 	}
 
@@ -572,6 +573,13 @@ func chainOpts(cfg config.LLMConfig, appMetrics *metrics.Metrics, logger *slog.L
 	}
 
 	return opts
+}
+
+func buildLLMBudget(cfg config.LLMConfig) *llm.Budget {
+	if cfg.BudgetRequestsPerDay <= 0 && cfg.BudgetTokensPerDay <= 0 {
+		return nil
+	}
+	return llm.NewBudget(cfg.BudgetRequestsPerDay, cfg.BudgetTokensPerDay)
 }
 
 // newLLMProviderFromConfig builds an llm.Provider from application config.
