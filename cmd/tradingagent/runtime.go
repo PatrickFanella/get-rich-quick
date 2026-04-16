@@ -576,8 +576,8 @@ func chainOpts(cfg config.LLMConfig, appMetrics *metrics.Metrics, logger *slog.L
 }
 
 func buildLLMBudget(cfg config.LLMConfig) *llm.Budget {
-	// Validate() enforces non-negative values; clamp defensively for direct callers
-	// that may bypass config validation in tests or future entry points.
+	// Validate() enforces non-negative values, but unit tests call runtime helpers
+	// directly with hand-built LLMConfig values; clamp defensively for that path.
 	requests := cfg.BudgetRequestsPerDay
 	tokens := cfg.BudgetTokensPerDay
 	if requests < 0 {
