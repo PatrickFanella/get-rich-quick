@@ -154,30 +154,50 @@ func hasLLMProvider(providers LLMProviderConfigs) bool {
 }
 
 func validateSelectedProvider(llmCfg LLMConfig) string {
-	provider := strings.TrimSpace(strings.ToLower(llmCfg.DefaultProvider))
+	return validateLLMProviderSelection(llmCfg.DefaultProvider, "LLM_DEFAULT_PROVIDER", llmCfg)
+}
+
+// validateFallbackProvider checks that LLM_FALLBACK_PROVIDER (when set) names a
+// known provider and that the corresponding API key is present.
+func validateFallbackProvider(llmCfg LLMConfig) string {
+	if strings.TrimSpace(llmCfg.FallbackProvider) == "" && strings.TrimSpace(llmCfg.FallbackModel) != "" {
+		return "LLM_FALLBACK_MODEL is set but LLM_FALLBACK_PROVIDER is not set"
+	}
+
+	return validateLLMProviderSelection(llmCfg.FallbackProvider, "LLM_FALLBACK_PROVIDER", llmCfg)
+}
+
+func validateLLMProviderSelection(rawProvider, envName string, llmCfg LLMConfig) string {
+	provider := strings.TrimSpace(strings.ToLower(rawProvider))
 	if provider == "" {
 		return ""
 	}
+
+	known := []string{"openai", "anthropic", "google", "openrouter", "xai", "ollama"}
+	if !slices.Contains(known, provider) {
+		return fmt.Sprintf("%s %q is not a known provider", envName, rawProvider)
+	}
+
 	switch provider {
 	case "openai":
 		if strings.TrimSpace(llmCfg.Providers.OpenAI.APIKey) == "" {
-			return "LLM_DEFAULT_PROVIDER is openai but OPENAI_API_KEY is not set"
+			return fmt.Sprintf("%s is openai but OPENAI_API_KEY is not set", envName)
 		}
 	case "anthropic":
 		if strings.TrimSpace(llmCfg.Providers.Anthropic.APIKey) == "" {
-			return "LLM_DEFAULT_PROVIDER is anthropic but ANTHROPIC_API_KEY is not set"
+			return fmt.Sprintf("%s is anthropic but ANTHROPIC_API_KEY is not set", envName)
 		}
 	case "google":
 		if strings.TrimSpace(llmCfg.Providers.Google.APIKey) == "" {
-			return "LLM_DEFAULT_PROVIDER is google but GOOGLE_API_KEY is not set"
+			return fmt.Sprintf("%s is google but GOOGLE_API_KEY is not set", envName)
 		}
 	case "openrouter":
 		if strings.TrimSpace(llmCfg.Providers.OpenRouter.APIKey) == "" {
-			return "LLM_DEFAULT_PROVIDER is openrouter but OPENROUTER_API_KEY is not set"
+			return fmt.Sprintf("%s is openrouter but OPENROUTER_API_KEY is not set", envName)
 		}
 	case "xai":
 		if strings.TrimSpace(llmCfg.Providers.XAI.APIKey) == "" {
-			return "LLM_DEFAULT_PROVIDER is xai but XAI_API_KEY is not set"
+			return fmt.Sprintf("%s is xai but XAI_API_KEY is not set", envName)
 		}
 	case "ollama":
 		// Ollama doesn't require an API key.
