@@ -207,46 +207,6 @@ func validateLLMProviderSelection(rawProvider, envName string, llmCfg LLMConfig)
 	return ""
 }
 
-// validateFallbackProvider checks that LLM_FALLBACK_PROVIDER (when set) names a
-// known provider and that the corresponding API key is present.
-func validateFallbackProvider(llmCfg LLMConfig) string {
-	provider := strings.TrimSpace(strings.ToLower(llmCfg.FallbackProvider))
-	if provider == "" {
-		return ""
-	}
-
-	known := []string{"openai", "anthropic", "google", "openrouter", "xai", "ollama"}
-	if !slices.Contains(known, provider) {
-		return fmt.Sprintf("LLM_FALLBACK_PROVIDER %q is not a known provider", llmCfg.FallbackProvider)
-	}
-
-	switch provider {
-	case "openai":
-		if strings.TrimSpace(llmCfg.Providers.OpenAI.APIKey) == "" {
-			return "LLM_FALLBACK_PROVIDER is openai but OPENAI_API_KEY is not set"
-		}
-	case "anthropic":
-		if strings.TrimSpace(llmCfg.Providers.Anthropic.APIKey) == "" {
-			return "LLM_FALLBACK_PROVIDER is anthropic but ANTHROPIC_API_KEY is not set"
-		}
-	case "google":
-		if strings.TrimSpace(llmCfg.Providers.Google.APIKey) == "" {
-			return "LLM_FALLBACK_PROVIDER is google but GOOGLE_API_KEY is not set"
-		}
-	case "openrouter":
-		if strings.TrimSpace(llmCfg.Providers.OpenRouter.APIKey) == "" {
-			return "LLM_FALLBACK_PROVIDER is openrouter but OPENROUTER_API_KEY is not set"
-		}
-	case "xai":
-		if strings.TrimSpace(llmCfg.Providers.XAI.APIKey) == "" {
-			return "LLM_FALLBACK_PROVIDER is xai but XAI_API_KEY is not set"
-		}
-	case "ollama":
-		// Ollama doesn't require an API key.
-	}
-	return ""
-}
-
 func validateBrokerCredentials(errs *[]string, keyName, keyValue, secretName, secretValue string) {
 	hasKey := strings.TrimSpace(keyValue) != ""
 	hasSecret := strings.TrimSpace(secretValue) != ""

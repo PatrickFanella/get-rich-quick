@@ -70,7 +70,7 @@ func TestNewAPIServerSchemaBehindFailsFast(t *testing.T) {
 	if mismatchErr.Required != pgrepo.RequiredSchemaVersion {
 		t.Fatalf("mismatchErr.Required = %d, want %d", mismatchErr.Required, pgrepo.RequiredSchemaVersion)
 	}
-	for _, want := range []string{"current version 27", "required version 28", "run migrations, then restart the process", "fresh process restart"} {
+	for _, want := range []string{"current version 28", "required version 29", "run migrations, then restart the process", "fresh process restart"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error %q missing %q", err.Error(), want)
 		}
@@ -125,7 +125,7 @@ func TestNewAPIServerSchemaAheadFailsFast(t *testing.T) {
 	if mismatchErr.Required != pgrepo.RequiredSchemaVersion {
 		t.Fatalf("mismatchErr.Required = %d, want %d", mismatchErr.Required, pgrepo.RequiredSchemaVersion)
 	}
-	for _, want := range []string{"current version 29", "required version 28", "run migrations, then restart the process", "fresh process restart"} {
+	for _, want := range []string{"current version 30", "required version 29", "run migrations, then restart the process", "fresh process restart"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error %q missing %q", err.Error(), want)
 		}
