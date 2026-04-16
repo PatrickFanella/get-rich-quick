@@ -161,17 +161,17 @@ func TestReportArtifactRepo_UpsertIdempotency(t *testing.T) {
 
 	// Second upsert on same key — updates to completed.
 	a2 := &ReportArtifact{
-		StrategyID:  strategyID,
-		ReportType:  "paper_validation",
-		TimeBucket:  timeBucket,
-		Status:      "completed",
-		ReportJSON:  json.RawMessage(`{"score":0.92}`),
-		Provider:    "openai",
-		Model:       "gpt-5-mini",
-		PromptTokens: 100,
+		StrategyID:       strategyID,
+		ReportType:       "paper_validation",
+		TimeBucket:       timeBucket,
+		Status:           "completed",
+		ReportJSON:       json.RawMessage(`{"score":0.92}`),
+		Provider:         "openai",
+		Model:            "gpt-5-mini",
+		PromptTokens:     100,
 		CompletionTokens: 200,
-		LatencyMs:   450,
-		CompletedAt: &completedAt,
+		LatencyMs:        450,
+		CompletedAt:      &completedAt,
 	}
 	if err := repo.Upsert(ctx, a2); err != nil {
 		t.Fatalf("second Upsert() error = %v", err)
@@ -263,6 +263,33 @@ func TestReportArtifactRepo_GetLatestNilWhenNone(t *testing.T) {
 	}
 }
 
+func TestReportArtifactRepo_GetLatestIgnoresCompletedWithNullCompletedAt(t *testing.T) {
+	ctx := context.Background()
+	pool, cleanup := newReportArtifactIntegrationPool(t, ctx)
+	defer cleanup()
+
+	strategyID := seedReportArtifactStrategy(t, ctx, pool)
+	repo := NewReportArtifactRepo(pool)
+
+	timeBucket := time.Date(2026, 4, 16, 17, 0, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO report_artifacts
+  (strategy_id, report_type, time_bucket, status, completed_at)
+VALUES
+  ($1, 'paper_validation', $2, 'completed', NULL)
+`, strategyID, timeBucket); err != nil {
+		t.Fatalf("failed to seed row: %v", err)
+	}
+
+	got, err := repo.GetLatest(ctx, strategyID, "paper_validation")
+	if err != nil {
+		t.Fatalf("GetLatest() error = %v", err)
+	}
+	if got != nil {
+		t.Fatalf("GetLatest() = %+v, want nil when completed_at is NULL", got)
+	}
+}
+
 func TestReportArtifactRepo_List(t *testing.T) {
 	ctx := context.Background()
 	pool, cleanup := newReportArtifactIntegrationPool(t, ctx)
@@ -327,6 +354,55 @@ func TestReportArtifactRepo_UpsertRequiresStrategyID(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "strategy_id is required") {
 		t.Fatalf("error %q missing 'strategy_id is required'", err.Error())
+	}
+}
+
+func TestReportArtifactRepo_UpsertRejectsInvalidReportJSON(t *testing.T) {
+	t.Parallel()
+
+	repo := NewReportArtifactRepo(nil) // pool unused; validation happens before query
+	err := repo.Upsert(context.Background(), &ReportArtifact{
+		StrategyID: uuid.New(),
+		TimeBucket: time.Now(),
+		Status:     "pending",
+		ReportJSON: json.RawMessage(`{"score":`),
+	})
+	if err == nil {
+		t.Fatal("Upsert() error = nil, want invalid JSON validation error")
+	}
+	if !strings.Contains(err.Error(), "report_json must be valid JSON") {
+		t.Fatalf("error %q missing invalid report_json validation message", err.Error())
+	}
+}
+
+func TestReportArtifactRepo_GetLatestWithNullNumericFields(t *testing.T) {
+	ctx := context.Background()
+	pool, cleanup := newReportArtifactIntegrationPool(t, ctx)
+	defer cleanup()
+
+	strategyID := seedReportArtifactStrategy(t, ctx, pool)
+	repo := NewReportArtifactRepo(pool)
+
+	completedAt := time.Date(2026, 4, 16, 17, 1, 0, 0, time.UTC)
+	timeBucket := time.Date(2026, 4, 16, 17, 0, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO report_artifacts
+  (strategy_id, report_type, time_bucket, status, prompt_tokens, completion_tokens, latency_ms, completed_at)
+VALUES
+  ($1, 'paper_validation', $2, 'completed', NULL, NULL, NULL, $3)
+`, strategyID, timeBucket, completedAt); err != nil {
+		t.Fatalf("failed to seed report_artifacts row with null numeric fields: %v", err)
+	}
+
+	got, err := repo.GetLatest(ctx, strategyID, "paper_validation")
+	if err != nil {
+		t.Fatalf("GetLatest() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetLatest() = nil, want artifact")
+	}
+	if got.PromptTokens != 0 || got.CompletionTokens != 0 || got.LatencyMs != 0 {
+		t.Fatalf("expected null numeric fields to map to zero values, got prompt=%d completion=%d latency=%d", got.PromptTokens, got.CompletionTokens, got.LatencyMs)
 	}
 }
 

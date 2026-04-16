@@ -3,10 +3,12 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -62,7 +64,10 @@ func (r *ReportArtifactRepo) Upsert(ctx context.Context, a *ReportArtifact) erro
 	}
 
 	var reportJSON []byte
-	if len(a.ReportJSON) > 0 && json.Valid(a.ReportJSON) {
+	if len(a.ReportJSON) > 0 {
+		if !json.Valid(a.ReportJSON) {
+			return fmt.Errorf("postgres: report artifact report_json must be valid JSON")
+		}
 		reportJSON = a.ReportJSON
 	}
 
@@ -107,14 +112,15 @@ FROM report_artifacts
 WHERE strategy_id = $1
   AND report_type = $2
   AND status = 'completed'
-ORDER BY completed_at DESC
+  AND completed_at IS NOT NULL
+ORDER BY completed_at DESC NULLS LAST, created_at DESC, id DESC
 LIMIT 1`,
 		strategyID, reportType,
 	)
 
 	a, err := scanReportArtifact(row)
 	if err != nil {
-		if isNoRows(err) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("postgres: get latest report artifact: %w", err)
@@ -195,7 +201,6 @@ func (r *ReportArtifactRepo) Count(ctx context.Context, filter ReportArtifactFil
 		args = append(args, filter.Status)
 		argN++
 	}
-	_ = argN
 
 	var count int
 	if err := r.pool.QueryRow(ctx, query, args...).Scan(&count); err != nil {
@@ -206,18 +211,21 @@ func (r *ReportArtifactRepo) Count(ctx context.Context, filter ReportArtifactFil
 
 func scanReportArtifact(s scanner) (*ReportArtifact, error) {
 	var (
-		a            ReportArtifact
-		reportJSON   []byte
-		provider     *string
-		model        *string
-		errMsg       *string
-		completedAt  *time.Time
+		a                ReportArtifact
+		reportJSON       []byte
+		provider         *string
+		model            *string
+		errMsg           *string
+		promptTokens     *int
+		completionTokens *int
+		latencyMs        *int
+		completedAt      *time.Time
 	)
 
 	if err := s.Scan(
 		&a.ID, &a.StrategyID, &a.ReportType, &a.TimeBucket, &a.Status,
 		&reportJSON, &provider, &model,
-		&a.PromptTokens, &a.CompletionTokens, &a.LatencyMs,
+		&promptTokens, &completionTokens, &latencyMs,
 		&errMsg, &a.CreatedAt, &completedAt,
 	); err != nil {
 		return nil, err
@@ -235,12 +243,16 @@ func scanReportArtifact(s scanner) (*ReportArtifact, error) {
 	if errMsg != nil {
 		a.ErrorMessage = *errMsg
 	}
+	if promptTokens != nil {
+		a.PromptTokens = *promptTokens
+	}
+	if completionTokens != nil {
+		a.CompletionTokens = *completionTokens
+	}
+	if latencyMs != nil {
+		a.LatencyMs = *latencyMs
+	}
 	a.CompletedAt = completedAt
 
 	return &a, nil
-}
-
-// isNoRows reports whether err signals a "no rows" result from pgx.
-func isNoRows(err error) bool {
-	return err.Error() == "no rows in result set"
 }

@@ -171,7 +171,8 @@ func TestReportArtifactsMigrationAppliesAgainstExistingSchema(t *testing.T) {
 
 	assertIndexExists(t, ctx, pool, "report_artifacts", "idx_report_artifacts_strategy_type")
 
-	// Verify idempotency: upsert on same (strategy_id, report_type, time_bucket) should update.
+	// Verify the unique constraint: a second insert on the same
+	// (strategy_id, report_type, time_bucket) should fail.
 	strategyID := uuid.New()
 	if _, err := pool.Exec(ctx, `
 INSERT INTO strategies (id, name, ticker, market_type)
