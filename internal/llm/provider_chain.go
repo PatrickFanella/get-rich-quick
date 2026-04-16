@@ -111,7 +111,7 @@ func NewProviderChain(primary Provider, logger *slog.Logger, opts ...ChainOption
 
 	// Layer 1 (innermost): cache
 	if cfg.cache != nil {
-		cp, err := NewCacheProvider(p, cfg.cache, "")
+		cp, err := NewCacheProvider(p, cfg.cache, defaultCacheVersion)
 		if err == nil {
 			if cfg.metrics.cache != nil {
 				cp = cp.WithCacheMetrics(cfg.metrics.cache)

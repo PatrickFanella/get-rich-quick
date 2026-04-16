@@ -200,7 +200,9 @@ func TestBudgetGuardProvider_ConcurrentRequestLimit(t *testing.T) {
 	if calls.Load() != 1 {
 		t.Fatalf("inner calls = %d, want 1", calls.Load())
 	}
-	if (errors.Is(err1, llm.ErrBudgetExhausted) && err2 == nil) || (errors.Is(err2, llm.ErrBudgetExhausted) && err1 == nil) {
+	err1Exhausted := errors.Is(err1, llm.ErrBudgetExhausted)
+	err2Exhausted := errors.Is(err2, llm.ErrBudgetExhausted)
+	if (err1 == nil && err2Exhausted) || (err2 == nil && err1Exhausted) {
 		return
 	}
 	t.Fatalf("expected one success and one ErrBudgetExhausted, got err1=%v err2=%v", err1, err2)

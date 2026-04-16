@@ -168,7 +168,6 @@ func (b *Budget) releaseRequest() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.maybeReset()
 	if b.requests > 0 {
 		b.requests--
 	}

@@ -81,10 +81,14 @@ func TestProviderChain_WithThrottleClamp(t *testing.T) {
 
 	var inFlight atomic.Int32
 	var maxInFlight atomic.Int32
+	start := make(chan struct{})
+	attempting := make(chan struct{}, 2)
+	entered := make(chan struct{}, 2)
 	block := make(chan struct{})
 
 	p := llm.ProviderFunc(func(_ context.Context, _ llm.CompletionRequest) (*llm.CompletionResponse, error) {
 		cur := inFlight.Add(1)
+		entered <- struct{}{}
 		for {
 			prev := maxInFlight.Load()
 			if cur <= prev || maxInFlight.CompareAndSwap(prev, cur) {
@@ -103,12 +107,21 @@ func TestProviderChain_WithThrottleClamp(t *testing.T) {
 	for range 2 {
 		go func() {
 			defer wg.Done()
+			<-start
+			attempting <- struct{}{}
 			_, _ = chain.Complete(context.Background(), llm.CompletionRequest{})
 		}()
 	}
 
-	time.Sleep(25 * time.Millisecond)
+	close(start)
+	<-attempting
+	<-attempting
+	<-entered
+	if inFlight.Load() != 1 {
+		t.Fatalf("in-flight before release = %d, want 1", inFlight.Load())
+	}
 	close(block)
+	<-entered
 	wg.Wait()
 
 	if maxInFlight.Load() != 1 {
