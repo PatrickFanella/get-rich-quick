@@ -103,10 +103,9 @@ func TestSocialMediaAnalystExecute(t *testing.T) {
 }
 
 func TestSocialMediaAnalystExecuteNilSocialData(t *testing.T) {
-	wantContent := "No social sentiment data available for analysis."
 	mock := &mockProvider{
 		response: &llm.CompletionResponse{
-			Content: wantContent,
+			Content: "should not be called",
 			Usage: llm.CompletionUsage{
 				PromptTokens:     50,
 				CompletionTokens: 30,
@@ -123,15 +122,9 @@ func TestSocialMediaAnalystExecuteNilSocialData(t *testing.T) {
 		t.Fatalf("Execute() returned unexpected error: %v", err)
 	}
 
-	// Verify LLM was still called.
-	if got := mock.calls.Load(); got != 1 {
-		t.Errorf("LLM called %d times, want 1", got)
-	}
-
-	// Verify the user prompt indicates missing data.
-	userMsg := mock.lastReq.Messages[1].Content
-	if !strings.Contains(userMsg, "No social sentiment data available") {
-		t.Errorf("user prompt should indicate missing social data, got: %s", userMsg)
+	// Verify LLM was NOT called — nil social data triggers skip.
+	if got := mock.calls.Load(); got != 0 {
+		t.Errorf("LLM called %d times, want 0 (should be skipped when social=nil)", got)
 	}
 
 	// State application is handled by callers via applyAnalysisOutput, so
@@ -144,7 +137,10 @@ func TestSocialMediaAnalystExecuteLLMError(t *testing.T) {
 	}
 
 	sa := NewSocialMediaAnalyst(mock, "openai", "gpt-4", nil)
-	state := &agent.PipelineState{Ticker: "ETH"}
+	state := &agent.PipelineState{
+		Ticker: "ETH",
+		Social: &data.SocialSentiment{Score: 0.3}, // provide data so skip doesn't trigger
+	}
 
 	err := sa.Execute(context.Background(), state)
 	if err == nil {
@@ -160,7 +156,10 @@ func TestSocialMediaAnalystExecuteLLMError(t *testing.T) {
 
 func TestSocialMediaAnalystExecuteNilProvider(t *testing.T) {
 	sa := NewSocialMediaAnalyst(nil, "openai", "gpt-4", nil)
-	state := &agent.PipelineState{Ticker: "GOOG"}
+	state := &agent.PipelineState{
+		Ticker: "GOOG",
+		Social: &data.SocialSentiment{Score: 0.5}, // provide data so skip doesn't trigger
+	}
 
 	err := sa.Execute(context.Background(), state)
 	if err == nil {

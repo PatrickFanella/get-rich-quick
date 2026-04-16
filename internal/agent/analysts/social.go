@@ -24,8 +24,9 @@ func NewSocialMediaAnalyst(provider llm.Provider, providerName, model string, lo
 		Role:         agent.AgentRoleSocialMediaAnalyst,
 		Name:         "social_media_analyst",
 		SystemPrompt: SocialAnalystSystemPrompt,
+		SkipMessage:  "Social sentiment data unavailable for this ticker. Analysis skipped to conserve resources.",
 		BuildPrompt: func(input agent.AnalysisInput) (string, bool) {
-			return FormatSocialAnalystUserPrompt(input.Ticker, input.Social), true
+			return FormatSocialAnalystUserPrompt(input.Ticker, input.Social), input.Social != nil
 		},
 	})}
 }

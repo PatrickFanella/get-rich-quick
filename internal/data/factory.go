@@ -11,8 +11,11 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/PatrickFanella/get-rich-quick/internal/config"
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
+	"github.com/PatrickFanella/get-rich-quick/internal/llm"
 	"github.com/PatrickFanella/get-rich-quick/internal/repository"
 )
 
@@ -41,6 +44,8 @@ type ProviderRegistry struct {
 	Yahoo        ProviderFactory
 	Binance      ProviderFactory
 	Polymarket   ProviderFactory
+	Reddit       ProviderFactory
+	StockTwits   ProviderFactory
 }
 
 // NewProviderRegistry returns an empty registry. Callers should populate the
@@ -54,6 +59,7 @@ type DataService struct {
 	stockChain      DataProvider
 	cryptoChain     DataProvider
 	polymarketChain DataProvider
+	socialProviders []DataProvider // dedicated social sentiment providers (aggregated, not first-wins)
 	cacheRepo       repository.MarketDataCacheRepository
 	historyRepo     repository.HistoricalOHLCVRepository
 	logger          *slog.Logger
@@ -61,10 +67,20 @@ type DataService struct {
 	now             func() time.Time
 }
 
+const cacheProviderSocialAgg = "social-agg"
+
+// SocialTriageConfig holds optional LLM dependencies for social sentiment
+// providers that require LLM-based triage (e.g. Reddit RSS).
+type SocialTriageConfig struct {
+	Provider llm.Provider
+	Model    string
+}
+
 // NewDataService constructs provider chains for each supported market type and
 // wraps them with cache access. The registry parameter supplies the provider
 // factory functions; pass nil to get a service with empty chains.
-func NewDataService(cfg config.Config, reg *ProviderRegistry, cacheRepo repository.MarketDataCacheRepository, logger *slog.Logger) *DataService {
+// socialTriage is optional; pass nil if no LLM-backed social providers are needed.
+func NewDataService(cfg config.Config, reg *ProviderRegistry, cacheRepo repository.MarketDataCacheRepository, logger *slog.Logger, socialTriage *SocialTriageConfig) *DataService {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -109,10 +125,25 @@ func NewDataService(cfg config.Config, reg *ProviderRegistry, cacheRepo reposito
 		polymarketProviders = append(polymarketProviders, reg.Polymarket(ProviderConfig{BaseURL: cfg.Brokers.Polymarket.CLOBURL, Logger: logger}))
 	}
 
+	// Social sentiment providers: aggregated across all available sources.
+	// These are separate from the OHLCV/news chains — they only implement
+	// GetSocialSentiment; all other methods return ErrNotImplemented.
+	socialProviders := make([]DataProvider, 0, 3)
+	if apiKey := strings.TrimSpace(cfg.DataProviders.Finnhub.APIKey); apiKey != "" && reg.Finnhub != nil {
+		socialProviders = append(socialProviders, reg.Finnhub(ProviderConfig{APIKey: apiKey, RateLimitPerMinute: cfg.DataProviders.Finnhub.RateLimitPerMinute, Logger: logger}))
+	}
+	if reg.StockTwits != nil {
+		socialProviders = append(socialProviders, reg.StockTwits(ProviderConfig{Logger: logger}))
+	}
+	if reg.Reddit != nil && socialTriage != nil && socialTriage.Provider != nil {
+		socialProviders = append(socialProviders, reg.Reddit(ProviderConfig{Logger: logger, LLMProvider: socialTriage.Provider, LLMModel: socialTriage.Model}))
+	}
+
 	return &DataService{
 		stockChain:      NewProviderChain(logger, stockProviders...),
 		cryptoChain:     NewProviderChain(logger, cryptoProviders...),
 		polymarketChain: NewProviderChain(logger, polymarketProviders...),
+		socialProviders: socialProviders,
 		cacheRepo:       cacheRepo,
 		historyRepo:     historicalOHLCVRepo(cacheRepo),
 		logger:          logger,
@@ -301,20 +332,16 @@ func (s *DataService) DownloadHistoricalOHLCV(
 	return results, nil
 }
 
-// GetSocialSentiment returns social sentiment snapshots using the market-type
-// chain and caches results by query window.
-func (s *DataService) GetSocialSentiment(ctx context.Context, marketType domain.MarketType, ticker string, from, to time.Time) ([]SocialSentiment, error) {
+// GetSocialSentiment aggregates social sentiment from all configured social
+// providers (Finnhub, StockTwits, Reddit) concurrently, merges raw counts,
+// and caches the combined result.
+func (s *DataService) GetSocialSentiment(ctx context.Context, _ domain.MarketType, ticker string, from, to time.Time) ([]SocialSentiment, error) {
 	fromUTC := from.UTC()
 	toUTC := to.UTC()
 
-	providerName, chain, err := s.resolveChain(marketType)
-	if err != nil {
-		return nil, err
-	}
-
 	key := repository.MarketDataCacheKey{
 		Ticker:    ticker,
-		Provider:  providerName,
+		Provider:  cacheProviderSocialAgg,
 		DataType:  cacheDataTypeSocial,
 		Timeframe: newsCacheWindow(fromUTC, toUTC),
 		DateFrom:  &fromUTC,
@@ -325,18 +352,126 @@ func (s *DataService) GetSocialSentiment(ctx context.Context, marketType domain.
 		return normalizeSocialSentiment(cached, fromUTC, toUTC), nil
 	}
 
-	snapshots, err := chain.GetSocialSentiment(ctx, ticker, from, to)
-	if err != nil {
-		if errors.Is(err, ErrNotImplemented) {
-			return nil, nil
-		}
-		return nil, err
-	}
+	snapshots := s.aggregateSocialSentiment(ctx, ticker, from, to)
 	snapshots = normalizeSocialSentiment(snapshots, fromUTC, toUTC)
 
-	s.storeCached(ctx, key, snapshots, 30*time.Minute)
+	if len(snapshots) > 0 {
+		s.storeCached(ctx, key, snapshots, 30*time.Minute)
+	}
 
 	return snapshots, nil
+}
+
+// aggregateSocialSentiment calls GetSocialSentiment on each social provider
+// concurrently, collects all results, normalizes each to the time window, and
+// merges them by summing raw counts.
+func (s *DataService) aggregateSocialSentiment(ctx context.Context, ticker string, from, to time.Time) []SocialSentiment {
+	if len(s.socialProviders) == 0 {
+		return nil
+	}
+
+	fromUTC := from.UTC()
+	toUTC := to.UTC()
+
+	var (
+		mu      sync.Mutex
+		results [][]SocialSentiment
+	)
+
+	g, gCtx := errgroup.WithContext(ctx)
+	for _, p := range s.socialProviders {
+		provider := p
+		g.Go(func() error {
+			snapshots, err := provider.GetSocialSentiment(gCtx, ticker, from, to)
+			if err != nil {
+				if !errors.Is(err, ErrNotImplemented) {
+					s.logger.Warn("social aggregator: provider failed",
+						slog.String("ticker", ticker),
+						slog.Any("error", err),
+					)
+				}
+				return nil // continue with other providers
+			}
+			// Normalize to time window before merging.
+			snapshots = normalizeSocialSentiment(snapshots, fromUTC, toUTC)
+			if len(snapshots) > 0 {
+				mu.Lock()
+				results = append(results, snapshots)
+				mu.Unlock()
+			}
+			return nil
+		})
+	}
+	_ = g.Wait() // errors already handled per-provider
+
+	return mergeSocialSentiment(results)
+}
+
+// mergeSocialSentiment combines multiple provider results by summing raw counts
+// per day and recomputing ratios.
+func mergeSocialSentiment(results [][]SocialSentiment) []SocialSentiment {
+	if len(results) == 0 {
+		return nil
+	}
+
+	// Group by day.
+	type dayCounts struct {
+		ticker       string
+		postCount    int
+		commentCount int
+		bullishSum   float64 // weighted by post count
+		bearishSum   float64
+		totalWeight  int
+		measuredAt   time.Time
+	}
+
+	dayMap := make(map[string]*dayCounts)
+
+	for _, snapshots := range results {
+		for _, s := range snapshots {
+			key := s.MeasuredAt.UTC().Format("2006-01-02")
+			d, exists := dayMap[key]
+			if !exists {
+				d = &dayCounts{ticker: s.Ticker, measuredAt: s.MeasuredAt}
+				dayMap[key] = d
+			}
+			weight := s.PostCount
+			if weight == 0 {
+				weight = 1 // ensure providers with ratio-only data still contribute
+			}
+			d.postCount += s.PostCount
+			d.commentCount += s.CommentCount
+			d.bullishSum += s.Bullish * float64(weight)
+			d.bearishSum += s.Bearish * float64(weight)
+			d.totalWeight += weight
+		}
+	}
+
+	merged := make([]SocialSentiment, 0, len(dayMap))
+	for _, d := range dayMap {
+		var score, bullish, bearish float64
+		if d.totalWeight > 0 {
+			bullish = d.bullishSum / float64(d.totalWeight)
+			bearish = d.bearishSum / float64(d.totalWeight)
+			score = bullish - bearish
+		}
+		merged = append(merged, SocialSentiment{
+			Ticker:       d.ticker,
+			Score:        score,
+			Bullish:      bullish,
+			Bearish:      bearish,
+			PostCount:    d.postCount,
+			CommentCount: d.commentCount,
+			MeasuredAt:   d.measuredAt,
+		})
+	}
+
+	// Sort by date ascending.
+	sort.Slice(merged, func(i, j int) bool {
+		return merged[i].MeasuredAt.Before(merged[j].MeasuredAt)
+	})
+
+	return merged
 }
 
 // ListHistoricalOHLCV returns persisted OHLCV history for a ticker/date range.

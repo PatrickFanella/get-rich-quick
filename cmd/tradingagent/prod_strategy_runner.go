@@ -355,6 +355,11 @@ func (r *realStrategyRunner) loadInitialState(ctx context.Context, strategy doma
 	socialFrom := to.Add(-strategySocialLookback)
 	if snapshots, err := r.dataService.GetSocialSentiment(ctx, strategy.MarketType, strategy.Ticker, socialFrom, to); err == nil {
 		seed.Social = latestSocialSnapshot(snapshots)
+		if seed.Social == nil {
+			r.logger.Info("prod strategy runner: social sentiment empty for ticker",
+				slog.String("ticker", strategy.Ticker),
+			)
+		}
 	} else if ctxErr := contextErr(err); ctxErr != nil {
 		return agent.InitialStateSeed{}, ctxErr
 	} else {
@@ -583,8 +588,9 @@ func newAnalysisAgent(provider llm.Provider, providerName, model string, role ag
 			Role:         role,
 			Name:         "social_media_analyst",
 			SystemPrompt: prompt,
+			SkipMessage:  "Social sentiment data unavailable for this ticker. Analysis skipped to conserve resources.",
 			BuildPrompt: func(input agent.AnalysisInput) (string, bool) {
-				return agentanalysts.FormatSocialAnalystUserPrompt(input.Ticker, input.Social), true
+				return agentanalysts.FormatSocialAnalystUserPrompt(input.Ticker, input.Social), input.Social != nil
 			},
 		})
 		return &agentanalysts.SocialMediaAnalyst{BaseAnalyst: base}, nil

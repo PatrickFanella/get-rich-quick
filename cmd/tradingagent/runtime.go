@@ -27,6 +27,8 @@ import (
 	"github.com/PatrickFanella/get-rich-quick/internal/data/newsapi"
 	"github.com/PatrickFanella/get-rich-quick/internal/data/polygon"
 	polymarketData "github.com/PatrickFanella/get-rich-quick/internal/data/polymarket"
+	redditData "github.com/PatrickFanella/get-rich-quick/internal/data/reddit"
+	stocktwitsData "github.com/PatrickFanella/get-rich-quick/internal/data/stocktwits"
 	"github.com/PatrickFanella/get-rich-quick/internal/data/tradier"
 	"github.com/PatrickFanella/get-rich-quick/internal/data/yahoo"
 	"github.com/PatrickFanella/get-rich-quick/internal/discovery"
@@ -221,7 +223,18 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 		yahoo.Register(reg)
 		binance.Register(reg)
 		polymarketData.Register(reg)
-		dataService := data.NewDataService(cfg, reg, marketDataCacheRepo, logger)
+		stocktwitsData.Register(reg)
+		redditData.Register(reg)
+
+		var socialTriage *data.SocialTriageConfig
+		if deps.LLMProvider != nil {
+			socialTriage = &data.SocialTriageConfig{
+				Provider: deps.LLMProvider,
+				Model:    cfg.LLM.QuickThinkModel,
+			}
+		}
+
+		dataService := data.NewDataService(cfg, reg, marketDataCacheRepo, logger, socialTriage)
 		deps.DataService = dataService
 		// Options data chain: Tradier (full Greeks from ORATS) → Yahoo (free, BS Greeks)
 		// → Alpaca (paper account) → Polygon (rate-limited).

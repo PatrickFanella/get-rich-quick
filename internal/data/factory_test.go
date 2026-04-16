@@ -454,10 +454,10 @@ func TestDataServiceGetSocialSentimentCacheHitReturnsCachedData(t *testing.T) {
 		getResult: &domain.MarketData{Data: payload},
 	}
 	service := &DataService{
-		stockChain: provider,
-		cacheRepo:  cacheRepo,
-		logger:     discardLogger(),
-		now:        func() time.Time { return to },
+		socialProviders: []DataProvider{provider},
+		cacheRepo:       cacheRepo,
+		logger:          discardLogger(),
+		now:             func() time.Time { return to },
 	}
 
 	got, err := service.GetSocialSentiment(context.Background(), domain.MarketTypeStock, "AAPL", from, to)
@@ -485,20 +485,24 @@ func TestDataServiceGetSocialSentimentCacheMissCallsChainAndCachesResult(t *test
 	now := time.Date(2026, 3, 22, 17, 0, 0, 0, time.UTC)
 	from := now.Add(-2 * time.Hour)
 	to := now
+
+	// Two snapshots on different days so they remain separate after aggregation.
+	day1 := time.Date(2026, 3, 21, 16, 0, 0, 0, time.UTC)
+	day2 := time.Date(2026, 3, 22, 16, 50, 0, 0, time.UTC)
 	provider := &serviceStubProvider{
 		sentiment: []SocialSentiment{
-			{Ticker: "AAPL", Score: 0.8, MeasuredAt: to.Add(time.Minute)},
-			{Ticker: "AAPL", Score: 0.2, MeasuredAt: from.Add(15 * time.Minute)},
-			{Ticker: "AAPL", Score: 0.6, MeasuredAt: to.Add(-10 * time.Minute)},
-			{Ticker: "AAPL", Score: 0.5},
+			{Ticker: "AAPL", Score: 0.8, Bullish: 0.9, Bearish: 0.1, MeasuredAt: to.Add(time.Minute)}, // out of range
+			{Ticker: "AAPL", Score: 0.2, Bullish: 0.6, Bearish: 0.4, PostCount: 10, MeasuredAt: day1},
+			{Ticker: "AAPL", Score: 0.2, Bullish: 0.6, Bearish: 0.4, PostCount: 20, MeasuredAt: day2},
+			{Ticker: "AAPL", Score: 0.5}, // zero time, filtered
 		},
 	}
 	cacheRepo := &fakeMarketDataCacheRepo{}
 	service := &DataService{
-		stockChain: provider,
-		cacheRepo:  cacheRepo,
-		logger:     discardLogger(),
-		now:        func() time.Time { return now },
+		socialProviders: []DataProvider{provider},
+		cacheRepo:       cacheRepo,
+		logger:          discardLogger(),
+		now:             func() time.Time { return now },
 	}
 
 	got, err := service.GetSocialSentiment(context.Background(), domain.MarketTypeStock, "AAPL", from, to)
@@ -506,17 +510,13 @@ func TestDataServiceGetSocialSentimentCacheMissCallsChainAndCachesResult(t *test
 		t.Fatalf("GetSocialSentiment() error = %v", err)
 	}
 
-	want := []SocialSentiment{
-		{Ticker: "AAPL", Score: 0.2, MeasuredAt: from.Add(15 * time.Minute)},
-		{Ticker: "AAPL", Score: 0.6, MeasuredAt: to.Add(-10 * time.Minute)},
+	// day1 is before from (15:00), so only day2 remains after normalization.
+	// Score = Bullish - Bearish = 0.6 - 0.4 = 0.2 (recomputed from merge).
+	if len(got) != 1 {
+		t.Fatalf("GetSocialSentiment() len = %d, want 1", len(got))
 	}
-	if len(got) != len(want) {
-		t.Fatalf("GetSocialSentiment() len = %d, want %d", len(got), len(want))
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("GetSocialSentiment()[%d] = %#v, want %#v", i, got[i], want[i])
-		}
+	if got[0].Ticker != "AAPL" || got[0].PostCount != 20 {
+		t.Fatalf("GetSocialSentiment()[0] = %#v, want AAPL with PostCount=20", got[0])
 	}
 	if provider.sentimentCalls != 1 {
 		t.Fatalf("provider GetSocialSentiment calls = %d, want 1", provider.sentimentCalls)
@@ -529,6 +529,9 @@ func TestDataServiceGetSocialSentimentCacheMissCallsChainAndCachesResult(t *test
 	}
 	if cacheRepo.setData.DataType != cacheDataTypeSocial {
 		t.Fatalf("cache data type = %q, want %q", cacheRepo.setData.DataType, cacheDataTypeSocial)
+	}
+	if cacheRepo.setData.Provider != cacheProviderSocialAgg {
+		t.Fatalf("cache provider = %q, want %q", cacheRepo.setData.Provider, cacheProviderSocialAgg)
 	}
 	if cacheRepo.setData.Timeframe != newsCacheWindow(from, to) {
 		t.Fatalf("cache timeframe = %q, want %q", cacheRepo.setData.Timeframe, newsCacheWindow(from, to))
@@ -771,7 +774,7 @@ func TestNewDataServiceSkipsProvidersWithoutAPIKeys(t *testing.T) {
 				APIKey: "alpha-key",
 			},
 		},
-	}, reg, nil, discardLogger())
+	}, reg, nil, discardLogger(), nil)
 
 	stockChain, ok := service.stockChain.(*ProviderChain)
 	if !ok {
