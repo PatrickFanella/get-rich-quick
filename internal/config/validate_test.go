@@ -357,6 +357,9 @@ func validConfig() Config {
 					APIKey: "test-key",
 				},
 			},
+			RetryMaxAttempts:    2,
+			CallTimeout:         5 * time.Minute,
+			ThrottleConcurrency: 4,
 		},
 		DataProviders: DataProviderConfigs{
 			Polygon:      DataProviderConfig{APIKey: "test-polygon-key"},
@@ -482,6 +485,102 @@ func TestValidateAllowsN8NAlertChannelWithoutConfiguredWebhook(t *testing.T) {
 	}
 }
 
+// --- LLM resilience config tests (PR 2) ---
+
+func TestValidateFallbackProviderWithoutKey(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.FallbackProvider = "anthropic"
+	cfg.LLM.Providers.Anthropic.APIKey = ""
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "LLM_FALLBACK_PROVIDER is anthropic but ANTHROPIC_API_KEY is not set") {
+		t.Fatalf("Validate() error = %q, want fallback key message", err)
+	}
+}
+
+func TestValidateFallbackProviderOllamaNoKey(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.FallbackProvider = "ollama"
+
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("Validate() error = %v, want nil (ollama needs no key)", err)
+	}
+}
+
+func TestValidateFallbackProviderEmpty(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.FallbackProvider = ""
+
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("Validate() error = %v, want nil (no fallback)", err)
+	}
+}
+
+func TestValidateFallbackProviderUnknown(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.FallbackProvider = "deepseek"
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "not a known provider") {
+		t.Fatalf("Validate() error = %q, want unknown provider message", err)
+	}
+}
+
+func TestValidateFallbackProviderWithKey(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.FallbackProvider = "openrouter"
+	cfg.LLM.Providers.OpenRouter.APIKey = "or-key"
+
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("Validate() error = %v, want nil", err)
+	}
+}
+
+func TestValidateRetryMaxAttemptsZero(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.RetryMaxAttempts = 0
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "LLM_RETRY_MAX_ATTEMPTS must be >= 1") {
+		t.Fatalf("Validate() error = %q, want retry message", err)
+	}
+}
+
+func TestValidateCallTimeoutZero(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.CallTimeout = 0
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "LLM_CALL_TIMEOUT must be greater than 0") {
+		t.Fatalf("Validate() error = %q, want call timeout message", err)
+	}
+}
+
+func TestValidateThrottleConcurrencyZero(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.ThrottleConcurrency = 0
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "LLM_THROTTLE_CONCURRENCY must be >= 1") {
+		t.Fatalf("Validate() error = %q, want throttle message", err)
+	}
+}
+
 func clearConfigEnv(t *testing.T) {
 	t.Helper()
 
@@ -555,6 +654,13 @@ func clearConfigEnv(t *testing.T) {
 		"ENABLE_REDIS_CACHE",
 		"ENABLE_AGENT_MEMORY",
 		"ENABLE_LIVE_TRADING",
+		"LLM_FALLBACK_PROVIDER",
+		"LLM_FALLBACK_MODEL",
+		"LLM_RETRY_MAX_ATTEMPTS",
+		"LLM_CALL_TIMEOUT",
+		"LLM_BUDGET_REQUESTS_DAY",
+		"LLM_BUDGET_TOKENS_DAY",
+		"LLM_THROTTLE_CONCURRENCY",
 	} {
 		t.Setenv(key, "")
 	}
