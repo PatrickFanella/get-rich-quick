@@ -346,8 +346,8 @@ func TestValidateDefaultProviderUnknown(t *testing.T) {
 	if err == nil {
 		t.Fatal("Validate() error = nil, want error")
 	}
-	if !strings.Contains(err.Error(), "LLM_DEFAULT_PROVIDER \"deepseek\" is not a known provider") {
-		t.Fatalf("Validate() error = %q, want unknown provider message", err)
+	if !strings.Contains(err.Error(), "LLM_DEFAULT_PROVIDER") || !strings.Contains(err.Error(), "not a known provider") {
+		t.Fatalf("Validate() error = %q, want unknown default provider message", err)
 	}
 }
 

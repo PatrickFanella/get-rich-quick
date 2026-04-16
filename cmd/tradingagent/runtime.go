@@ -112,6 +112,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 	redisHealth, closeRedis := newRedisHealthCheck(cfg)
 
 	appMetrics := metrics.New()
+	sharedLLMBudget := buildLLMBudget(cfg.LLM)
 
 	strategyRepo := pgrepo.NewStrategyRepo(db.Pool)
 	runRepo := pgrepo.NewPipelineRunRepo(db.Pool)
@@ -179,7 +180,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 		Events:           eventRepo,
 		MetricsHandler:   appMetrics.Handler(),
 		Snapshots:        snapshotRepo,
-		LLMProvider:      wrapLLMProvider(throttleLLM(newLLMProviderFromConfig(cfg.LLM, logger)), appMetrics),
+		LLMProvider:      buildProviderChain(cfg.LLM, appMetrics, logger, sharedLLMBudget),
 		BacktestConfigs:  pgrepo.NewBacktestConfigRepo(db.Pool),
 		BacktestRuns:     pgrepo.NewBacktestRunRepo(db.Pool),
 		NewsFeedRepo:     newsFeedRepo,
@@ -276,6 +277,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 			appMetrics,
 			notificationManager,
 			runRegistry,
+			sharedLLMBudget,
 			logger,
 		)
 		deps.Runner = strategyRunner
@@ -488,30 +490,106 @@ func loadStaleRunTTL(logger *slog.Logger) time.Duration {
 	return ttl
 }
 
-// throttleLLM wraps a provider with a global concurrency limiter so that
-// serial backends (Ollama) aren't overwhelmed by concurrent requests.
-func throttleLLM(p llm.Provider) llm.Provider {
-	if p == nil {
-		return nil
-	}
-	return llm.NewThrottledProvider(p, 4)
-}
-
 func llmCacheEnabled() bool {
 	return !strings.EqualFold(strings.TrimSpace(os.Getenv("LLM_CACHE_ENABLED")), "false")
 }
 
-func wrapLLMProvider(provider llm.Provider, appMetrics *metrics.Metrics) llm.Provider {
-	if provider == nil || !llmCacheEnabled() {
-		return provider
+// buildProviderChain composes a resilient LLM provider from config.
+//
+// Chain order (outermost → innermost):
+//
+//	budget guard → timeout → throttle → retry → fallback → cache → raw provider
+//
+// With default config (no fallback, no budget) this degrades gracefully to
+// the same throttle+cache behaviour as before the resilience refactor.
+func buildProviderChain(cfg config.LLMConfig, appMetrics *metrics.Metrics, logger *slog.Logger, budget *llm.Budget) llm.Provider {
+	primary := newLLMProviderFromConfig(cfg, logger)
+	if primary == nil {
+		return nil
+	}
+	return wrapProviderChain(primary, cfg, appMetrics, logger, budget)
+}
+
+// wrapProviderChain wraps an existing provider with the full resilience chain
+// derived from config. Used for both the global provider and per-strategy
+// provider overrides.
+func wrapProviderChain(primary llm.Provider, cfg config.LLMConfig, appMetrics *metrics.Metrics, logger *slog.Logger, budget *llm.Budget) llm.Provider {
+	if primary == nil {
+		return nil
+	}
+	opts := chainOpts(cfg, appMetrics, logger, budget)
+	return llm.NewProviderChain(primary, logger, opts...)
+}
+
+// chainOpts builds the ChainOption slice from LLMConfig.
+func chainOpts(cfg config.LLMConfig, appMetrics *metrics.Metrics, logger *slog.Logger, budget *llm.Budget) []llm.ChainOption {
+	var opts []llm.ChainOption
+
+	// Throttle concurrency (default 4).
+	concurrency := cfg.ThrottleConcurrency
+	if concurrency < 1 {
+		concurrency = 4
+	}
+	opts = append(opts, llm.WithThrottle(concurrency))
+
+	// Retry with exponential backoff.
+	if cfg.RetryMaxAttempts > 1 {
+		opts = append(opts, llm.WithRetry(cfg.RetryMaxAttempts))
 	}
 
-	cached := llm.NewCachedProvider(provider, llm.NewMemoryResponseCache())
-	if cached == nil {
-		return provider
+	// Fallback provider.
+	if fb := strings.TrimSpace(cfg.FallbackProvider); fb != "" {
+		model := strings.TrimSpace(cfg.FallbackModel)
+		secondary, err := newLLMProviderForSelection(cfg, fb, model, logger)
+		if err != nil {
+			logger.Warn("llm: fallback provider unavailable, skipping",
+				slog.String("provider", fb),
+				slog.Any("error", err),
+			)
+		} else {
+			opts = append(opts, llm.WithFallback(secondary))
+			if appMetrics != nil {
+				opts = append(opts, llm.WithChainFallbackMetrics(appMetrics))
+			}
+		}
 	}
 
-	return cached.WithCacheMetrics(appMetrics)
+	// Response cache.
+	if llmCacheEnabled() {
+		opts = append(opts, llm.WithCache(llm.NewMemoryResponseCache()))
+		if appMetrics != nil {
+			opts = append(opts, llm.WithChainCacheMetrics(appMetrics))
+		}
+	}
+
+	// Budget guard.
+	if budget != nil {
+		opts = append(opts, llm.WithBudget(budget))
+	}
+
+	// Per-call timeout.
+	if cfg.CallTimeout > 0 {
+		opts = append(opts, llm.WithCallTimeout(cfg.CallTimeout))
+	}
+
+	return opts
+}
+
+func buildLLMBudget(cfg config.LLMConfig) *llm.Budget {
+	// Validate() enforces non-negative values, but unit tests call runtime helpers
+	// directly with hand-built LLMConfig values; clamp defensively for that path.
+	requests := cfg.BudgetRequestsPerDay
+	tokens := cfg.BudgetTokensPerDay
+	if requests < 0 {
+		requests = 0
+	}
+	if tokens < 0 {
+		tokens = 0
+	}
+	if requests == 0 && tokens == 0 {
+		return nil
+	}
+	return llm.NewBudget(requests, tokens)
 }
 
 // newLLMProviderFromConfig builds an llm.Provider from application config.

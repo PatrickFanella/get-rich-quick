@@ -833,6 +833,124 @@ func TestLLMCacheEnabled(t *testing.T) {
 	}
 }
 
+func TestBuildProviderChain_PrimaryOnly(t *testing.T) {
+	cfg := config.LLMConfig{
+		DefaultProvider:     "openai",
+		ThrottleConcurrency: 2,
+		RetryMaxAttempts:    1, // no retry layer (needs >1)
+		CallTimeout:         5 * time.Minute,
+		Providers: config.LLMProviderConfigs{
+			OpenAI: config.LLMProviderConfig{
+				APIKey: "test-key",
+				Model:  "gpt-5-mini",
+			},
+		},
+	}
+
+	// Cache enabled by default (env unset).
+	t.Setenv("LLM_CACHE_ENABLED", "true")
+
+	provider := buildProviderChain(cfg, metrics.New(), slogDiscardLogger(), buildLLMBudget(cfg))
+	if provider == nil {
+		t.Fatal("buildProviderChain() = nil, want non-nil provider")
+	}
+}
+
+func TestBuildProviderChain_WithFallback(t *testing.T) {
+	cfg := config.LLMConfig{
+		DefaultProvider:     "openai",
+		FallbackProvider:    "anthropic",
+		FallbackModel:       "claude-sonnet-4-20250514",
+		ThrottleConcurrency: 4,
+		RetryMaxAttempts:    2,
+		CallTimeout:         5 * time.Minute,
+		Providers: config.LLMProviderConfigs{
+			OpenAI: config.LLMProviderConfig{
+				APIKey: "test-openai-key",
+				Model:  "gpt-5-mini",
+			},
+			Anthropic: config.LLMProviderConfig{
+				APIKey: "test-anthropic-key",
+				Model:  "claude-sonnet-4-20250514",
+			},
+		},
+	}
+
+	t.Setenv("LLM_CACHE_ENABLED", "false")
+
+	provider := buildProviderChain(cfg, metrics.New(), slogDiscardLogger(), buildLLMBudget(cfg))
+	if provider == nil {
+		t.Fatal("buildProviderChain() = nil, want non-nil provider with fallback")
+	}
+}
+
+func TestBuildProviderChain_NilWhenNoProvider(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.LLMConfig{} // no provider configured
+	provider := buildProviderChain(cfg, metrics.New(), slogDiscardLogger(), buildLLMBudget(cfg))
+	if provider != nil {
+		t.Fatalf("buildProviderChain() = %v, want nil when no provider configured", provider)
+	}
+}
+
+func TestBuildProviderChain_BudgetExhausted(t *testing.T) {
+	t.Parallel()
+
+	// Build a chain with captureProvider + budget of 1 request.
+	budget := llm.NewBudget(1, 0)
+	chain := llm.NewProviderChain(captureProvider{}, slogDiscardLogger(), llm.WithBudget(budget))
+
+	// First call succeeds.
+	resp, err := chain.Complete(context.Background(), llm.CompletionRequest{
+		Model:    "test",
+		Messages: []llm.Message{{Role: "user", Content: "first"}},
+	})
+	if err != nil {
+		t.Fatalf("first Complete() error = %v, want nil", err)
+	}
+	if resp == nil {
+		t.Fatal("first Complete() response = nil, want non-nil")
+	}
+
+	// Record usage so budget is consumed.
+	budget.Record(10, 20)
+
+	// Second call should be rejected by budget guard.
+	_, err = chain.Complete(context.Background(), llm.CompletionRequest{
+		Model:    "test",
+		Messages: []llm.Message{{Role: "user", Content: "second"}},
+	})
+	if err == nil {
+		t.Fatal("second Complete() error = nil, want ErrBudgetExhausted")
+	}
+	if !errors.Is(err, llm.ErrBudgetExhausted) {
+		t.Fatalf("second Complete() error = %v, want ErrBudgetExhausted", err)
+	}
+}
+
+func TestBuildProviderChain_InvalidFallbackSkipped(t *testing.T) {
+	cfg := config.LLMConfig{
+		DefaultProvider:     "openai",
+		FallbackProvider:    "nonexistent-provider",
+		ThrottleConcurrency: 1,
+		Providers: config.LLMProviderConfigs{
+			OpenAI: config.LLMProviderConfig{
+				APIKey: "test-key",
+				Model:  "gpt-5-mini",
+			},
+		},
+	}
+
+	t.Setenv("LLM_CACHE_ENABLED", "false")
+
+	// Should not panic; invalid fallback is logged and skipped.
+	provider := buildProviderChain(cfg, metrics.New(), slogDiscardLogger(), buildLLMBudget(cfg))
+	if provider == nil {
+		t.Fatal("buildProviderChain() = nil, want non-nil provider (fallback skipped)")
+	}
+}
+
 func slogDiscardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
