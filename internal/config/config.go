@@ -59,6 +59,15 @@ type LLMConfig struct {
 	QuickThinkModel string
 	Timeout         time.Duration
 	Providers       LLMProviderConfigs
+
+	// Resilience settings (PR: llm-resilience).
+	FallbackProvider     string
+	FallbackModel        string
+	RetryMaxAttempts     int
+	CallTimeout          time.Duration
+	BudgetRequestsPerDay int
+	BudgetTokensPerDay   int
+	ThrottleConcurrency  int
 }
 
 // LLMProviderConfigs contains provider-specific settings.
@@ -283,6 +292,31 @@ func loadFromEnvironment() (Config, error) {
 		return Config{}, err
 	}
 
+	llmRetryMaxAttempts, err := getEnvInt("LLM_RETRY_MAX_ATTEMPTS", 2)
+	if err != nil {
+		return Config{}, err
+	}
+
+	llmCallTimeout, err := getEnvDuration("LLM_CALL_TIMEOUT", 5*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+
+	llmBudgetRequestsDay, err := getEnvInt("LLM_BUDGET_REQUESTS_DAY", 0)
+	if err != nil {
+		return Config{}, err
+	}
+
+	llmBudgetTokensDay, err := getEnvInt("LLM_BUDGET_TOKENS_DAY", 0)
+	if err != nil {
+		return Config{}, err
+	}
+
+	llmThrottleConcurrency, err := getEnvInt("LLM_THROTTLE_CONCURRENCY", 4)
+	if err != nil {
+		return Config{}, err
+	}
+
 	alphaVantageRateLimit, err := getEnvInt("ALPHA_VANTAGE_RATE_LIMIT_PER_MINUTE", 5)
 	if err != nil {
 		return Config{}, err
@@ -487,6 +521,13 @@ func loadFromEnvironment() (Config, error) {
 					Model:   getEnvString("OLLAMA_MODEL", "llama3.2"),
 				},
 			},
+			FallbackProvider:     getEnvString("LLM_FALLBACK_PROVIDER", ""),
+			FallbackModel:        getEnvString("LLM_FALLBACK_MODEL", ""),
+			RetryMaxAttempts:     llmRetryMaxAttempts,
+			CallTimeout:          llmCallTimeout,
+			BudgetRequestsPerDay: llmBudgetRequestsDay,
+			BudgetTokensPerDay:   llmBudgetTokensDay,
+			ThrottleConcurrency:  llmThrottleConcurrency,
 		},
 		DataProviders: DataProviderConfigs{
 			Polygon: DataProviderConfig{

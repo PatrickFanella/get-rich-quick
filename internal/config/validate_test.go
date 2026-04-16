@@ -13,6 +13,7 @@ func TestLoadParsesEnvironmentValues(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/tradingagent?sslmode=disable")
 	t.Setenv("OPENAI_API_KEY", "test-key")
 	t.Setenv("OPENAI_BASE_URL", "https://openai.example.com/v1")
+	t.Setenv("OPENROUTER_API_KEY", "openrouter-key")
 	t.Setenv("OPENROUTER_BASE_URL", "https://openrouter.example.com/api/v1")
 	t.Setenv("XAI_BASE_URL", "https://xai.example.com/v1")
 	t.Setenv("APP_HOST", "127.0.0.1")
@@ -22,6 +23,13 @@ func TestLoadParsesEnvironmentValues(t *testing.T) {
 	t.Setenv("DATABASE_SSL_MODE", "require")
 	t.Setenv("REDIS_URL", "redis://localhost:6379/0")
 	t.Setenv("LLM_TIMEOUT", "45s")
+	t.Setenv("LLM_FALLBACK_PROVIDER", "openrouter")
+	t.Setenv("LLM_FALLBACK_MODEL", "openai/gpt-4.1-mini")
+	t.Setenv("LLM_RETRY_MAX_ATTEMPTS", "3")
+	t.Setenv("LLM_CALL_TIMEOUT", "90s")
+	t.Setenv("LLM_BUDGET_REQUESTS_DAY", "123")
+	t.Setenv("LLM_BUDGET_TOKENS_DAY", "456789")
+	t.Setenv("LLM_THROTTLE_CONCURRENCY", "8")
 	t.Setenv("POLYGON_API_KEY", "polygon-key")
 	t.Setenv("ALPHA_VANTAGE_RATE_LIMIT_PER_MINUTE", "7")
 	t.Setenv("FINNHUB_RATE_LIMIT_PER_MINUTE", "20")
@@ -73,6 +81,27 @@ func TestLoadParsesEnvironmentValues(t *testing.T) {
 
 	if cfg.LLM.Timeout != 45*time.Second {
 		t.Fatalf("cfg.LLM.Timeout = %s, want %s", cfg.LLM.Timeout, 45*time.Second)
+	}
+	if cfg.LLM.FallbackProvider != "openrouter" {
+		t.Fatalf("cfg.LLM.FallbackProvider = %q, want %q", cfg.LLM.FallbackProvider, "openrouter")
+	}
+	if cfg.LLM.FallbackModel != "openai/gpt-4.1-mini" {
+		t.Fatalf("cfg.LLM.FallbackModel = %q, want %q", cfg.LLM.FallbackModel, "openai/gpt-4.1-mini")
+	}
+	if cfg.LLM.RetryMaxAttempts != 3 {
+		t.Fatalf("cfg.LLM.RetryMaxAttempts = %d, want %d", cfg.LLM.RetryMaxAttempts, 3)
+	}
+	if cfg.LLM.CallTimeout != 90*time.Second {
+		t.Fatalf("cfg.LLM.CallTimeout = %s, want %s", cfg.LLM.CallTimeout, 90*time.Second)
+	}
+	if cfg.LLM.BudgetRequestsPerDay != 123 {
+		t.Fatalf("cfg.LLM.BudgetRequestsPerDay = %d, want %d", cfg.LLM.BudgetRequestsPerDay, 123)
+	}
+	if cfg.LLM.BudgetTokensPerDay != 456789 {
+		t.Fatalf("cfg.LLM.BudgetTokensPerDay = %d, want %d", cfg.LLM.BudgetTokensPerDay, 456789)
+	}
+	if cfg.LLM.ThrottleConcurrency != 8 {
+		t.Fatalf("cfg.LLM.ThrottleConcurrency = %d, want %d", cfg.LLM.ThrottleConcurrency, 8)
 	}
 
 	if cfg.LLM.Providers.OpenAI.BaseURL != "https://openai.example.com/v1" {
@@ -162,6 +191,42 @@ func TestLoadReturnsTypeConversionErrors(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "APP_PORT must be an integer") {
 		t.Fatalf("Load() error = %q, want APP_PORT parse message", err)
+	}
+}
+
+func TestLoadAppliesResilienceDefaults(t *testing.T) {
+	clearConfigEnv(t)
+
+	t.Setenv("APP_ENV", "test")
+	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/tradingagent?sslmode=disable")
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("POLYGON_API_KEY", "test-polygon-key")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.LLM.FallbackProvider != "" {
+		t.Fatalf("cfg.LLM.FallbackProvider = %q, want empty", cfg.LLM.FallbackProvider)
+	}
+	if cfg.LLM.FallbackModel != "" {
+		t.Fatalf("cfg.LLM.FallbackModel = %q, want empty", cfg.LLM.FallbackModel)
+	}
+	if cfg.LLM.RetryMaxAttempts != 2 {
+		t.Fatalf("cfg.LLM.RetryMaxAttempts = %d, want %d", cfg.LLM.RetryMaxAttempts, 2)
+	}
+	if cfg.LLM.CallTimeout != 5*time.Minute {
+		t.Fatalf("cfg.LLM.CallTimeout = %s, want %s", cfg.LLM.CallTimeout, 5*time.Minute)
+	}
+	if cfg.LLM.BudgetRequestsPerDay != 0 {
+		t.Fatalf("cfg.LLM.BudgetRequestsPerDay = %d, want %d", cfg.LLM.BudgetRequestsPerDay, 0)
+	}
+	if cfg.LLM.BudgetTokensPerDay != 0 {
+		t.Fatalf("cfg.LLM.BudgetTokensPerDay = %d, want %d", cfg.LLM.BudgetTokensPerDay, 0)
+	}
+	if cfg.LLM.ThrottleConcurrency != 4 {
+		t.Fatalf("cfg.LLM.ThrottleConcurrency = %d, want %d", cfg.LLM.ThrottleConcurrency, 4)
 	}
 }
 
@@ -273,6 +338,19 @@ func TestValidateDefaultProviderOllamaNoKey(t *testing.T) {
 	}
 }
 
+func TestValidateDefaultProviderUnknown(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.DefaultProvider = "deepseek"
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "LLM_DEFAULT_PROVIDER \"deepseek\" is not a known provider") {
+		t.Fatalf("Validate() error = %q, want unknown provider message", err)
+	}
+}
+
 func TestLoadFloat64Field_ValidValue(t *testing.T) {
 	clearConfigEnv(t)
 
@@ -357,6 +435,9 @@ func validConfig() Config {
 					APIKey: "test-key",
 				},
 			},
+			RetryMaxAttempts:    2,
+			CallTimeout:         5 * time.Minute,
+			ThrottleConcurrency: 4,
 		},
 		DataProviders: DataProviderConfigs{
 			Polygon:      DataProviderConfig{APIKey: "test-polygon-key"},
@@ -482,6 +563,141 @@ func TestValidateAllowsN8NAlertChannelWithoutConfiguredWebhook(t *testing.T) {
 	}
 }
 
+// --- LLM resilience config tests (PR 2) ---
+
+func TestValidateFallbackProviderWithoutKey(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.FallbackProvider = "anthropic"
+	cfg.LLM.Providers.Anthropic.APIKey = ""
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "LLM_FALLBACK_PROVIDER is anthropic but ANTHROPIC_API_KEY is not set") {
+		t.Fatalf("Validate() error = %q, want fallback key message", err)
+	}
+}
+
+func TestValidateFallbackProviderOllamaNoKey(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.FallbackProvider = "ollama"
+
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("Validate() error = %v, want nil (ollama needs no key)", err)
+	}
+}
+
+func TestValidateFallbackProviderEmpty(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.FallbackProvider = ""
+
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("Validate() error = %v, want nil (no fallback)", err)
+	}
+}
+
+func TestValidateFallbackModelWithoutProvider(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.FallbackModel = "gpt-4.1-mini"
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "LLM_FALLBACK_MODEL is set but LLM_FALLBACK_PROVIDER is not set") {
+		t.Fatalf("Validate() error = %q, want fallback model/provider message", err)
+	}
+}
+
+func TestValidateFallbackProviderUnknown(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.FallbackProvider = "deepseek"
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "not a known provider") {
+		t.Fatalf("Validate() error = %q, want unknown provider message", err)
+	}
+}
+
+func TestValidateFallbackProviderWithKey(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.FallbackProvider = "openrouter"
+	cfg.LLM.Providers.OpenRouter.APIKey = "or-key"
+
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("Validate() error = %v, want nil", err)
+	}
+}
+
+func TestValidateRetryMaxAttemptsZero(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.RetryMaxAttempts = 0
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "LLM_RETRY_MAX_ATTEMPTS must be >= 1") {
+		t.Fatalf("Validate() error = %q, want retry message", err)
+	}
+}
+
+func TestValidateCallTimeoutZero(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.CallTimeout = 0
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "LLM_CALL_TIMEOUT must be greater than 0") {
+		t.Fatalf("Validate() error = %q, want call timeout message", err)
+	}
+}
+
+func TestValidateThrottleConcurrencyZero(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.ThrottleConcurrency = 0
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "LLM_THROTTLE_CONCURRENCY must be >= 1") {
+		t.Fatalf("Validate() error = %q, want throttle message", err)
+	}
+}
+
+func TestValidateBudgetRequestsPerDayNegative(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.BudgetRequestsPerDay = -1
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "LLM_BUDGET_REQUESTS_DAY must be >= 0") {
+		t.Fatalf("Validate() error = %q, want budget requests message", err)
+	}
+}
+
+func TestValidateBudgetTokensPerDayNegative(t *testing.T) {
+	cfg := validConfig()
+	cfg.LLM.BudgetTokensPerDay = -1
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "LLM_BUDGET_TOKENS_DAY must be >= 0") {
+		t.Fatalf("Validate() error = %q, want budget tokens message", err)
+	}
+}
+
 func clearConfigEnv(t *testing.T) {
 	t.Helper()
 
@@ -555,6 +771,13 @@ func clearConfigEnv(t *testing.T) {
 		"ENABLE_REDIS_CACHE",
 		"ENABLE_AGENT_MEMORY",
 		"ENABLE_LIVE_TRADING",
+		"LLM_FALLBACK_PROVIDER",
+		"LLM_FALLBACK_MODEL",
+		"LLM_RETRY_MAX_ATTEMPTS",
+		"LLM_CALL_TIMEOUT",
+		"LLM_BUDGET_REQUESTS_DAY",
+		"LLM_BUDGET_TOKENS_DAY",
+		"LLM_THROTTLE_CONCURRENCY",
 	} {
 		t.Setenv(key, "")
 	}
