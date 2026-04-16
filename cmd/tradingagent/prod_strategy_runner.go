@@ -276,7 +276,7 @@ func (r *realStrategyRunner) prepareStrategyRun(ctx context.Context, strategy do
 	if err != nil {
 		return nil, agent.PreparedRun{}, nil, nil, fmt.Errorf("build llm provider for strategy %s: %w", strategy.Name, err)
 	}
-	provider = wrapLLMProvider(provider, r.metrics)
+	provider = wrapProviderChain(provider, r.cfg.LLM, r.metrics, r.logger)
 
 	definition, err := buildRunnerDefinition(provider, resolved.LLMConfig.Provider, resolved, r.cfg.LLM.Timeout, r.metrics, r.logger)
 	if err != nil {
