@@ -38,6 +38,13 @@ export function useWebSocketClient({
   const [lastMessage, setLastMessage] = useState<WebSocketServerMessage | null>(null);
   const endpoint = useMemo(() => url ?? getWebSocketUrl(), [url]);
 
+  // Store callbacks in refs so callers don't need to memoize them.
+  // Changing onMessage/onError should NOT trigger a reconnection cycle.
+  const onMessageRef = useRef(onMessage);
+  onMessageRef.current = onMessage;
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current !== null) {
       window.clearTimeout(reconnectTimerRef.current);
@@ -87,12 +94,12 @@ export function useWebSocketClient({
         return;
       }
       setLastMessage(parsed);
-      onMessage?.(parsed);
+      onMessageRef.current?.(parsed);
     };
 
     socket.onerror = (event) => {
       setStatus('error');
-      onError?.(event);
+      onErrorRef.current?.(event);
     };
 
     socket.onclose = () => {
@@ -113,7 +120,7 @@ export function useWebSocketClient({
         }, reconnectDelayMs);
       }
     };
-  }, [clearReconnectTimer, enabled, endpoint, onError, onMessage, reconnect, reconnectDelayMs]);
+  }, [clearReconnectTimer, enabled, endpoint, reconnect, reconnectDelayMs]);
 
   const sendCommand = useCallback(
     (command: WebSocketSubscriptionCommand | { action: 'subscribe_all' | 'unsubscribe_all' }) => {

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -106,6 +107,10 @@ type StrategyRunResult struct {
 type StrategyRunner interface {
 	RunStrategy(ctx context.Context, strategy domain.Strategy) (*StrategyRunResult, error)
 }
+
+// ErrStrategyAlreadyRunning is returned by StrategyRunner when a run is
+// requested for a strategy that already has an in-flight pipeline execution.
+var ErrStrategyAlreadyRunning = errors.New("strategy already has an in-flight run")
 
 // HealthCheck verifies a runtime dependency is reachable.
 type HealthCheck interface {

@@ -6,11 +6,17 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"github.com/PatrickFanella/get-rich-quick/internal/llm"
 )
 
-const sentimentBatchSize = 10
+const (
+	sentimentBatchSize    = 10
+	sentimentMaxTokens    = 4096
+	sentimentConcurrency  = 3
+	sentimentMaxRetries   = 1
+)
 
 // SentimentResult aggregates LLM-derived sentiment for a ticker from Reddit posts.
 type SentimentResult struct {
@@ -40,7 +46,8 @@ Return ONLY the JSON array.`, ticker, ticker)
 }
 
 // ScorePosts runs LLM triage on posts to extract sentiment about a specific ticker.
-// Posts are batched for efficiency. Returns aggregated counts.
+// Posts are batched for efficiency and processed with bounded concurrency.
+// Returns aggregated counts.
 func ScorePosts(ctx context.Context, provider llm.Provider, model, ticker string, posts []RedditPost, logger *slog.Logger) SentimentResult {
 	if provider == nil || len(posts) == 0 {
 		return SentimentResult{}
@@ -49,23 +56,112 @@ func ScorePosts(ctx context.Context, provider llm.Provider, model, ticker string
 		logger = slog.Default()
 	}
 
-	var result SentimentResult
+	// Build batches up front.
+	type indexedBatch struct {
+		index int
+		batch []RedditPost
+	}
+	var batches []indexedBatch
 	for i := 0; i < len(posts); i += sentimentBatchSize {
 		end := i + sentimentBatchSize
 		if end > len(posts) {
 			end = len(posts)
 		}
-		batch := posts[i:end]
-		r := scoreBatch(ctx, provider, model, ticker, batch, logger)
-		result.Mentions += r.Mentions
-		result.Bullish += r.Bullish
-		result.Bearish += r.Bearish
-		result.Neutral += r.Neutral
+		batches = append(batches, indexedBatch{index: i / sentimentBatchSize, batch: posts[i:end]})
 	}
+
+	totalBatches := len(batches)
+
+	// Process batches with bounded concurrency.
+	sem := make(chan struct{}, sentimentConcurrency)
+	var (
+		mu     sync.Mutex
+		result SentimentResult
+	)
+
+	var wg sync.WaitGroup
+	for _, b := range batches {
+		wg.Add(1)
+		go func(ib indexedBatch) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			r := scoreBatch(ctx, provider, model, ticker, ib.batch, ib.index, totalBatches, logger)
+			mu.Lock()
+			result.Mentions += r.Mentions
+			result.Bullish += r.Bullish
+			result.Bearish += r.Bearish
+			result.Neutral += r.Neutral
+			mu.Unlock()
+		}(b)
+	}
+	wg.Wait()
+
 	return result
 }
 
-func scoreBatch(ctx context.Context, provider llm.Provider, model, ticker string, batch []RedditPost, logger *slog.Logger) SentimentResult {
+func scoreBatch(ctx context.Context, provider llm.Provider, model, ticker string, batch []RedditPost, batchIdx, totalBatches int, logger *slog.Logger) SentimentResult {
+	prompt := buildBatchPrompt(ticker, batch)
+
+	for attempt := 0; attempt <= sentimentMaxRetries; attempt++ {
+		sysPrompt := sentimentSystemPrompt(ticker)
+		if attempt > 0 {
+			// On retry, explicitly instruct the model not to use thinking mode
+			// which can cause empty content with Qwen3 models.
+			sysPrompt += "\n\nIMPORTANT: Do NOT use <think> tags. Respond directly with the JSON array."
+		}
+
+		resp, err := provider.Complete(ctx, llm.CompletionRequest{
+			Model: model,
+			Messages: []llm.Message{
+				{Role: "system", Content: sysPrompt},
+				{Role: "user", Content: prompt},
+			},
+			MaxTokens:      sentimentMaxTokens,
+			ResponseFormat: &llm.ResponseFormat{Type: llm.ResponseFormatJSONObject},
+		})
+		if err != nil {
+			logger.Warn("reddit/sentiment: LLM call failed",
+				slog.Int("batch", batchIdx+1),
+				slog.Int("total_batches", totalBatches),
+				slog.Int("attempt", attempt+1),
+				slog.Any("error", err),
+			)
+			return SentimentResult{}
+		}
+
+		content := cleanContent(resp.Content)
+		if content == "" {
+			logger.Warn("reddit/sentiment: empty LLM response, retrying",
+				slog.Int("batch", batchIdx+1),
+				slog.Int("total_batches", totalBatches),
+				slog.Int("attempt", attempt+1),
+			)
+			continue
+		}
+
+		result, ok := parseSentimentResponse(content)
+		if !ok {
+			logger.Warn("reddit/sentiment: failed to parse LLM response",
+				slog.Int("batch", batchIdx+1),
+				slog.Int("total_batches", totalBatches),
+				slog.Int("attempt", attempt+1),
+				slog.String("content", content[:min(200, len(content))]),
+			)
+			return SentimentResult{}
+		}
+		return result
+	}
+
+	logger.Warn("reddit/sentiment: exhausted retries with empty responses",
+		slog.Int("batch", batchIdx+1),
+		slog.Int("total_batches", totalBatches),
+	)
+	return SentimentResult{}
+}
+
+func buildBatchPrompt(ticker string, batch []RedditPost) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Classify each post for ticker %s. Return a JSON array with one object per post, in order.\n\n", ticker)
 	for i, p := range batch {
@@ -79,21 +175,11 @@ func scoreBatch(ctx context.Context, provider llm.Provider, model, ticker string
 			fmt.Fprintf(&sb, "   %s\n", body)
 		}
 	}
+	return sb.String()
+}
 
-	resp, err := provider.Complete(ctx, llm.CompletionRequest{
-		Model: model,
-		Messages: []llm.Message{
-			{Role: "system", Content: sentimentSystemPrompt(ticker)},
-			{Role: "user", Content: sb.String()},
-		},
-		ResponseFormat: &llm.ResponseFormat{Type: llm.ResponseFormatJSONObject},
-	})
-	if err != nil {
-		logger.Warn("reddit/sentiment: LLM call failed", slog.Any("error", err))
-		return SentimentResult{}
-	}
-
-	content := strings.TrimSpace(resp.Content)
+func cleanContent(raw string) string {
+	content := strings.TrimSpace(raw)
 	// Strip markdown fences if present.
 	if strings.HasPrefix(content, "```") {
 		if idx := strings.Index(content[3:], "\n"); idx >= 0 {
@@ -104,7 +190,10 @@ func scoreBatch(ctx context.Context, provider llm.Provider, model, ticker string
 		}
 		content = strings.TrimSpace(content)
 	}
+	return content
+}
 
+func parseSentimentResponse(content string) (SentimentResult, bool) {
 	var sentiments []postSentiment
 	if err := json.Unmarshal([]byte(content), &sentiments); err != nil {
 		// Try wrapper: {"results": [...]}
@@ -112,11 +201,7 @@ func scoreBatch(ctx context.Context, provider llm.Provider, model, ticker string
 			Results []postSentiment `json:"results"`
 		}
 		if err2 := json.Unmarshal([]byte(content), &wrapper); err2 != nil {
-			logger.Warn("reddit/sentiment: failed to parse LLM response",
-				slog.Any("error", err),
-				slog.String("content", content[:min(200, len(content))]),
-			)
-			return SentimentResult{}
+			return SentimentResult{}, false
 		}
 		sentiments = wrapper.Results
 	}
@@ -136,5 +221,5 @@ func scoreBatch(ctx context.Context, provider llm.Provider, model, ticker string
 			result.Neutral++
 		}
 	}
-	return result
+	return result, true
 }

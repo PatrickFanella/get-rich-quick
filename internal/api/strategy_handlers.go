@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -92,20 +94,27 @@ func (s *Server) handleRunStrategy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.runner.RunStrategy(r.Context(), *strategy)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to run strategy", ErrCodeInternal)
-		return
-	}
-	if result == nil {
-		respondError(w, http.StatusInternalServerError, "strategy run returned no result", ErrCodeInternal)
-		return
-	}
+	// Run the strategy asynchronously so the HTTP client disconnect does not
+	// cancel the pipeline context.  Return 202 Accepted immediately.
+	runCtx := context.WithoutCancel(r.Context())
+	go func() {
+		result, err := s.runner.RunStrategy(runCtx, *strategy)
+		if err != nil {
+			slog.Error("async strategy run failed", slog.String("strategy_id", id.String()), slog.String("error", err.Error()))
+			return
+		}
+		if result != nil {
+			s.BroadcastRunResult(result)
+		}
+	}()
 
-	s.BroadcastRunResult(result)
 	s.writeAuditLog(r.Context(), actorOf(r), "strategy.manual_run", "strategy", &id,
 		map[string]string{"ticker": strategy.Ticker})
-	respondJSON(w, http.StatusOK, result)
+	respondJSON(w, http.StatusAccepted, map[string]string{
+		"status":      "accepted",
+		"strategy_id": id.String(),
+		"message":     "strategy run started",
+	})
 }
 
 func (s *Server) handleCreateStrategy(w http.ResponseWriter, r *http.Request) {

@@ -161,13 +161,17 @@ func (s *DataService) GetOHLCV(ctx context.Context, marketType domain.MarketType
 		return nil, err
 	}
 
+	// Truncate date boundaries to timeframe granularity so that requests
+	// arriving within the same period produce identical cache keys.
+	cacheFrom := truncateForTimeframe(timeframe, fromUTC)
+	cacheTo := truncateForTimeframe(timeframe, toUTC)
 	key := repository.MarketDataCacheKey{
 		Ticker:    ticker,
 		Provider:  providerName,
 		DataType:  cacheDataTypeOHLCV,
 		Timeframe: ohlcvCacheTimeframe(timeframe, fromUTC, toUTC),
-		DateFrom:  &fromUTC,
-		DateTo:    &toUTC,
+		DateFrom:  &cacheFrom,
+		DateTo:    &cacheTo,
 	}
 
 	if cached, ok := s.loadCachedOHLCV(ctx, key); ok {
@@ -771,7 +775,34 @@ func toHistoricalOHLCV(ticker, provider string, timeframe Timeframe, bars []doma
 }
 
 func ohlcvCacheTimeframe(timeframe Timeframe, from, to time.Time) string {
-	return timeframe.String() + "|" + newsCacheWindow(from, to)
+	return timeframe.String() + "|" + truncatedCacheWindow(timeframe, from, to)
+}
+
+// truncatedCacheWindow formats from/to truncated to the timeframe's granularity
+// so that requests within the same period produce identical cache keys.
+func truncatedCacheWindow(timeframe Timeframe, from, to time.Time) string {
+	f := truncateForTimeframe(timeframe, from.UTC())
+	t := truncateForTimeframe(timeframe, to.UTC())
+	return f.Format(time.RFC3339) + "|" + t.Format(time.RFC3339)
+}
+
+// truncateForTimeframe rounds a timestamp down to the granularity appropriate
+// for the given timeframe so that cache keys are stable across runs.
+func truncateForTimeframe(tf Timeframe, t time.Time) time.Time {
+	switch tf {
+	case Timeframe1m:
+		return t.Truncate(time.Minute)
+	case Timeframe5m:
+		return t.Truncate(5 * time.Minute)
+	case Timeframe15m:
+		return t.Truncate(15 * time.Minute)
+	case Timeframe1h:
+		return t.Truncate(time.Hour)
+	case Timeframe1d:
+		return t.Truncate(24 * time.Hour)
+	default:
+		return t.Truncate(24 * time.Hour)
+	}
 }
 
 func newsCacheWindow(from, to time.Time) string {

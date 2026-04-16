@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -234,13 +235,74 @@ func TestProviderUnsupportedMethodsReturnErrNotImplemented(t *testing.T) {
 		t.Fatalf("GetFundamentals() error = %v, want ErrNotImplemented", fundamentalsErr)
 	}
 
-	_, newsErr := provider.GetNews(context.Background(), "AAPL", time.Now(), time.Now())
-	if !errors.Is(newsErr, data.ErrNotImplemented) {
-		t.Fatalf("GetNews() error = %v, want ErrNotImplemented", newsErr)
-	}
-
 	_, socialErr := provider.GetSocialSentiment(context.Background(), "AAPL", time.Now().Add(-time.Hour), time.Now())
 	if !errors.Is(socialErr, data.ErrNotImplemented) {
 		t.Fatalf("GetSocialSentiment() error = %v, want ErrNotImplemented", socialErr)
+	}
+}
+
+func TestProviderGetNews(t *testing.T) {
+	t.Parallel()
+
+	from := time.Date(2026, time.April, 10, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, time.April, 15, 0, 0, 0, 0, time.UTC)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/finance/search" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		q := r.URL.Query().Get("q")
+		if q != "AAPL" {
+			t.Fatalf("expected q=AAPL, got %s", q)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"news": [
+				{
+					"title": "Apple earnings beat",
+					"link": "https://example.com/1",
+					"publisher": "Reuters",
+					"providerPublishTime": 1776038400
+				},
+				{
+					"title": "Old article",
+					"link": "https://example.com/2",
+					"publisher": "Bloomberg",
+					"providerPublishTime": 1644502400
+				}
+			]
+		}`))
+	}))
+	defer server.Close()
+
+	provider := NewProvider(discardLogger())
+	provider.baseURL = server.URL
+
+	articles, err := provider.GetNews(context.Background(), "AAPL", from, to)
+	if err != nil {
+		t.Fatalf("GetNews() error = %v", err)
+	}
+
+	// Only the article within the time range should be returned.
+	if len(articles) != 1 {
+		t.Fatalf("expected 1 article, got %d", len(articles))
+	}
+	if articles[0].Title != "Apple earnings beat" {
+		t.Fatalf("expected title 'Apple earnings beat', got %q", articles[0].Title)
+	}
+	if articles[0].Source != "Reuters" {
+		t.Fatalf("expected source 'Reuters', got %q", articles[0].Source)
+	}
+	if articles[0].URL != "https://example.com/1" {
+		t.Fatalf("expected URL 'https://example.com/1', got %q", articles[0].URL)
+	}
+}
+
+func TestProviderGetNewsEmptyTicker(t *testing.T) {
+	t.Parallel()
+	provider := NewProvider(discardLogger())
+	_, err := provider.GetNews(context.Background(), "", time.Now(), time.Now())
+	if err == nil || !strings.Contains(err.Error(), "ticker is required") {
+		t.Fatalf("expected ticker required error, got %v", err)
 	}
 }

@@ -111,6 +111,10 @@ type PreparedRun struct {
 	Runtime        RuntimeConfig
 	ConfigSnapshot json.RawMessage
 	InitialState   InitialStateSeed
+
+	// RunID may be set by the caller to reuse a pre-created pipeline run
+	// record.  When non-zero Run() skips RecordRunStart and uses this ID.
+	RunID uuid.UUID
 }
 
 // RunWarning captures non-fatal execution warnings surfaced to callers.
@@ -230,6 +234,7 @@ func (r *Runner) RunStrategy(ctx context.Context, strategy domain.Strategy, glob
 
 // Run executes one prepared run and returns the canonical result.
 func (r *Runner) Run(ctx context.Context, prepared PreparedRun) (*RunResult, error) {
+	slog.Info("DEBUG: runner.Run entered", slog.String("run_id", prepared.RunID.String()))
 	if r.persister == nil {
 		return nil, fmt.Errorf("agent/runner: persister is required")
 	}
@@ -255,12 +260,17 @@ func (r *Runner) Run(ctx context.Context, prepared PreparedRun) (*RunResult, err
 		StartedAt:      now,
 		ConfigSnapshot: prepared.ConfigSnapshot,
 	}
-	if err := r.persister.RecordRunStart(ctx, &run); err != nil {
-		return nil, err
+	if prepared.RunID != uuid.Nil {
+		run.ID = prepared.RunID
+	} else {
+		if err := r.persister.RecordRunStart(ctx, &run); err != nil {
+			return nil, err
+		}
 	}
 	if r.runRegistry != nil {
 		r.runRegistry.Register(run.ID, cancel)
 		defer r.runRegistry.Deregister(run.ID)
+		slog.Info("DEBUG: runRegistry registered", slog.String("run_id", run.ID.String()))
 	}
 
 	state := &PipelineState{
@@ -270,6 +280,7 @@ func (r *Runner) Run(ctx context.Context, prepared PreparedRun) (*RunResult, err
 		mu:            &sync.Mutex{},
 	}
 	applyInitialStateSeed(state, prepared.InitialState)
+	slog.Info("DEBUG: initial state seeded, about to persist PipelineStarted", slog.String("run_id", run.ID.String()))
 
 	r.helper.persistStructuredEvent(ctx, r.helper.newStructuredEvent(
 		run.ID,

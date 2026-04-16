@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -35,6 +36,21 @@ type timeframeMapping struct {
 	interval string
 	duration time.Duration
 }
+
+// ── Search/News response types ──────────────────────────────────────────
+
+type searchResponse struct {
+	News []searchNewsItem `json:"news"`
+}
+
+type searchNewsItem struct {
+	Title               string `json:"title"`
+	Link                string `json:"link"`
+	Publisher           string `json:"publisher"`
+	ProviderPublishTime int    `json:"providerPublishTime"`
+}
+
+// ── Chart response types ────────────────────────────────────────────────
 
 type chartResponse struct {
 	Chart chartEnvelope `json:"chart"`
@@ -210,13 +226,71 @@ func (p *Provider) GetFundamentals(_ context.Context, _ string) (data.Fundamenta
 	return data.Fundamentals{}, fmt.Errorf("yahoo: GetFundamentals: %w", data.ErrNotImplemented)
 }
 
-// GetNews is not supported by the Yahoo provider yet.
-func (p *Provider) GetNews(_ context.Context, _ string, _, _ time.Time) ([]data.NewsArticle, error) {
+// GetNews returns news articles from Yahoo Finance's search endpoint.
+func (p *Provider) GetNews(ctx context.Context, ticker string, from, to time.Time) ([]data.NewsArticle, error) {
 	if p == nil {
 		return nil, errors.New("yahoo: provider is nil")
 	}
 
-	return nil, fmt.Errorf("yahoo: GetNews: %w", data.ErrNotImplemented)
+	ticker = strings.TrimSpace(ticker)
+	if ticker == "" {
+		return nil, errors.New("yahoo: ticker is required")
+	}
+	if from.After(to) {
+		return nil, errors.New("yahoo: from must be before or equal to to")
+	}
+
+	// Sync baseURL in case tests changed it directly.
+	if p.baseURL != p.api.BaseURL() {
+		p.api.SetBaseURL(p.baseURL)
+	}
+	p.api.SetHTTPClient(p.httpClient)
+
+	params := url.Values{
+		"q":         []string{ticker},
+		"newsCount": []string{"20"},
+		"quotesCount": []string{"0"},
+	}
+
+	body, _, err := p.api.Get(ctx, "/v1/finance/search", params)
+	if err != nil {
+		var apiErr *data.APIError
+		if errors.As(err, &apiErr) {
+			message := strings.TrimSpace(string(apiErr.Body))
+			if message == "" {
+				message = http.StatusText(apiErr.StatusCode)
+			}
+			return nil, fmt.Errorf("yahoo: news request failed with status %d: %s", apiErr.StatusCode, message)
+		}
+		return nil, err
+	}
+
+	var resp searchResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("yahoo: decode search response: %w", err)
+	}
+
+	fromUTC := from.UTC()
+	toUTC := to.UTC()
+	articles := make([]data.NewsArticle, 0, len(resp.News))
+	for _, item := range resp.News {
+		publishedAt := time.Unix(int64(item.ProviderPublishTime), 0).UTC()
+		if publishedAt.Before(fromUTC) || publishedAt.After(toUTC) {
+			continue
+		}
+		articles = append(articles, data.NewsArticle{
+			Title:       item.Title,
+			URL:         item.Link,
+			Source:      item.Publisher,
+			PublishedAt: publishedAt,
+		})
+	}
+
+	sort.Slice(articles, func(i, j int) bool {
+		return articles[i].PublishedAt.Before(articles[j].PublishedAt)
+	})
+
+	return articles, nil
 }
 
 // GetSocialSentiment is not supported by the Yahoo provider yet.

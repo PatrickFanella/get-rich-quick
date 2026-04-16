@@ -238,6 +238,10 @@ func (p *Provider) GetNews(ctx context.Context, ticker string, from, to time.Tim
 // GetSocialSentiment returns aggregated social sentiment data from Finnhub's
 // Reddit + Twitter sentiment endpoints for the given ticker and date range.
 // Each returned entry covers one calendar day.
+//
+// On Finnhub's free tier the /stock/social-sentiment endpoint returns 403.
+// When that happens we return ErrNotImplemented so the aggregator silently
+// falls through to the next provider instead of logging a noisy warning.
 func (p *Provider) GetSocialSentiment(ctx context.Context, ticker string, from, to time.Time) ([]data.SocialSentiment, error) {
 	if p == nil {
 		return nil, errors.New("finnhub: provider is nil")
@@ -245,6 +249,10 @@ func (p *Provider) GetSocialSentiment(ctx context.Context, ticker string, from, 
 
 	days, err := p.client.GetSocialSentiment(ctx, ticker, from, to)
 	if err != nil {
+		var finnhubErr *ErrorResponse
+		if errors.As(err, &finnhubErr) && finnhubErr.StatusCode() == 403 {
+			return nil, fmt.Errorf("finnhub: GetSocialSentiment %s: %w", ticker, data.ErrNotImplemented)
+		}
 		return nil, err
 	}
 	if len(days) == 0 {

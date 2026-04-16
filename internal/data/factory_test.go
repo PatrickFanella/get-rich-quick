@@ -816,3 +816,119 @@ func TestNewDataServiceSkipsProvidersWithoutAPIKeys(t *testing.T) {
 		t.Fatalf("cryptoChain.providers[0].name = %q, want %q", cryptoProvider.name, "binance")
 	}
 }
+
+func TestOHLCVCacheTimeframeStableAcrossNanoseconds(t *testing.T) {
+	t.Parallel()
+
+	// Two timestamps on the same day but with different nanoseconds must
+	// produce identical cache keys for a daily timeframe.
+	from1 := time.Date(2026, 3, 12, 2, 37, 20, 730525789, time.UTC)
+	to1 := time.Date(2026, 4, 16, 2, 37, 20, 730525789, time.UTC)
+
+	from2 := time.Date(2026, 3, 12, 3, 8, 17, 389898606, time.UTC)
+	to2 := time.Date(2026, 4, 16, 3, 8, 17, 389898606, time.UTC)
+
+	key1 := ohlcvCacheTimeframe(Timeframe1d, from1, to1)
+	key2 := ohlcvCacheTimeframe(Timeframe1d, from2, to2)
+
+	if key1 != key2 {
+		t.Fatalf("cache keys differ for same-day requests:\n  key1 = %s\n  key2 = %s", key1, key2)
+	}
+}
+
+func TestOHLCVCacheTimeframeDifferentDaysAreDifferent(t *testing.T) {
+	t.Parallel()
+
+	from1 := time.Date(2026, 3, 12, 14, 0, 0, 0, time.UTC)
+	to1 := time.Date(2026, 4, 16, 14, 0, 0, 0, time.UTC)
+
+	from2 := time.Date(2026, 3, 13, 14, 0, 0, 0, time.UTC) // next day
+	to2 := time.Date(2026, 4, 16, 14, 0, 0, 0, time.UTC)
+
+	key1 := ohlcvCacheTimeframe(Timeframe1d, from1, to1)
+	key2 := ohlcvCacheTimeframe(Timeframe1d, from2, to2)
+
+	if key1 == key2 {
+		t.Fatalf("cache keys should differ for different days: %s", key1)
+	}
+}
+
+func TestTruncateForTimeframe(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Date(2026, 4, 16, 3, 8, 17, 389898606, time.UTC)
+
+	tests := []struct {
+		tf   Timeframe
+		want time.Time
+	}{
+		{Timeframe1m, time.Date(2026, 4, 16, 3, 8, 0, 0, time.UTC)},
+		{Timeframe5m, time.Date(2026, 4, 16, 3, 5, 0, 0, time.UTC)},
+		{Timeframe15m, time.Date(2026, 4, 16, 3, 0, 0, 0, time.UTC)},
+		{Timeframe1h, time.Date(2026, 4, 16, 3, 0, 0, 0, time.UTC)},
+		{Timeframe1d, time.Date(2026, 4, 16, 0, 0, 0, 0, time.UTC)},
+	}
+
+	for _, tc := range tests {
+		got := truncateForTimeframe(tc.tf, ts)
+		if !got.Equal(tc.want) {
+			t.Errorf("truncateForTimeframe(%s, %s) = %s, want %s", tc.tf, ts, got, tc.want)
+		}
+	}
+}
+
+func TestGetOHLCVCacheHitOnSecondCall(t *testing.T) {
+	t.Parallel()
+
+	ticker := "DAL"
+	from := time.Date(2026, 3, 12, 2, 37, 20, 730525789, time.UTC)
+	to := time.Date(2026, 4, 16, 2, 37, 20, 730525789, time.UTC)
+	want := []domain.OHLCV{
+		{Timestamp: from, Open: 50, High: 55, Low: 48, Close: 52, Volume: 5000},
+	}
+
+	provider := &serviceStubProvider{
+		ohlcv: want,
+	}
+
+	cacheRepo := &fakeMarketDataCacheRepo{}
+	service := &DataService{
+		stockChain: provider,
+		cacheRepo:  cacheRepo,
+		logger:     discardLogger(),
+		now:        func() time.Time { return to },
+	}
+
+	// First call: provider called, result cached.
+	got1, err := service.GetOHLCV(context.Background(), domain.MarketTypeStock, ticker, Timeframe1d, from, to)
+	if err != nil {
+		t.Fatalf("first GetOHLCV() error = %v", err)
+	}
+	if len(got1) != 1 {
+		t.Fatalf("first GetOHLCV() returned %d bars, want 1", len(got1))
+	}
+	if provider.ohlcvCalls != 1 {
+		t.Fatalf("provider called %d times, want 1", provider.ohlcvCalls)
+	}
+	if cacheRepo.setCalls != 1 {
+		t.Fatalf("cache set called %d times, want 1", cacheRepo.setCalls)
+	}
+
+	// Simulate cache returning the stored data on next call.
+	cacheRepo.getResult = cacheRepo.setData
+
+	// Second call with slightly different nanosecond timestamps — should hit cache.
+	from2 := time.Date(2026, 3, 12, 3, 8, 17, 389898606, time.UTC)
+	to2 := time.Date(2026, 4, 16, 3, 8, 17, 389898606, time.UTC)
+
+	got2, err := service.GetOHLCV(context.Background(), domain.MarketTypeStock, ticker, Timeframe1d, from2, to2)
+	if err != nil {
+		t.Fatalf("second GetOHLCV() error = %v", err)
+	}
+	if len(got2) != 1 {
+		t.Fatalf("second GetOHLCV() returned %d bars, want 1", len(got2))
+	}
+	if provider.ohlcvCalls != 1 {
+		t.Fatalf("provider called %d times on second call, want 1 (cache hit)", provider.ohlcvCalls)
+	}
+}

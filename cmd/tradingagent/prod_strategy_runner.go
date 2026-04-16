@@ -304,6 +304,7 @@ func (r *realStrategyRunner) prepareStrategyRun(ctx context.Context, strategy do
 		return nil, agent.PreparedRun{}, nil, nil, err
 	}
 
+	slog.Info("DEBUG: prepareStrategyRun returning successfully")
 	return runner, prepared, strategyConfig, eventsCh, nil
 }
 
@@ -321,6 +322,7 @@ func (r *realStrategyRunner) loadInitialState(ctx context.Context, strategy doma
 	if len(bars) == 0 {
 		return agent.InitialStateSeed{}, fmt.Errorf("load ohlcv for %s: no bars returned", strategy.Ticker)
 	}
+	slog.Info("DEBUG: loadInitialState after OHLCV", slog.Int("bars", len(bars)))
 
 	seed := agent.InitialStateSeed{
 		Market: &agent.MarketData{
@@ -340,6 +342,7 @@ func (r *realStrategyRunner) loadInitialState(ctx context.Context, strategy doma
 		)
 	}
 
+	slog.Info("DEBUG: loadInitialState after fundamentals")
 	newsFrom := to.Add(-strategyNewsLookback)
 	if articles, err := r.dataService.GetNews(ctx, strategy.MarketType, strategy.Ticker, newsFrom, to); err == nil {
 		seed.News = articles
@@ -352,6 +355,7 @@ func (r *realStrategyRunner) loadInitialState(ctx context.Context, strategy doma
 		)
 	}
 
+	slog.Info("DEBUG: loadInitialState after news")
 	socialFrom := to.Add(-strategySocialLookback)
 	if snapshots, err := r.dataService.GetSocialSentiment(ctx, strategy.MarketType, strategy.Ticker, socialFrom, to); err == nil {
 		seed.Social = latestSocialSnapshot(snapshots)
@@ -369,6 +373,7 @@ func (r *realStrategyRunner) loadInitialState(ctx context.Context, strategy doma
 		)
 	}
 
+	slog.Info("DEBUG: loadInitialState after social sentiment")
 	// Polymarket: load prediction market metadata for the market slug.
 	if strategy.MarketType.Normalize() == domain.MarketTypePolymarket && r.polymarketClient != nil {
 		pm, err := r.polymarketClient.GetMarketData(ctx, strategy.Ticker)
@@ -382,6 +387,7 @@ func (r *realStrategyRunner) loadInitialState(ctx context.Context, strategy doma
 		}
 	}
 
+	slog.Info("DEBUG: loadInitialState returning seed")
 	return seed, nil
 }
 

@@ -2,8 +2,10 @@ package ollama
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -121,7 +123,11 @@ func (p *Provider) Complete(ctx context.Context, request llm.CompletionRequest) 
 	}
 
 	startedAt := time.Now()
-	completion, err := p.client.Chat.Completions.New(ctx, params)
+	completion, err := p.client.Chat.Completions.New(ctx, params,
+		// Disable qwen3 thinking mode so the model returns content directly
+		// instead of consuming all tokens on internal chain-of-thought reasoning.
+		option.WithJSONSet("think", false),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("ollama: complete request: %w", err)
 	}
@@ -129,8 +135,10 @@ func (p *Provider) Complete(ctx context.Context, request llm.CompletionRequest) 
 		return nil, errors.New("ollama: completion response did not include any choices")
 	}
 
+	content := extractContent(completion.Choices[0].Message)
+
 	return &llm.CompletionResponse{
-		Content: parse.StripThinkingTags(completion.Choices[0].Message.Content),
+		Content: parse.StripThinkingTags(content),
 		Usage: llm.CompletionUsage{
 			PromptTokens:     int(completion.Usage.PromptTokens),
 			CompletionTokens: int(completion.Usage.CompletionTokens),
@@ -138,6 +146,33 @@ func (p *Provider) Complete(ctx context.Context, request llm.CompletionRequest) 
 		Model:     completion.Model,
 		LatencyMS: int(time.Since(startedAt).Milliseconds()),
 	}, nil
+}
+
+// extractContent returns the usable text from a chat completion message.
+// Ollama's OpenAI-compatible endpoint puts qwen3's chain-of-thought output
+// into a non-standard "reasoning" JSON field and leaves "content" empty.
+// When that happens we fall back to the reasoning field.
+func extractContent(msg openaisdk.ChatCompletionMessage) string {
+	if msg.Content != "" {
+		return msg.Content
+	}
+
+	reasoningField, ok := msg.JSON.ExtraFields["reasoning"]
+	if !ok || !reasoningField.Valid() {
+		return ""
+	}
+
+	raw := reasoningField.Raw()
+	var reasoning string
+	if err := json.Unmarshal([]byte(raw), &reasoning); err != nil {
+		slog.Warn("ollama: failed to unmarshal reasoning field", "raw", raw, "error", err)
+		return ""
+	}
+
+	if reasoning != "" {
+		slog.Info("ollama: using reasoning field as content (thinking mode workaround)")
+	}
+	return reasoning
 }
 
 func toChatCompletionMessages(messages []llm.Message) ([]openaisdk.ChatCompletionMessageParamUnion, error) {
