@@ -15,6 +15,7 @@ import (
 	"github.com/PatrickFanella/get-rich-quick/internal/data/rss"
 	"github.com/PatrickFanella/get-rich-quick/internal/domain"
 	"github.com/PatrickFanella/get-rich-quick/internal/llm"
+	"github.com/PatrickFanella/get-rich-quick/internal/llm/embedding"
 	"github.com/PatrickFanella/get-rich-quick/internal/repository"
 	pgrepo "github.com/PatrickFanella/get-rich-quick/internal/repository/postgres"
 	"github.com/PatrickFanella/get-rich-quick/internal/scheduler"
@@ -50,6 +51,7 @@ type OrchestratorDeps struct {
 	DataService           *data.DataService
 	OptionsProvider       data.OptionsDataProvider
 	LLMProvider           llm.Provider
+	EmbeddingProvider     embedding.Provider // optional; nil = skip embedding during triage
 	EventsProvider        data.EventsProvider
 	StrategyRepo          repository.StrategyRepository
 	RunRepo               repository.PipelineRunRepository

@@ -811,16 +811,16 @@ func TestRunStrategy(t *testing.T) {
 
 	rr := doRequest(t, srv, http.MethodPost, "/api/v1/strategies/"+stratA.ID.String()+"/run", nil)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d\nbody: %s", rr.Code, http.StatusOK, rr.Body.String())
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d\nbody: %s", rr.Code, http.StatusAccepted, rr.Body.String())
 	}
 
-	body := decodeJSON[StrategyRunResult](t, rr)
-	if body.Run.ID != run.ID {
-		t.Fatalf("run id = %s, want %s", body.Run.ID, run.ID)
+	body := decodeJSON[map[string]string](t, rr)
+	if body["status"] != "accepted" {
+		t.Fatalf("status = %q, want %q", body["status"], "accepted")
 	}
-	if body.Signal != domain.PipelineSignalBuy {
-		t.Fatalf("signal = %q, want %q", body.Signal, domain.PipelineSignalBuy)
+	if body["strategy_id"] != stratA.ID.String() {
+		t.Fatalf("strategy_id = %q, want %q", body["strategy_id"], stratA.ID.String())
 	}
 }
 
@@ -853,7 +853,7 @@ func TestRunStrategyNotFound(t *testing.T) {
 	}
 }
 
-func TestRunStrategyRejectsNilResult(t *testing.T) {
+func TestRunStrategyNilResultAccepted(t *testing.T) {
 	t.Parallel()
 
 	deps := testDeps()
@@ -862,12 +862,14 @@ func TestRunStrategyRejectsNilResult(t *testing.T) {
 
 	rr := doRequest(t, srv, http.MethodPost, "/api/v1/strategies/"+stratA.ID.String()+"/run", nil)
 
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusInternalServerError)
+	// Async handler always returns 202 for valid strategy+runner; nil result
+	// is handled in the background goroutine (no broadcast, no HTTP error).
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusAccepted)
 	}
-	body := decodeJSON[ErrorResponse](t, rr)
-	if body.Code != ErrCodeInternal {
-		t.Fatalf("code = %q, want %q", body.Code, ErrCodeInternal)
+	body := decodeJSON[map[string]string](t, rr)
+	if body["status"] != "accepted" {
+		t.Fatalf("status = %q, want %q", body["status"], "accepted")
 	}
 }
 

@@ -14,8 +14,9 @@ import (
 const (
 	sentimentBatchSize    = 10
 	sentimentMaxTokens    = 4096
-	sentimentConcurrency  = 3
+	sentimentConcurrency  = 1  // Serialize batches to reduce ollama contention with other consumers.
 	sentimentMaxRetries   = 1
+	sentimentMaxPosts     = 30 // Cap total posts to keep LLM work within analysis timeout.
 )
 
 // SentimentResult aggregates LLM-derived sentiment for a ticker from Reddit posts.
@@ -54,6 +55,17 @@ func ScorePosts(ctx context.Context, provider llm.Provider, model, ticker string
 	}
 	if logger == nil {
 		logger = slog.Default()
+	}
+
+	// Cap total posts to keep LLM work within the analysis timeout when using
+	// local models. The most recent posts are kept (slice is already ordered by
+	// recency from the RSS feed).
+	if len(posts) > sentimentMaxPosts {
+		logger.Info("reddit/sentiment: capping posts",
+			slog.Int("total", len(posts)),
+			slog.Int("cap", sentimentMaxPosts),
+		)
+		posts = posts[:sentimentMaxPosts]
 	}
 
 	// Build batches up front.

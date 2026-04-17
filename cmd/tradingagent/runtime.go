@@ -37,6 +37,7 @@ import (
 	"github.com/PatrickFanella/get-rich-quick/internal/execution/paper"
 	"github.com/PatrickFanella/get-rich-quick/internal/llm"
 	"github.com/PatrickFanella/get-rich-quick/internal/llm/anthropic"
+	"github.com/PatrickFanella/get-rich-quick/internal/llm/embedding"
 	"github.com/PatrickFanella/get-rich-quick/internal/llm/google"
 	"github.com/PatrickFanella/get-rich-quick/internal/llm/ollama"
 	openaiProvider "github.com/PatrickFanella/get-rich-quick/internal/llm/openai"
@@ -324,12 +325,22 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 			if strings.TrimSpace(cfg.DataProviders.Polygon.APIKey) != "" {
 				polygonClientForAuto = polygon.NewClient(cfg.DataProviders.Polygon.APIKey, logger)
 			}
+			embeddingBaseURL := cfg.Embedding.BaseURL
+			if embeddingBaseURL == "" {
+				embeddingBaseURL = cfg.LLM.Providers.Ollama.BaseURL
+			}
+			embeddingProvider := embedding.NewOllamaProvider(embedding.OllamaConfig{
+				BaseURL: embeddingBaseURL,
+				Model:   cfg.Embedding.Model,
+				Timeout: cfg.Embedding.Timeout,
+			})
 			orch := automation.NewJobOrchestrator(automation.OrchestratorDeps{
 				Universe:              deps.Universe,
 				Polygon:               polygonClientForAuto,
 				DataService:           dataService,
 				OptionsProvider:       deps.OptionsProvider,
 				LLMProvider:           deps.LLMProvider,
+				EmbeddingProvider:     embeddingProvider,
 				EventsProvider:        deps.EventsProvider,
 				StrategyRepo:          strategyRepo,
 				RunRepo:               runRepo,

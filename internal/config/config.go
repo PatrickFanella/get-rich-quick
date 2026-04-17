@@ -17,6 +17,7 @@ type Config struct {
 	Database        DatabaseConfig
 	Redis           RedisConfig
 	LLM             LLMConfig
+	Embedding       EmbeddingConfig
 	DataProviders   DataProviderConfigs
 	Brokers         BrokerConfigs
 	Risk            RiskConfig
@@ -91,6 +92,13 @@ type LLMProviderConfig struct {
 type OllamaConfig struct {
 	BaseURL string
 	Model   string
+}
+
+// EmbeddingConfig contains settings for the embedding provider.
+type EmbeddingConfig struct {
+	Model   string        // Embedding model name (default: nomic-embed-text).
+	BaseURL string        // Ollama server base URL (default: from Ollama config).
+	Timeout time.Duration // Per-request timeout (default: 30s).
 }
 
 // DataProviderConfigs contains external data provider settings.
@@ -442,6 +450,11 @@ func loadFromEnvironment() (Config, error) {
 		return Config{}, err
 	}
 
+	embeddingTimeout, err := getEnvDuration("EMBEDDING_TIMEOUT", 30*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+
 	enableRedisCache, err := getEnvBool("ENABLE_REDIS_CACHE", true)
 	if err != nil {
 		return Config{}, err
@@ -528,6 +541,11 @@ func loadFromEnvironment() (Config, error) {
 			BudgetRequestsPerDay: llmBudgetRequestsDay,
 			BudgetTokensPerDay:   llmBudgetTokensDay,
 			ThrottleConcurrency:  llmThrottleConcurrency,
+		},
+		Embedding: EmbeddingConfig{
+			Model:   getEnvString("EMBEDDING_MODEL", "nomic-embed-text"),
+			BaseURL: getEnvString("EMBEDDING_BASE_URL", ""),
+			Timeout: embeddingTimeout,
 		},
 		DataProviders: DataProviderConfigs{
 			Polygon: DataProviderConfig{
