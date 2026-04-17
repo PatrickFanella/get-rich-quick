@@ -55,6 +55,9 @@ type OrchestratorDeps struct {
 	StrategyTrigger       StrategyTrigger                        // optional; nil = no event-driven triggers
 	PolymarketAccountRepo repository.PolymarketAccountRepository // optional; nil = skip profiling job
 	PolymarketCLOBURL     string                                 // optional; defaults to Polymarket CLOB base URL
+	ReportArtifactRepo    *pgrepo.ReportArtifactRepo              // optional; nil = skip report jobs
+	BacktestConfigRepo    repository.BacktestConfigRepository     // optional; needed by report jobs
+	BacktestRunRepo       repository.BacktestRunRepository        // optional; needed by report jobs
 	Logger                *slog.Logger
 }
 
@@ -163,6 +166,7 @@ func (o *JobOrchestrator) RegisterAll() {
 	o.registerWeeklyJobs()
 	o.registerNewsJobs()
 	o.registerPolymarketProfileJob()
+	o.registerReportJobs()
 }
 
 // Start starts the cron engine with all registered jobs.

@@ -1,1 +1,1 @@
-DROP TABLE IF EXISTS report_artifacts CASCADE;
+DROP TABLE IF EXISTS report_artifacts;

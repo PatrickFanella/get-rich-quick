@@ -56,8 +56,8 @@ func TestGetSettings(t *testing.T) {
 		},
 		Environment:           "test",
 		Version:               "v1.2.3",
-		CurrentSchemaVersion:  28,
-		RequiredSchemaVersion: 28,
+		CurrentSchemaVersion:  29,
+		RequiredSchemaVersion: 29,
 		SchemaStatus:          "match",
 		ConnectedBrokers: []BrokerConnection{
 			{Name: "alpaca", PaperMode: true, Configured: true},
@@ -87,11 +87,11 @@ func TestGetSettings(t *testing.T) {
 	if body.System.Version != "v1.2.3" {
 		t.Fatalf("version = %q, want %q", body.System.Version, "v1.2.3")
 	}
-	if body.System.CurrentSchemaVersion != 28 {
-		t.Fatalf("current_schema_version = %d, want 28", body.System.CurrentSchemaVersion)
+	if body.System.CurrentSchemaVersion != 29 {
+		t.Fatalf("current_schema_version = %d, want 29", body.System.CurrentSchemaVersion)
 	}
-	if body.System.RequiredSchemaVersion != 28 {
-		t.Fatalf("required_schema_version = %d, want 28", body.System.RequiredSchemaVersion)
+	if body.System.RequiredSchemaVersion != 29 {
+		t.Fatalf("required_schema_version = %d, want 29", body.System.RequiredSchemaVersion)
 	}
 	if body.System.SchemaStatus != "ok" {
 		t.Fatalf("schema_status = %q, want %q", body.System.SchemaStatus, "ok")
@@ -139,8 +139,8 @@ func TestUpdateSettings(t *testing.T) {
 			CircuitBreakerThresholdPct: 5,
 			CircuitBreakerCooldownMin:  15,
 		},
-		CurrentSchemaVersion:  28,
-		RequiredSchemaVersion: 28,
+		CurrentSchemaVersion:  29,
+		RequiredSchemaVersion: 29,
 		SchemaStatus:          "ok",
 	})
 
