@@ -132,6 +132,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 	optionsScanRepo := pgrepo.NewOptionsScanRepo(db.Pool)
 	newsFeedRepo := pgrepo.NewNewsFeedRepo(db.Pool)
 	polymarketAccountRepo := pgrepo.NewPolymarketAccountRepo(db.Pool)
+	reportArtifactRepo := pgrepo.NewReportArtifactRepo(db.Pool)
 	runRegistry := agent.NewRunContextRegistry()
 
 	riskEngine := risk.NewRiskEngine(
@@ -185,6 +186,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 		BacktestRuns:     pgrepo.NewBacktestRunRepo(db.Pool),
 		NewsFeedRepo:     newsFeedRepo,
 		DiscoveryRunRepo: pgrepo.NewDiscoveryRunRepo(db.Pool),
+		ReportArtifacts:  reportArtifactRepo,
 	}
 	notificationManager := newNotificationManager(cfg)
 
@@ -335,6 +337,9 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 				NewsFeedRepo:          newsFeedRepo,
 				PolymarketAccountRepo: polymarketAccountRepo,
 				PolymarketCLOBURL:     cfg.Brokers.Polymarket.CLOBURL,
+				ReportArtifactRepo:    reportArtifactRepo,
+				BacktestConfigRepo:    pgrepo.NewBacktestConfigRepo(db.Pool),
+				BacktestRunRepo:       pgrepo.NewBacktestRunRepo(db.Pool),
 				StrategyTrigger:       sched,
 				Logger:                logger,
 			})
