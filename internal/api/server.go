@@ -90,7 +90,7 @@ type Server struct {
 	watchIndex  *signal.WatchIndex
 
 	// Report artifacts (optional; nil = feature not enabled).
-	reportArtifacts *pgrepo.ReportArtifactRepo
+	reportArtifacts ReportArtifactStore
 
 	// Report metrics (optional; nil = no metrics).
 	reportMetrics ReportMetrics
@@ -197,7 +197,7 @@ type Deps struct {
 	WatchIndex  *signal.WatchIndex
 
 	// Report artifacts (optional; nil = feature not enabled).
-	ReportArtifacts *pgrepo.ReportArtifactRepo
+	ReportArtifacts ReportArtifactStore
 
 	// Report metrics (optional; nil = no metrics).
 	ReportMetrics ReportMetrics

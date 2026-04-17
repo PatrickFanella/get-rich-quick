@@ -108,11 +108,10 @@ type AutomationJobMetrics interface {
 	RecordAutomationJobError(jobName string)
 }
 
-// ReportWorkerMetrics captures report worker success/error/staleness.
+// ReportWorkerMetrics captures report worker success/error emission.
 type ReportWorkerMetrics interface {
 	RecordReportWorkerSuccess(strategyID string)
 	RecordReportWorkerError(strategyID string)
-	ObserveReportStaleness(strategyID string, seconds float64)
 }
 
 // JobOrchestrator is the central registry and cron runner for all automated jobs.

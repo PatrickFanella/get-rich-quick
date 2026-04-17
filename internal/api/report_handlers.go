@@ -1,9 +1,12 @@
 package api
 
 import (
+	"context"
 	"math"
 	"net/http"
 	"time"
+
+	"github.com/google/uuid"
 
 	pgrepo "github.com/PatrickFanella/get-rich-quick/internal/repository/postgres"
 )
@@ -11,6 +14,12 @@ import (
 // ReportMetrics captures report staleness observations.
 type ReportMetrics interface {
 	ObserveReportStaleness(strategyID string, seconds float64)
+}
+
+// ReportArtifactStore captures report artifact reads used by report handlers.
+type ReportArtifactStore interface {
+	GetLatest(ctx context.Context, strategyID uuid.UUID, reportType string) (*pgrepo.ReportArtifact, error)
+	List(ctx context.Context, filter pgrepo.ReportArtifactFilter, limit, offset int) ([]pgrepo.ReportArtifact, error)
 }
 
 // reportLatestResponse wraps the latest report artifact with a stale_seconds

@@ -230,3 +230,34 @@ func TestErrBudgetExhausted_IsNotRetryable(t *testing.T) {
 		t.Errorf("calls = %d, want 1 (should not retry budget errors)", calls)
 	}
 }
+
+type stubBudgetMetrics struct{ calls atomic.Int32 }
+
+func (s *stubBudgetMetrics) RecordLLMBudgetExhausted() { s.calls.Add(1) }
+
+func TestBudgetGuardProvider_RecordsBudgetExhaustedMetric(t *testing.T) {
+	t.Parallel()
+
+	inner := &trackingProvider{
+		response: &llm.CompletionResponse{Content: "ok"},
+	}
+	budget := llm.NewBudget(1, 0)
+	metrics := &stubBudgetMetrics{}
+	guard := llm.NewBudgetGuardProvider(inner, budget).WithBudgetMetrics(metrics)
+
+	_, err := guard.Complete(context.Background(), llm.CompletionRequest{})
+	if err != nil {
+		t.Fatalf("call 1: %v", err)
+	}
+	if metrics.calls.Load() != 0 {
+		t.Fatalf("metrics calls after successful request = %d, want 0", metrics.calls.Load())
+	}
+
+	_, err = guard.Complete(context.Background(), llm.CompletionRequest{})
+	if !errors.Is(err, llm.ErrBudgetExhausted) {
+		t.Fatalf("call 2 error = %v, want ErrBudgetExhausted", err)
+	}
+	if metrics.calls.Load() != 1 {
+		t.Fatalf("metrics calls after budget rejection = %d, want 1", metrics.calls.Load())
+	}
+}

@@ -543,7 +543,10 @@ func chainOpts(cfg config.LLMConfig, appMetrics *metrics.Metrics, logger *slog.L
 	if cfg.RetryMaxAttempts > 1 {
 		opts = append(opts, llm.WithRetry(cfg.RetryMaxAttempts))
 		if appMetrics != nil {
-			opts = append(opts, llm.WithChainRetryMetrics(&retryMetricsAdapter{m: appMetrics, provider: strings.TrimSpace(cfg.DefaultProvider)}))
+			opts = append(opts, llm.WithChainRetryMetrics(&retryMetricsAdapter{
+				m:        appMetrics,
+				provider: configuredPrimaryRetryProviderLabel(cfg.DefaultProvider),
+			}))
 		}
 	}
 
@@ -596,6 +599,14 @@ type retryMetricsAdapter struct {
 }
 
 func (a *retryMetricsAdapter) RecordLLMRetry() { a.m.RecordLLMRetry(a.provider) }
+
+func configuredPrimaryRetryProviderLabel(provider string) string {
+	name := strings.TrimSpace(provider)
+	if name == "" {
+		name = "unknown"
+	}
+	return fmt.Sprintf("configured_primary:%s", name)
+}
 
 func buildLLMBudget(cfg config.LLMConfig) *llm.Budget {
 	// Validate() enforces non-negative values, but unit tests call runtime helpers

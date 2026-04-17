@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -13,6 +14,31 @@ import (
 
 // These tests exercise the "not configured" handler path by using the
 // default test server setup, where Server.reportArtifacts is left nil.
+
+type stubReportArtifactStore struct {
+	latest *pgrepo.ReportArtifact
+	err    error
+}
+
+func (s *stubReportArtifactStore) GetLatest(context.Context, uuid.UUID, string) (*pgrepo.ReportArtifact, error) {
+	return s.latest, s.err
+}
+
+func (s *stubReportArtifactStore) List(context.Context, pgrepo.ReportArtifactFilter, int, int) ([]pgrepo.ReportArtifact, error) {
+	return nil, nil
+}
+
+type stubReportMetrics struct {
+	calls      int
+	strategyID string
+	seconds    float64
+}
+
+func (s *stubReportMetrics) ObserveReportStaleness(strategyID string, seconds float64) {
+	s.calls++
+	s.strategyID = strategyID
+	s.seconds = seconds
+}
 
 func TestHandleGetLatestReport_NotConfigured(t *testing.T) {
 	t.Parallel()
@@ -78,5 +104,42 @@ func TestReportLatestResponse_StaleSeconds(t *testing.T) {
 	}
 	if stale != 300 {
 		t.Fatalf("stale_seconds = %f, want 300", stale)
+	}
+}
+
+func TestHandleGetLatestReport_RecordsStalenessMetricWithResponseValue(t *testing.T) {
+	t.Parallel()
+
+	completed := time.Now().Add(-5 * time.Minute)
+	metricsSink := &stubReportMetrics{}
+	deps := testDeps()
+	deps.ReportArtifacts = &stubReportArtifactStore{
+		latest: &pgrepo.ReportArtifact{
+			ID:          uuid.New(),
+			StrategyID:  stratA.ID,
+			ReportType:  "paper_validation",
+			TimeBucket:  time.Now().Truncate(24 * time.Hour),
+			Status:      "completed",
+			ReportJSON:  json.RawMessage(`{"decision":"GO"}`),
+			CompletedAt: &completed,
+		},
+	}
+	deps.ReportMetrics = metricsSink
+	srv := newTestServerWithDeps(t, deps)
+
+	rr := doRequest(t, srv, http.MethodGet, "/api/v1/strategies/"+stratA.ID.String()+"/reports/latest", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	resp := decodeJSON[reportLatestResponse](t, rr)
+
+	if metricsSink.calls != 1 {
+		t.Fatalf("metrics calls = %d, want 1", metricsSink.calls)
+	}
+	if metricsSink.strategyID != stratA.ID.String() {
+		t.Fatalf("metrics strategyID = %q, want %q", metricsSink.strategyID, stratA.ID.String())
+	}
+	if metricsSink.seconds != resp.StaleSeconds {
+		t.Fatalf("metrics stale seconds = %f, want response stale_seconds %f", metricsSink.seconds, resp.StaleSeconds)
 	}
 }
