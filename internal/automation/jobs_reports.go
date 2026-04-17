@@ -89,12 +89,18 @@ func (o *JobOrchestrator) paperValidationReport(ctx context.Context) error {
 
 		if err := o.generateOneReport(ctx, ps.ID, ps.Name, timeBucket, now); err != nil {
 			failed++
+			if o.reportMetrics != nil {
+				o.reportMetrics.RecordReportWorkerError(ps.ID.String())
+			}
 			o.logger.Warn("paper_validation_report: strategy failed",
 				slog.String("strategy", ps.Name),
 				slog.Any("error", err),
 			)
 		} else {
 			succeeded++
+			if o.reportMetrics != nil {
+				o.reportMetrics.RecordReportWorkerSuccess(ps.ID.String())
+			}
 		}
 	}
 

@@ -23,6 +23,8 @@ type chainConfig struct {
 type chainMetrics struct {
 	fallback FallbackMetrics
 	cache    CacheMetrics
+	retry    RetryMetrics
+	budget   BudgetMetrics
 }
 
 // WithFallback adds a secondary provider tried when primary fails.
@@ -85,6 +87,16 @@ func WithChainCacheMetrics(m CacheMetrics) ChainOption {
 	return func(c *chainConfig) { c.metrics.cache = m }
 }
 
+// WithChainRetryMetrics attaches metrics to the retry layer.
+func WithChainRetryMetrics(m RetryMetrics) ChainOption {
+	return func(c *chainConfig) { c.metrics.retry = m }
+}
+
+// WithChainBudgetMetrics attaches metrics to the budget guard layer.
+func WithChainBudgetMetrics(m BudgetMetrics) ChainOption {
+	return func(c *chainConfig) { c.metrics.budget = m }
+}
+
 // NewProviderChain composes a resilient provider from existing primitives.
 //
 // Chain order (outermost → innermost):
@@ -107,7 +119,7 @@ func NewProviderChain(primary Provider, logger *slog.Logger, opts ...ChainOption
 	}
 
 	// Build inside-out: start with primary, wrap outward.
-	var p Provider = primary
+	p := primary
 
 	// Layer 1 (innermost): cache
 	if cfg.cache != nil {
@@ -141,7 +153,11 @@ func NewProviderChain(primary Provider, logger *slog.Logger, opts ...ChainOption
 		if cfg.baseDelay > 0 {
 			retryOpts = append(retryOpts, WithBaseDelay(cfg.baseDelay))
 		}
-		p = NewRetryProvider(p, logger, retryOpts...)
+		rp := NewRetryProvider(p, logger, retryOpts...)
+		if cfg.metrics.retry != nil {
+			rp = rp.WithRetryMetrics(cfg.metrics.retry)
+		}
+		p = rp
 	}
 
 	// Layer 4: throttle
@@ -156,7 +172,11 @@ func NewProviderChain(primary Provider, logger *slog.Logger, opts ...ChainOption
 
 	// Layer 6 (outermost): budget guard
 	if cfg.budget != nil {
-		p = NewBudgetGuardProvider(p, cfg.budget)
+		bg := NewBudgetGuardProvider(p, cfg.budget)
+		if cfg.metrics.budget != nil {
+			bg = bg.WithBudgetMetrics(cfg.metrics.budget)
+		}
+		p = bg
 	}
 
 	return p

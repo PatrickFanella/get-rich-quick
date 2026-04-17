@@ -27,6 +27,11 @@ type Metrics struct {
 	PositionsOpen            prometheus.Gauge
 	CircuitBreakerState      prometheus.Gauge
 	KillSwitchActive         prometheus.Gauge
+	LLMRetryTotal            *prometheus.CounterVec
+	LLMBudgetExhaustedTotal  prometheus.Counter
+	ReportWorkerSuccessTotal *prometheus.CounterVec
+	ReportWorkerErrorTotal   *prometheus.CounterVec
+	ReportStaleness          *prometheus.HistogramVec
 }
 
 // New creates a new isolated Prometheus registry, registers all trading-agent
@@ -126,6 +131,32 @@ func New() *Metrics {
 			Name: "tradingagent_kill_switch_active",
 			Help: "Kill switch state: 1 = active, 0 = inactive.",
 		}),
+
+		LLMRetryTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "tradingagent_llm_retry_total",
+			Help: "Total LLM retry attempts by provider.",
+		}, []string{"provider"}),
+
+		LLMBudgetExhaustedTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "tradingagent_llm_budget_exhausted_total",
+			Help: "Total times an LLM call was rejected due to budget exhaustion.",
+		}),
+
+		ReportWorkerSuccessTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "tradingagent_report_worker_success_total",
+			Help: "Total successful report generations by strategy ID.",
+		}, []string{"strategy_id"}),
+
+		ReportWorkerErrorTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "tradingagent_report_worker_error_total",
+			Help: "Total failed report generations by strategy ID.",
+		}, []string{"strategy_id"}),
+
+		ReportStaleness: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "tradingagent_report_staleness_seconds",
+			Help:    "Report staleness in seconds at query time.",
+			Buckets: []float64{60, 300, 900, 1800, 3600, 7200, 14400, 43200, 86400},
+		}, []string{"strategy_id"}),
 	}
 
 	reg.MustRegister(
@@ -146,6 +177,11 @@ func New() *Metrics {
 		m.PositionsOpen,
 		m.CircuitBreakerState,
 		m.KillSwitchActive,
+		m.LLMRetryTotal,
+		m.LLMBudgetExhaustedTotal,
+		m.ReportWorkerSuccessTotal,
+		m.ReportWorkerErrorTotal,
+		m.ReportStaleness,
 	)
 
 	return m
@@ -232,6 +268,46 @@ func (m *Metrics) SetKillSwitchActive(active bool) {
 	} else {
 		m.KillSwitchActive.Set(0)
 	}
+}
+
+// RecordLLMRetry increments the retry counter for a given provider.
+func (m *Metrics) RecordLLMRetry(provider string) {
+	if m == nil {
+		return
+	}
+	m.LLMRetryTotal.WithLabelValues(provider).Inc()
+}
+
+// RecordLLMBudgetExhausted increments the budget exhaustion counter.
+func (m *Metrics) RecordLLMBudgetExhausted() {
+	if m == nil {
+		return
+	}
+	m.LLMBudgetExhaustedTotal.Inc()
+}
+
+// RecordReportWorkerSuccess increments the report success counter for a strategy.
+func (m *Metrics) RecordReportWorkerSuccess(strategyID string) {
+	if m == nil {
+		return
+	}
+	m.ReportWorkerSuccessTotal.WithLabelValues(strategyID).Inc()
+}
+
+// RecordReportWorkerError increments the report error counter for a strategy.
+func (m *Metrics) RecordReportWorkerError(strategyID string) {
+	if m == nil {
+		return
+	}
+	m.ReportWorkerErrorTotal.WithLabelValues(strategyID).Inc()
+}
+
+// ObserveReportStaleness records how stale a report is at query time.
+func (m *Metrics) ObserveReportStaleness(strategyID string, seconds float64) {
+	if m == nil {
+		return
+	}
+	m.ReportStaleness.WithLabelValues(strategyID).Observe(seconds)
 }
 
 // Handler returns an http.Handler that serves Prometheus metrics from the
