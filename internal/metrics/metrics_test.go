@@ -64,6 +64,21 @@ func TestNew(t *testing.T) {
 	if m.KillSwitchActive == nil {
 		t.Fatal("KillSwitchActive is nil")
 	}
+	if m.LLMRetryTotal == nil {
+		t.Fatal("LLMRetryTotal is nil")
+	}
+	if m.LLMBudgetExhaustedTotal == nil {
+		t.Fatal("LLMBudgetExhaustedTotal is nil")
+	}
+	if m.ReportWorkerSuccessTotal == nil {
+		t.Fatal("ReportWorkerSuccessTotal is nil")
+	}
+	if m.ReportWorkerErrorTotal == nil {
+		t.Fatal("ReportWorkerErrorTotal is nil")
+	}
+	if m.ReportStaleness == nil {
+		t.Fatal("ReportStaleness is nil")
+	}
 }
 
 func TestConvenienceMethods(t *testing.T) {
@@ -86,6 +101,11 @@ func TestConvenienceMethods(t *testing.T) {
 	m.SetPositionsOpen(3)
 	m.SetCircuitBreakerState(true)
 	m.SetKillSwitchActive(false)
+	m.RecordLLMRetry("configured_primary:openai")
+	m.RecordLLMBudgetExhausted()
+	m.RecordReportWorkerSuccess("strategy-a")
+	m.RecordReportWorkerError("strategy-a")
+	m.ObserveReportStaleness("strategy-a", 120)
 }
 
 func TestHandler(t *testing.T) {
@@ -106,6 +126,11 @@ func TestHandler(t *testing.T) {
 	m.RecordSchedulerTick("strategy")
 	m.RecordAutomationJobError("sync_positions")
 	m.RecordStaleRunReconciled()
+	m.RecordLLMRetry("configured_primary:openai")
+	m.RecordLLMBudgetExhausted()
+	m.RecordReportWorkerSuccess("strategy-a")
+	m.RecordReportWorkerError("strategy-a")
+	m.ObserveReportStaleness("strategy-a", 120)
 
 	h := m.Handler()
 	if h == nil {
@@ -138,6 +163,11 @@ func TestHandler(t *testing.T) {
 		"tradingagent_positions_open",
 		"tradingagent_circuit_breaker_state",
 		"tradingagent_kill_switch_active",
+		"tradingagent_llm_retry_total",
+		"tradingagent_llm_budget_exhausted_total",
+		"tradingagent_report_worker_success_total",
+		"tradingagent_report_worker_error_total",
+		"tradingagent_report_staleness_seconds",
 	}
 	for _, name := range expected {
 		if !strings.Contains(body, name) {
@@ -209,6 +239,59 @@ tradingagent_automation_job_errors_total{job_name="reconcile_orders"} 1
 tradingagent_automation_job_errors_total{job_name="sync_positions"} 2
 `,
 		},
+		{
+			name:      "llm retry",
+			collector: func(m *metrics.Metrics) prometheus.Collector { return m.LLMRetryTotal },
+			add: func(m *metrics.Metrics) {
+				m.RecordLLMRetry("configured_primary:openai")
+				m.RecordLLMRetry("configured_primary:openai")
+				m.RecordLLMRetry("configured_primary:anthropic")
+			},
+			want: `# HELP tradingagent_llm_retry_total Total LLM retry attempts by provider.
+# TYPE tradingagent_llm_retry_total counter
+tradingagent_llm_retry_total{provider="configured_primary:anthropic"} 1
+tradingagent_llm_retry_total{provider="configured_primary:openai"} 2
+`,
+		},
+		{
+			name:      "llm budget exhausted",
+			collector: func(m *metrics.Metrics) prometheus.Collector { return m.LLMBudgetExhaustedTotal },
+			add: func(m *metrics.Metrics) {
+				m.RecordLLMBudgetExhausted()
+				m.RecordLLMBudgetExhausted()
+			},
+			want: `# HELP tradingagent_llm_budget_exhausted_total Total times an LLM call was rejected due to budget exhaustion.
+# TYPE tradingagent_llm_budget_exhausted_total counter
+tradingagent_llm_budget_exhausted_total 2
+`,
+		},
+		{
+			name:      "report worker success",
+			collector: func(m *metrics.Metrics) prometheus.Collector { return m.ReportWorkerSuccessTotal },
+			add: func(m *metrics.Metrics) {
+				m.RecordReportWorkerSuccess("strategy-a")
+				m.RecordReportWorkerSuccess("strategy-a")
+				m.RecordReportWorkerSuccess("strategy-b")
+			},
+			want: `# HELP tradingagent_report_worker_success_total Total successful report generations by strategy ID.
+# TYPE tradingagent_report_worker_success_total counter
+tradingagent_report_worker_success_total{strategy_id="strategy-a"} 2
+tradingagent_report_worker_success_total{strategy_id="strategy-b"} 1
+`,
+		},
+		{
+			name:      "report worker error",
+			collector: func(m *metrics.Metrics) prometheus.Collector { return m.ReportWorkerErrorTotal },
+			add: func(m *metrics.Metrics) {
+				m.RecordReportWorkerError("strategy-a")
+				m.RecordReportWorkerError("strategy-b")
+			},
+			want: `# HELP tradingagent_report_worker_error_total Total failed report generations by strategy ID.
+# TYPE tradingagent_report_worker_error_total counter
+tradingagent_report_worker_error_total{strategy_id="strategy-a"} 1
+tradingagent_report_worker_error_total{strategy_id="strategy-b"} 1
+`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -220,5 +303,15 @@ tradingagent_automation_job_errors_total{job_name="sync_positions"} 2
 				t.Fatalf("collect compare failed: %v", err)
 			}
 		})
+	}
+}
+
+func TestObserveReportStaleness_EmitsSeries(t *testing.T) {
+	t.Parallel()
+
+	m := metrics.New()
+	m.ObserveReportStaleness("strategy-a", 120)
+	if got := testutil.CollectAndCount(m.ReportStaleness); got != 1 {
+		t.Fatalf("CollectAndCount(report staleness) = %d, want 1", got)
 	}
 }

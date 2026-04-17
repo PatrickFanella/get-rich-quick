@@ -119,11 +119,17 @@ func nextUTCMidnight() time.Time {
 	return time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
 }
 
+// BudgetMetrics captures budget exhaustion events for observability.
+type BudgetMetrics interface {
+	RecordLLMBudgetExhausted()
+}
+
 // BudgetGuardProvider wraps a Provider, rejecting calls when budget is exhausted.
 // On success it records token usage back to the budget.
 type BudgetGuardProvider struct {
-	inner  Provider
-	budget *Budget
+	inner   Provider
+	budget  *Budget
+	metrics BudgetMetrics
 }
 
 // NewBudgetGuardProvider wraps inner with budget enforcement.
@@ -131,9 +137,18 @@ func NewBudgetGuardProvider(inner Provider, budget *Budget) *BudgetGuardProvider
 	return &BudgetGuardProvider{inner: inner, budget: budget}
 }
 
+// WithBudgetMetrics attaches optional budget metrics.
+func (b *BudgetGuardProvider) WithBudgetMetrics(m BudgetMetrics) *BudgetGuardProvider {
+	b.metrics = m
+	return b
+}
+
 // Complete checks budget before delegating. Records usage after success.
 func (b *BudgetGuardProvider) Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
 	if !b.budget.reserveRequest() {
+		if b.metrics != nil {
+			b.metrics.RecordLLMBudgetExhausted()
+		}
 		return nil, ErrBudgetExhausted
 	}
 

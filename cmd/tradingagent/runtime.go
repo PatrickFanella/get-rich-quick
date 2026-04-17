@@ -187,6 +187,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 		NewsFeedRepo:     newsFeedRepo,
 		DiscoveryRunRepo: pgrepo.NewDiscoveryRunRepo(db.Pool),
 		ReportArtifacts:  reportArtifactRepo,
+		ReportMetrics:    appMetrics,
 	}
 	notificationManager := newNotificationManager(cfg)
 
@@ -344,6 +345,7 @@ func newAPIServer(ctx context.Context, cfg config.Config, logger *slog.Logger) (
 				Logger:                logger,
 			})
 			orch.WithJobMetrics(appMetrics)
+			orch.WithReportMetrics(appMetrics)
 			orch.RegisterAll()
 			if err := orch.Start(); err != nil {
 				logger.Warn("automation: failed to start job orchestrator", slog.Any("error", err))
@@ -540,6 +542,12 @@ func chainOpts(cfg config.LLMConfig, appMetrics *metrics.Metrics, logger *slog.L
 	// Retry with exponential backoff.
 	if cfg.RetryMaxAttempts > 1 {
 		opts = append(opts, llm.WithRetry(cfg.RetryMaxAttempts))
+		if appMetrics != nil {
+			opts = append(opts, llm.WithChainRetryMetrics(&retryMetricsAdapter{
+				m:        appMetrics,
+				provider: configuredPrimaryRetryProviderLabel(cfg.DefaultProvider),
+			}))
+		}
 	}
 
 	// Fallback provider.
@@ -570,6 +578,9 @@ func chainOpts(cfg config.LLMConfig, appMetrics *metrics.Metrics, logger *slog.L
 	// Budget guard.
 	if budget != nil {
 		opts = append(opts, llm.WithBudget(budget))
+		if appMetrics != nil {
+			opts = append(opts, llm.WithChainBudgetMetrics(appMetrics))
+		}
 	}
 
 	// Per-call timeout.
@@ -578,6 +589,23 @@ func chainOpts(cfg config.LLMConfig, appMetrics *metrics.Metrics, logger *slog.L
 	}
 
 	return opts
+}
+
+// retryMetricsAdapter adapts *metrics.Metrics to the llm.RetryMetrics interface
+// by binding a provider label at construction time.
+type retryMetricsAdapter struct {
+	m        *metrics.Metrics
+	provider string
+}
+
+func (a *retryMetricsAdapter) RecordLLMRetry() { a.m.RecordLLMRetry(a.provider) }
+
+func configuredPrimaryRetryProviderLabel(provider string) string {
+	name := strings.TrimSpace(provider)
+	if name == "" {
+		name = "unknown"
+	}
+	return fmt.Sprintf("configured_primary:%s", name)
 }
 
 func buildLLMBudget(cfg config.LLMConfig) *llm.Budget {

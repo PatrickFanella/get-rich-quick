@@ -91,6 +91,59 @@ func TestJobOrchestratorStatus_IncludesStuckForWhenRunning(t *testing.T) {
 	waitForJobRuns(t, orch, "job", 1)
 }
 
+func TestJobOrchestratorRunJob_AutoDisablesAfterThreshold(t *testing.T) {
+	t.Parallel()
+
+	orch := NewJobOrchestrator(OrchestratorDeps{})
+	orch.Register("job", "always fails", schedulerSpecEveryMinute(), func(context.Context) error {
+		return errors.New("boom")
+	})
+	orch.SetConsecutiveFailures("job", autoDisableThreshold-1)
+
+	if err := orch.RunJob(context.Background(), "job"); err != nil {
+		t.Fatalf("RunJob() error = %v", err)
+	}
+	waitForJobRuns(t, orch, "job", 1)
+
+	status := singleJobStatus(t, orch, "job")
+	if status.ConsecutiveFailures != autoDisableThreshold {
+		t.Fatalf("ConsecutiveFailures = %d, want %d", status.ConsecutiveFailures, autoDisableThreshold)
+	}
+	if status.Enabled {
+		t.Fatal("Enabled = true, want false after reaching auto-disable threshold")
+	}
+}
+
+func TestJobOrchestratorWrapAndRun_AutoDisabledJobsAreSkipped(t *testing.T) {
+	t.Parallel()
+
+	orch := NewJobOrchestrator(OrchestratorDeps{})
+	orch.Register("job", "always fails", schedulerSpecEveryMinute(), func(context.Context) error {
+		return errors.New("boom")
+	})
+	orch.SetConsecutiveFailures("job", autoDisableThreshold-1)
+
+	job := orch.jobs["job"]
+	orch.wrapAndRun(job)
+
+	status := singleJobStatus(t, orch, "job")
+	if status.ConsecutiveFailures != autoDisableThreshold {
+		t.Fatalf("ConsecutiveFailures = %d, want %d", status.ConsecutiveFailures, autoDisableThreshold)
+	}
+	if status.Enabled {
+		t.Fatal("Enabled = true, want false after reaching auto-disable threshold")
+	}
+	if status.RunCount != 1 {
+		t.Fatalf("RunCount after first run = %d, want 1", status.RunCount)
+	}
+
+	orch.wrapAndRun(job)
+	status = singleJobStatus(t, orch, "job")
+	if status.RunCount != 1 {
+		t.Fatalf("RunCount after disabled scheduled invocation = %d, want 1", status.RunCount)
+	}
+}
+
 func waitForJobRuns(t *testing.T, orch *JobOrchestrator, jobName string, want int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)

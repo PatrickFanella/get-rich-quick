@@ -20,6 +20,11 @@ type statusCoder interface {
 	StatusCode() int
 }
 
+// RetryMetrics captures retry events for observability.
+type RetryMetrics interface {
+	RecordLLMRetry()
+}
+
 // RetryProvider wraps a Provider with exponential-backoff retry logic.
 // It retries on transient errors (rate limits, server errors, timeouts) and
 // does not retry on client errors (bad request, auth failures).
@@ -30,6 +35,7 @@ type RetryProvider struct {
 	jitterPct   float64
 	logger      *slog.Logger
 	timerFn     func(time.Duration) (<-chan time.Time, func() bool) // overridable for testing
+	metrics     RetryMetrics
 }
 
 // RetryOption configures a RetryProvider.
@@ -83,6 +89,12 @@ func NewRetryProvider(provider Provider, logger *slog.Logger, opts ...RetryOptio
 	return r
 }
 
+// WithRetryMetrics attaches optional retry metrics.
+func (r *RetryProvider) WithRetryMetrics(m RetryMetrics) *RetryProvider {
+	r.metrics = m
+	return r
+}
+
 // SetTimerFn overrides the function used to create backoff timers between retries.
 // This is intended for testing only. The function should return a channel that
 // fires after the duration and a stop function to release resources.
@@ -110,6 +122,10 @@ func (r *RetryProvider) Complete(ctx context.Context, request CompletionRequest)
 
 		if attempt > 0 {
 			delay := r.backoffDelay(attempt - 1)
+
+			if r.metrics != nil {
+				r.metrics.RecordLLMRetry()
+			}
 
 			r.logger.Warn("llm: retrying after transient error",
 				slog.Int("attempt", attempt+1),

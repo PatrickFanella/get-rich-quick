@@ -37,6 +37,10 @@ type stubCacheMetrics struct {
 func (s *stubCacheMetrics) RecordLLMCacheHit()  { s.hits.Add(1) }
 func (s *stubCacheMetrics) RecordLLMCacheMiss() { s.misses.Add(1) }
 
+type stubChainBudgetMetrics struct{ calls atomic.Int32 }
+
+func (s *stubChainBudgetMetrics) RecordLLMBudgetExhausted() { s.calls.Add(1) }
+
 // --- NewProviderChain tests ---
 
 func TestProviderChain_PrimaryOnly(t *testing.T) {
@@ -220,6 +224,33 @@ func TestProviderChain_WithRetry(t *testing.T) {
 	}
 }
 
+func TestProviderChain_WithRetryMetrics(t *testing.T) {
+	t.Parallel()
+
+	mock := newMockProvider(
+		[]*llm.CompletionResponse{nil, &llm.CompletionResponse{Content: "ok"}},
+		[]error{&httpError{code: 500, msg: "transient"}, nil},
+	)
+	retryStub := &stubRetryMetrics{}
+
+	chain := llm.NewProviderChain(mock, discardLogger(),
+		llm.WithRetry(2),
+		llm.WithRetryBaseDelay(1*time.Millisecond),
+		llm.WithChainRetryMetrics(retryStub),
+	)
+
+	got, err := chain.Complete(context.Background(), llm.CompletionRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Content != "ok" {
+		t.Fatalf("content = %q, want %q", got.Content, "ok")
+	}
+	if retryStub.calls.Load() != 1 {
+		t.Fatalf("retry metrics calls = %d, want 1", retryStub.calls.Load())
+	}
+}
+
 func TestProviderChain_WithBudgetExhausted(t *testing.T) {
 	t.Parallel()
 
@@ -268,6 +299,35 @@ func TestProviderChain_BudgetExhaustedNotRetried(t *testing.T) {
 	// Provider should only have been called once (the first success)
 	if p.calls.Load() != 1 {
 		t.Errorf("provider calls = %d, want 1", p.calls.Load())
+	}
+}
+
+func TestProviderChain_WithBudgetMetrics(t *testing.T) {
+	t.Parallel()
+
+	p := &trackingProvider{response: &llm.CompletionResponse{Content: "ok"}}
+	budget := llm.NewBudget(1, 0)
+	budgetMetrics := &stubChainBudgetMetrics{}
+
+	chain := llm.NewProviderChain(p, discardLogger(),
+		llm.WithBudget(budget),
+		llm.WithChainBudgetMetrics(budgetMetrics),
+	)
+
+	_, err := chain.Complete(context.Background(), llm.CompletionRequest{})
+	if err != nil {
+		t.Fatalf("call 1: %v", err)
+	}
+	if budgetMetrics.calls.Load() != 0 {
+		t.Fatalf("budget metrics calls after success = %d, want 0", budgetMetrics.calls.Load())
+	}
+
+	_, err = chain.Complete(context.Background(), llm.CompletionRequest{})
+	if !errors.Is(err, llm.ErrBudgetExhausted) {
+		t.Fatalf("call 2 error = %v, want ErrBudgetExhausted", err)
+	}
+	if budgetMetrics.calls.Load() != 1 {
+		t.Fatalf("budget metrics calls after rejection = %d, want 1", budgetMetrics.calls.Load())
 	}
 }
 

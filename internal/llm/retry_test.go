@@ -63,6 +63,10 @@ type discard struct{}
 
 func (discard) Write(p []byte) (int, error) { return len(p), nil }
 
+type stubRetryMetrics struct{ calls atomic.Int32 }
+
+func (s *stubRetryMetrics) RecordLLMRetry() { s.calls.Add(1) }
+
 // --- RetryProvider Tests ---
 
 func TestRetryProviderSucceedsOnFirstAttempt(t *testing.T) {
@@ -110,6 +114,38 @@ func TestRetryProviderRetriesOnTransientError(t *testing.T) {
 	}
 	if mock.calls.Load() != 2 {
 		t.Errorf("Complete() calls = %d, want 2", mock.calls.Load())
+	}
+}
+
+func TestRetryProvider_RecordsRetryMetricsPerBackoffAttempt(t *testing.T) {
+	t.Parallel()
+
+	metrics := &stubRetryMetrics{}
+	want := &llm.CompletionResponse{Content: "ok"}
+	mock := newMockProvider(
+		[]*llm.CompletionResponse{nil, nil, want},
+		[]error{
+			&httpError{code: 500, msg: "server error 1"},
+			&httpError{code: 500, msg: "server error 2"},
+			nil,
+		},
+	)
+
+	rp := llm.NewRetryProvider(mock, discardLogger(), llm.WithMaxAttempts(3)).WithRetryMetrics(metrics)
+	rp.SetTimerFn(immediateTimerFn())
+
+	got, err := rp.Complete(context.Background(), llm.CompletionRequest{})
+	if err != nil {
+		t.Fatalf("Complete() error = %v, want nil", err)
+	}
+	if got == nil {
+		t.Fatal("Complete() response = nil, want non-nil")
+	}
+	if mock.calls.Load() != 3 {
+		t.Fatalf("Complete() calls = %d, want 3", mock.calls.Load())
+	}
+	if metrics.calls.Load() != 2 {
+		t.Fatalf("RecordLLMRetry calls = %d, want 2", metrics.calls.Load())
 	}
 }
 

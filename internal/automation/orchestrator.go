@@ -33,6 +33,10 @@ func mustLoadEastern() *time.Location {
 	return loc
 }
 
+// autoDisableThreshold is the number of consecutive failures after which a
+// job is automatically disabled to prevent cascading damage.
+const autoDisableThreshold = 5
+
 // StrategyTrigger triggers an immediate pipeline run for a strategy.
 // The scheduler satisfies this interface.
 type StrategyTrigger interface {
@@ -55,9 +59,9 @@ type OrchestratorDeps struct {
 	StrategyTrigger       StrategyTrigger                        // optional; nil = no event-driven triggers
 	PolymarketAccountRepo repository.PolymarketAccountRepository // optional; nil = skip profiling job
 	PolymarketCLOBURL     string                                 // optional; defaults to Polymarket CLOB base URL
-	ReportArtifactRepo    *pgrepo.ReportArtifactRepo              // optional; nil = skip report jobs
-	BacktestConfigRepo    repository.BacktestConfigRepository     // optional; needed by report jobs
-	BacktestRunRepo       repository.BacktestRunRepository        // optional; needed by report jobs
+	ReportArtifactRepo    *pgrepo.ReportArtifactRepo             // optional; nil = skip report jobs
+	BacktestConfigRepo    repository.BacktestConfigRepository    // optional; needed by report jobs
+	BacktestRunRepo       repository.BacktestRunRepository       // optional; needed by report jobs
 	Logger                *slog.Logger
 }
 
@@ -104,6 +108,12 @@ type AutomationJobMetrics interface {
 	RecordAutomationJobError(jobName string)
 }
 
+// ReportWorkerMetrics captures report worker success/error emission.
+type ReportWorkerMetrics interface {
+	RecordReportWorkerSuccess(strategyID string)
+	RecordReportWorkerError(strategyID string)
+}
+
 // JobOrchestrator is the central registry and cron runner for all automated jobs.
 type JobOrchestrator struct {
 	jobs          map[string]*RegisteredJob
@@ -112,6 +122,7 @@ type JobOrchestrator struct {
 	logger        *slog.Logger
 	rssAggregator *rss.Aggregator
 	metrics       AutomationJobMetrics
+	reportMetrics ReportWorkerMetrics
 }
 
 // NewJobOrchestrator constructs a new orchestrator.
@@ -132,6 +143,12 @@ func NewJobOrchestrator(deps OrchestratorDeps) *JobOrchestrator {
 // Call before Start(). Safe to call with nil (disables metrics).
 func (o *JobOrchestrator) WithJobMetrics(m AutomationJobMetrics) {
 	o.metrics = m
+}
+
+// WithReportMetrics attaches report-worker-specific metrics.
+// Call before Start(). Safe to call with nil.
+func (o *JobOrchestrator) WithReportMetrics(m ReportWorkerMetrics) {
+	o.reportMetrics = m
 }
 
 // SetConsecutiveFailures sets the ConsecutiveFailures counter on a job.
@@ -304,6 +321,13 @@ func (o *JobOrchestrator) runDirect(job *RegisteredJob) {
 		if o.metrics != nil {
 			o.metrics.RecordAutomationJobError(job.Name)
 		}
+		if job.ConsecutiveFailures >= autoDisableThreshold {
+			job.Enabled = false
+			o.logger.Error("automation: auto-disabled job after consecutive failures",
+				slog.String("job", job.Name),
+				slog.Int("consecutive_failures", job.ConsecutiveFailures),
+			)
+		}
 	} else {
 		job.LastResult = "success"
 		job.LastError = ""
@@ -399,6 +423,13 @@ func (o *JobOrchestrator) wrapAndRun(job *RegisteredJob) {
 		job.LastResult = fmt.Sprintf("error after %s", elapsed.Truncate(time.Millisecond))
 		if o.metrics != nil {
 			o.metrics.RecordAutomationJobError(job.Name)
+		}
+		if job.ConsecutiveFailures >= autoDisableThreshold {
+			job.Enabled = false
+			o.logger.Error("automation: auto-disabled job after consecutive failures",
+				slog.String("job", job.Name),
+				slog.Int("consecutive_failures", job.ConsecutiveFailures),
+			)
 		}
 	} else {
 		job.LastError = ""

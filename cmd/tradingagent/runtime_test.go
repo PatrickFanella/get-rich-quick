@@ -951,6 +951,28 @@ func TestBuildProviderChain_InvalidFallbackSkipped(t *testing.T) {
 	}
 }
 
+func TestConfiguredPrimaryRetryProviderLabel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{name: "trimmed provider", input: " openai ", expected: "configured_primary:openai"},
+		{name: "empty provider", input: "   ", expected: "configured_primary:unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := configuredPrimaryRetryProviderLabel(tt.input); got != tt.expected {
+				t.Fatalf("configuredPrimaryRetryProviderLabel(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
 func slogDiscardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }

@@ -90,7 +90,10 @@ type Server struct {
 	watchIndex  *signal.WatchIndex
 
 	// Report artifacts (optional; nil = feature not enabled).
-	reportArtifacts *pgrepo.ReportArtifactRepo
+	reportArtifacts ReportArtifactStore
+
+	// Report metrics (optional; nil = no metrics).
+	reportMetrics ReportMetrics
 
 	// Services — constructed from deps in NewServer.
 	backtestSvc     *service.BacktestService
@@ -194,7 +197,10 @@ type Deps struct {
 	WatchIndex  *signal.WatchIndex
 
 	// Report artifacts (optional; nil = feature not enabled).
-	ReportArtifacts *pgrepo.ReportArtifactRepo
+	ReportArtifacts ReportArtifactStore
+
+	// Report metrics (optional; nil = no metrics).
+	ReportMetrics ReportMetrics
 }
 
 // NewServer creates a new API server with all routes and middleware registered.
@@ -297,6 +303,7 @@ func NewServer(cfg ServerConfig, deps Deps, logger *slog.Logger) (*Server, error
 		signalStore:      deps.SignalStore,
 		watchIndex:       deps.WatchIndex,
 		reportArtifacts:  deps.ReportArtifacts,
+		reportMetrics:    deps.ReportMetrics,
 	}
 
 	// Construct services from the assembled deps.

@@ -1,12 +1,26 @@
 package api
 
 import (
+	"context"
 	"math"
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+
 	pgrepo "github.com/PatrickFanella/get-rich-quick/internal/repository/postgres"
 )
+
+// ReportMetrics captures report staleness observations.
+type ReportMetrics interface {
+	ObserveReportStaleness(strategyID string, seconds float64)
+}
+
+// ReportArtifactStore captures report artifact reads used by report handlers.
+type ReportArtifactStore interface {
+	GetLatest(ctx context.Context, strategyID uuid.UUID, reportType string) (*pgrepo.ReportArtifact, error)
+	List(ctx context.Context, filter pgrepo.ReportArtifactFilter, limit, offset int) ([]pgrepo.ReportArtifact, error)
+}
 
 // reportLatestResponse wraps the latest report artifact with a stale_seconds
 // field showing how old the report is.
@@ -48,6 +62,10 @@ func (s *Server) handleGetLatestReport(w http.ResponseWriter, r *http.Request) {
 	stale := 0.0
 	if artifact.CompletedAt != nil {
 		stale = math.Max(0, math.Round(time.Since(*artifact.CompletedAt).Seconds()))
+	}
+
+	if s.reportMetrics != nil {
+		s.reportMetrics.ObserveReportStaleness(id.String(), stale)
 	}
 
 	respondJSON(w, http.StatusOK, reportLatestResponse{
